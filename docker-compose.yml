@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: autopost_mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: autopost_root
+      MARIADB_USER: autopost
+      MARIADB_PASSWORD: autopost_secret
+      MARIADB_DATABASE: autopost_db
+    command: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci']
+    ports:
+      - '3310:3306'
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: autopost_redis
+    restart: unless-stopped
+    ports:
+      - '6381:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mariadb_data:
+  redis_data:
