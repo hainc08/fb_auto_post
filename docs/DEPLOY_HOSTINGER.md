@@ -76,11 +76,10 @@ node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" #
 | Node.js version | **22.x** (bắt buộc ≥ 22.12 — Vite 8 không chạy trên Node 20.11) |
 | Root directory | `/` (gốc repo) |
 | Package manager | npm |
-| Build command | `npm run build:prod && npm run db:deploy` |
 | Entry file / Start file | `dist/server.js` |
 
-- `build:prod` = cài dependencies (kể cả dev) → `prisma generate` → biên dịch backend → build giao diện `client/`.
-- `db:deploy` = `prisma db push`: tạo/cập nhật bảng theo `prisma/schema.prisma`. Nếu thay đổi schema có nguy cơ **mất dữ liệu**, lệnh sẽ **dừng và báo lỗi** chứ không tự xoá — khi đó xem mục 7.
+- Hostinger sẽ tự động chạy lệnh `npm run build` của dự án. File `package.json` đã được tối ưu để tự động cài đặt công cụ (devDependencies), sinh Prisma, dịch backend và build giao diện React. Lệnh cũng tự động cấu trúc cơ sở dữ liệu (`db push`).
+- Nếu thay đổi schema có nguy cơ **mất dữ liệu**, quá trình cài đặt sẽ **dừng và báo lỗi** chứ không tự xoá — khi đó xem mục 7.
 
 4. **Environment variables** (thêm trước khi bấm Deploy):
 
