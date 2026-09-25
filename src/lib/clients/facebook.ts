@@ -172,12 +172,28 @@ export class FacebookClient {
 
   /** Pages the user manages, with Page tokens (non-expiring when derived from a long-lived user token). */
   async listPages(userToken: string): Promise<GraphPage[]> {
-    const res = await this.get<{ data: GraphPage[] }>(
-      'me/accounts',
-      { fields: 'id,name,category,access_token', limit: '100', access_token: userToken },
-      [userToken]
-    );
-    return res.data ?? [];
+    type Raw = GraphPage & { picture?: { data?: { url?: string } } };
+    const pages: GraphPage[] = [];
+    let after: string | undefined;
+    // Follow the cursor so accounts with many Pages get all of them (bounded)
+    for (let round = 0; round < 10; round++) {
+      const res = await this.get<{ data?: Raw[]; paging?: { cursors?: { after?: string }; next?: string } }>(
+        'me/accounts',
+        {
+          fields: 'id,name,category,access_token,picture{url}',
+          limit: '100',
+          access_token: userToken,
+          ...(after && { after }),
+        },
+        [userToken]
+      );
+      for (const p of res.data ?? []) {
+        pages.push({ id: p.id, name: p.name, category: p.category, access_token: p.access_token, picture: p.picture?.data?.url });
+      }
+      after = res.paging?.next ? res.paging.cursors?.after : undefined;
+      if (!after) break;
+    }
+    return pages;
   }
 
   /** Read basic Page info with a Page token — validates a manually entered token. */
@@ -280,4 +296,6 @@ export interface GraphPage {
   name: string;
   category?: string;
   access_token: string;
+  /** Profile picture URL */
+  picture?: string;
 }

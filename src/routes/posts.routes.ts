@@ -13,6 +13,7 @@ import { MAX_IMAGE_BYTES, removeImage, saveImage } from '../lib/image-store';
 import { logger } from '../utils/logger';
 import { getSettings } from '../lib/settings';
 import { DEFAULT_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES, isLiveOnAnyPage, syncTargets } from '../lib/post-targets';
+import { blockMessage, blockReason } from '../lib/page-health';
 
 const router = Router();
 router.use(authenticate);
@@ -39,11 +40,30 @@ const EDITABLE_STATUSES: PostStatus[] = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'
 
 const LOCKED_MESSAGE = 'Bài đã lên ít nhất 1 Page nên không sửa nội dung được nữa (để mọi Page giống nhau). Bạn vẫn có thể đăng lại các Page lỗi.';
 
-/** All given Pages must belong to the user and be active. */
+/**
+ * All given Pages must belong to the user and be postable with the current
+ * Facebook App (connected, token valid, issued by the App ID in Settings).
+ */
 async function assertOwnPages(userId: string, pageIds: string[]) {
   const unique = [...new Set(pageIds)];
-  const count = await prisma.facebookPage.count({ where: { id: { in: unique }, userId, isActive: true } });
-  if (count !== unique.length) throw createError(404, 'Có Page không tồn tại hoặc đã ngắt kết nối.');
+  const [pages, settings] = await Promise.all([
+    prisma.facebookPage.findMany({ where: { id: { in: unique }, userId } }),
+    getSettings(userId),
+  ]);
+  if (pages.length !== unique.length) throw createError(404, 'Có Page không tồn tại.');
+
+  const blocked = pages.flatMap((page) => {
+    const reason = blockReason(page, settings.fbAppId);
+    return reason ? [{ page, reason }] : [];
+  });
+  if (blocked.length) {
+    const first = blocked[0];
+    throw createError(
+      409,
+      `Không đăng được lên ${blocked.map((b) => `"${b.page.pageName}"`).join(', ')}: ${blockMessage(first.reason, first.page)} ` +
+        'Vào Kênh Facebook → Đồng bộ Page, hoặc bỏ chọn các Page này.'
+    );
+  }
   return unique;
 }
 
@@ -481,6 +501,7 @@ router.post(
     if (pageIds) await syncTargets(post.id, await assertOwnPages(req.user!.id, pageIds));
     const targets = await prisma.postTarget.findMany({ where: { postId: post.id, status: { not: 'PUBLISHED' } } });
     if (targets.length === 0) throw createError(400, 'Bài đã được đăng trên tất cả Page đã chọn.');
+    if (!pageIds) await assertOwnPages(req.user!.id, targets.map((t) => t.pageId));
 
     await claimForPublishing(post.id);
 
@@ -510,6 +531,7 @@ router.post(
     });
     if (!target) throw createError(404, 'Không tìm thấy Page của bài này.');
     if (target.status !== 'FAILED') throw createError(400, 'Chỉ đăng lại được Page đang báo lỗi.');
+    await assertOwnPages(req.user!.id, [target.pageId]);
 
     await claimForPublishing(target.postId);
     const jobId = await enqueuePost(target.postId, req.user!.id, { skipAi: true, targetIds: [target.id], intervalMs: 0 });

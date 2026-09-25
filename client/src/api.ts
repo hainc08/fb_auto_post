@@ -40,7 +40,7 @@ export function setStoredUser(user: any): void {
 async function apiFetch<T = any>(
   endpoint: string,
   options: RequestInit = {}
-): Promise<{ success: boolean; data: T; error?: string; pagination?: any }> {
+): Promise<{ success: boolean; data: T; error?: string; pagination?: any; meta?: any }> {
   const token = getToken();
 
   const headers: Record<string, string> = {
@@ -82,8 +82,69 @@ export const authApi = {
 
 // ─── Pages API ──────────────────────────────────
 
+export type TokenStatus = 'UNCHECKED' | 'VALID' | 'OTHER_APP' | 'EXPIRED' | 'REVOKED' | 'MISSING_PERMISSIONS' | 'ERROR';
+export type BlockReason = 'DISCONNECTED' | 'OTHER_APP' | 'EXPIRED' | 'REVOKED' | 'MISSING_PERMISSIONS';
+
+export interface PageInfo {
+  id: string;
+  pageId: string;
+  pageName: string;
+  pageCategory: string | null;
+  pageAvatar: string | null;
+  isActive: boolean;
+  tokenAppId: string | null;
+  tokenStatus: TokenStatus;
+  tokenExpiresAt: string | null;
+  missingScopes: string[] | null;
+  tokenCheckedAt: string | null;
+  tokenError: string | null;
+  createdAt: string;
+  _count?: { posts: number };
+  /** Can be published to with the current Facebook App */
+  postable: boolean;
+  blockReason: BlockReason | null;
+  blockMessage: string | null;
+}
+
+export type SyncAction = 'update' | 'reconnect' | 'add' | 'disconnect';
+
+export interface SyncItem {
+  action: SyncAction;
+  pageId: string;
+  pageName: string;
+  category?: string;
+  picture?: string;
+  pageDbId?: string;
+  ref?: string;
+  tokenStatus?: TokenStatus;
+  problem?: string | null;
+  selected: boolean;
+}
+
+export interface SyncPreview {
+  appId: string;
+  items: SyncItem[];
+  counts: Record<SyncAction, number>;
+}
+
 export const pagesApi = {
-  list: () => apiFetch('/pages'),
+  /** `meta.appId` = the Facebook App ID in Settings */
+  list: () => apiFetch<PageInfo[]>('/pages'),
+
+  /** Re-check every connected Page token now. */
+  check: () => apiFetch<PageInfo[]>('/pages/check', { method: 'POST' }),
+
+  checkOne: (id: string) => apiFetch<PageInfo>(`/pages/${id}/check`, { method: 'POST' }),
+
+  /** What syncing with this user token would change (nothing is saved). */
+  syncPreview: (userToken: string) =>
+    apiFetch<SyncPreview>('/pages/sync/preview', { method: 'POST', body: JSON.stringify({ userToken }) }),
+
+  syncApply: (refs: string[], disconnect: string[]) =>
+    apiFetch<{ connected: number; disconnected: number; pages: PageInfo[] }>('/pages/sync/apply', {
+      method: 'POST',
+      body: JSON.stringify({ refs, disconnect }),
+    }),
 
   connect: (pages: any[]) =>
     apiFetch('/pages/connect', { method: 'POST', body: JSON.stringify({ pages }) }),

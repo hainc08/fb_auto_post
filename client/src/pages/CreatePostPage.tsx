@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Check, Sparkles, RefreshCw, ImageIcon, Send, X, Upload } from 'lucide-react';
-import { postsApi, pagesApi, assetUrl, MAX_UPLOAD_BYTES, UPLOAD_TYPES, type PostUpdate } from '../api';
+import { postsApi, pagesApi, assetUrl, MAX_UPLOAD_BYTES, UPLOAD_TYPES, type PageInfo, type PostUpdate } from '../api';
 import { useToast } from '../components/Toast';
 import { wordCount, pageInitials } from '../components/PostBits';
 
@@ -42,7 +42,7 @@ export default function CreatePostPage() {
   const toast = useToast();
   const initial = (location.state ?? {}) as { idea?: string; autoGenerate?: boolean };
 
-  const [pages, setPages] = useState<any[]>([]);
+  const [pages, setPages] = useState<PageInfo[]>([]);
   const [pageIds, setPageIds] = useState<string[]>([]);
   const [intervalMinutes, setIntervalMinutes] = useState(DEFAULT_INTERVAL);
   const [idea, setIdea] = useState(initial.idea ?? '');
@@ -63,11 +63,12 @@ export default function CreatePostPage() {
     pagesApi
       .list()
       .then((r) => {
-        const active = r.data.filter((p: any) => p.isActive);
+        const active = r.data.filter((p) => p.isActive);
         setPages(active);
-        // Last selection (still connected), else the first Page
-        const kept = rememberedPages().filter((id) => active.some((p: any) => p.id === id));
-        setPageIds(kept.length ? kept : active[0] ? [active[0].id] : []);
+        // Last selection (still postable), else the first postable Page
+        const postable = active.filter((p) => p.postable);
+        const kept = rememberedPages().filter((id) => postable.some((p) => p.id === id));
+        setPageIds(kept.length ? kept : postable[0] ? [postable[0].id] : []);
       })
       .catch(() => toast.error('Không tải được danh sách Page.'));
   }, []);
@@ -89,9 +90,11 @@ export default function CreatePostPage() {
   }, [pageIds]);
 
   // Keep the Page order of the list, so the preview shows the first one
-  const selectedPages = pages.filter((p) => pageIds.includes(p.id));
+  const postablePages = pages.filter((p) => p.postable);
+  const selectedPages = postablePages.filter((p) => pageIds.includes(p.id));
   const page = selectedPages[0];
-  const allSelected = pages.length > 0 && selectedPages.length === pages.length;
+  const allSelected = postablePages.length > 0 && selectedPages.length === postablePages.length;
+  const blockedCount = pages.length - postablePages.length;
   const togglePage = (id: string) =>
     setPageIds((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
   const totalMinutes = Math.max(0, selectedPages.length - 1) * intervalMinutes;
@@ -278,10 +281,10 @@ export default function CreatePostPage() {
         <section className="card" aria-labelledby="page-picker-label">
           <div className="picker-head">
             <span id="page-picker-label" className="form-label" style={{ margin: 0 }}>
-              Đăng lên {selectedPages.length}/{pages.length} Page
+              Đăng lên {selectedPages.length}/{postablePages.length} Page
             </span>
-            {pages.length > 1 && (
-              <button type="button" className="link-btn" onClick={() => setPageIds(allSelected ? [] : pages.map((p) => p.id))}>
+            {postablePages.length > 1 && (
+              <button type="button" className="link-btn" onClick={() => setPageIds(allSelected ? [] : postablePages.map((p) => p.id))}>
                 {allSelected ? 'Bỏ chọn' : 'Tất cả'}
               </button>
             )}
@@ -292,14 +295,29 @@ export default function CreatePostPage() {
             <>
               <div className="page-picker" role="group" aria-labelledby="page-picker-label">
                 {pages.map((p) => (
-                  <label key={p.id} className="page-option">
-                    <input type="checkbox" id={`page-${p.id}`} checked={pageIds.includes(p.id)} onChange={() => togglePage(p.id)} />
+                  <label key={p.id} className={`page-option ${p.postable ? '' : 'disabled'}`} title={p.blockMessage ?? p.pageName}>
+                    <input
+                      type="checkbox"
+                      id={`page-${p.id}`}
+                      checked={p.postable && pageIds.includes(p.id)}
+                      onChange={() => togglePage(p.id)}
+                      disabled={!p.postable}
+                    />
                     <span className="avatar" aria-hidden="true">{pageInitials(p.pageName)}</span>
-                    <span className="name" title={p.pageName}>{p.pageName}</span>
+                    <span className="name">
+                      {p.pageName}
+                      {!p.postable && <span className="why">{p.blockReason === 'OTHER_APP' ? 'Token của app cũ' : p.blockMessage}</span>}
+                    </span>
                   </label>
                 ))}
               </div>
-              <p className="field-hint">Cùng một nội dung và ảnh được đăng lên mọi Page đã chọn. Có thể đổi đến lúc bấm đăng.</p>
+              {blockedCount > 0 ? (
+                <p className="field-warning">
+                  {blockedCount} Page chưa đăng được. <Link to="/pages?sync=1">Đồng bộ Page</Link> để cấp lại token.
+                </p>
+              ) : (
+                <p className="field-hint">Cùng một nội dung và ảnh được đăng lên mọi Page đã chọn. Có thể đổi đến lúc bấm đăng.</p>
+              )}
             </>
           )}
         </section>
