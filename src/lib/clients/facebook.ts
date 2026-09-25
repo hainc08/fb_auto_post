@@ -14,6 +14,9 @@ export const REQUIRED_SCOPES = ['pages_manage_posts', 'pages_read_engagement', '
 export const OTHER_APP_TOKEN_MESSAGE =
   'Token của Page do một Facebook App khác cấp (thường là app cũ). Hãy lấy token mới bằng App hiện tại: Cài đặt → Facebook → "Đổi token dài hạn".';
 
+/** Code 1 ("unknown error") is also what Graph returns for a user token made with another app */
+const WRONG_APP = /does not belong to application/i;
+
 /** Graph API codes for temporary failures: unknown/service error and rate limits */
 const TRANSIENT_CODES = [1, 2, 4, 17, 32, 613];
 
@@ -39,7 +42,7 @@ export class FacebookApiError extends Error {
 
   /** Temporary Facebook-side problems (outage, rate limit) that may pass on a later attempt. */
   get retryable(): boolean {
-    return this.code !== undefined && TRANSIENT_CODES.includes(this.code);
+    return this.code !== undefined && TRANSIENT_CODES.includes(this.code) && !WRONG_APP.test(this.rawMessage ?? '');
   }
 
   /** e.g. "code 190/463 · trace AbC123" */
@@ -76,8 +79,13 @@ function toVietnamese(code: number | undefined, subcode: number | undefined, raw
       if (/did not match the Viewing App/i.test(raw)) return OTHER_APP_TOKEN_MESSAGE;
       return `Tham số gửi lên Facebook không hợp lệ (sai Page ID, ảnh lỗi…): ${raw}`;
     case 1:
-    case 2:
-      return 'Facebook đang gặp sự cố tạm thời. Hãy thử lại sau.';
+    case 2: {
+      const app = raw.match(/does not belong to application (\d+)/i);
+      if (app) {
+        return `Token bạn dán được tạo bằng một Facebook App khác, không phải App ID đang lưu (${app[1]}). Trong Graph API Explorer, chọn đúng app ${app[1]} ở ô "Meta App" rồi bấm "Generate Access Token" lại.`;
+      }
+      return `Facebook đang gặp sự cố tạm thời. Hãy thử lại sau. (Facebook báo: ${raw})`;
+    }
     default:
       return `Facebook báo lỗi: ${raw}`;
   }

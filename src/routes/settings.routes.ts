@@ -244,8 +244,10 @@ router.post(
     const settings = await getSettings(req.user!.id);
     const fb = facebookClient(settings);
 
+    let step = 'Đổi sang token dài hạn';
     try {
       const longUserToken = await fb.exchangeLongLivedUserToken(shortToken);
+      step = 'Lấy danh sách Page';
       const pages = await fb.listPages(longUserToken);
 
       // Page tokens never go to the client in clear text: each page carries an
@@ -259,9 +261,10 @@ router.post(
 
       res.json({ success: true, data });
     } catch (error) {
-      const err = error as Error & { errorCode?: string };
-      logger.warn('Facebook token exchange failed', { error: redactSecrets(err.message, [shortToken]) });
-      throw createError(400, withCode(redactSecrets(err.message, [shortToken, settings.fbAppSecret]), err.errorCode));
+      const err = error as Error & { errorCode?: string; rawMessage?: string };
+      const secrets = [shortToken, settings.fbAppSecret];
+      logger.warn('Facebook token exchange failed', { step, error: redactSecrets(err.message, secrets), raw: redactSecrets(err.rawMessage ?? '', secrets) });
+      throw createError(400, withCode(`${step} thất bại: ${redactSecrets(err.message, secrets)}`, err.errorCode));
     }
   })
 );

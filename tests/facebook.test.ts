@@ -56,3 +56,22 @@ describe('FacebookClient.debugToken with a token from another app', () => {
     expect(error.message).toMatch(/Tham số gửi lên Facebook không hợp lệ/);
   });
 });
+
+describe('FacebookClient.exchangeLongLivedUserToken with a token made by another app', () => {
+  it('names the app to pick in Graph API Explorer and does not retry', async () => {
+    const fetch = vi.fn(async () => graphError(1, 'The access token does not belong to application 1866737524306167'));
+    vi.stubGlobal('fetch', fetch);
+    const error = (await client().exchangeLongLivedUserToken(SHORT).catch((e) => e)) as FacebookApiError;
+    expect(error.message).toMatch(/Facebook App khác/);
+    expect(error.message).toMatch(/1866737524306167/);
+    expect(error.retryable).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows what Facebook said for other code-1 errors', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => graphError(1, 'Please reduce the amount of data you are asking for')));
+    const error = (await client().exchangeLongLivedUserToken(SHORT).catch((e) => e)) as FacebookApiError;
+    expect(error.message).toMatch(/reduce the amount of data/);
+    expect(error.retryable).toBe(true);
+  });
+});
