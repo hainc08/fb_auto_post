@@ -36,6 +36,25 @@
 - Create Post 1 luồng: tự tạo nháp khi bấm "AI viết bài"; toast thay `alert`
 - Theo dõi trạng thái đăng realtime (poll) + nút "Thử lại" cho bài FAILED
 - ✅ (2026-09-25) Sửa lỗi độ tin cậy khi đăng: caption gốc không bị ghi đè (bản đăng lưu vào `message`); chỉ báo FAILED + email ở lần thử cuối; không đăng trùng (chặn khi đã có `fbPostId`, không retry khi Facebook timeout); bài có `scheduledAt` được đưa vào hàng đợi trễ; worker dùng `lib/clients/facebook` (Graph v23, lỗi tiếng Việt)
+- ✅ (2026-09-25) Bỏ Redis: hàng đợi job trong MariaDB (bảng `jobs`)
+- ✅ (2026-09-25) Đăng 1 bài lên nhiều Page (`post_targets`), trạng thái + link từng Page, giãn cách mặc định 2 phút, đăng lại từng Page lỗi
+
+## Phase 1b — Quản lý Page theo App ID ⬜ (plan chốt 2026-09-25)
+
+**Vấn đề:** `facebook_pages` không biết token do app nào cấp. Đổi App ID xong, Page không được tick khi "Đổi token dài hạn" vẫn hiện trong ô chọn và vẫn đăng qua app cũ (Development ⇒ người khác không thấy bài). Nút Kết nối Page dùng `VITE_FB_APP_ID` gắn cứng lúc build.
+
+**Quyết định đã chốt:**
+1. Page còn token của app cũ ⇒ **chặn đăng**, báo cần đồng bộ.
+2. Page không còn trong token mới ⇒ chuyển **Đã ngắt** (`isActive=false`), giữ lịch sử; không bao giờ xoá cứng (xoá Page cascade xoá bài).
+3. **Một app hiện tại** (App ID trong Cài đặt); mỗi Page lưu `tokenAppId` để phát hiện lệch.
+4. Lấy User token bằng **cả hai**: nút Đăng nhập Facebook (App ID lấy lúc chạy từ API) + ô dán token từ Graph API Explorer.
+
+**Giai đoạn:**
+- ⬜ GĐ1 Dữ liệu & kiểm tra: cột `tokenAppId`, `tokenStatus` (VALID/OTHER_APP/EXPIRED/MISSING_PERMISSIONS/REVOKED/UNCHECKED), `tokenExpiresAt`, `missingScopes`, `tokenCheckedAt`, `tokenError`; `src/lib/page-health.ts` (debug_token từng Page); tự điền cho Page cũ; `/pages` trả `postable` + lý do.
+- ⬜ GĐ2 Đồng bộ Page: `POST /pages/sync/preview` (cập nhật / thêm mới / mất quyền) + `/pages/sync/apply`; gộp 3 đường kết nối cũ (FB Login, đổi token, nhập tay) vào luồng này; lưu App ID mới ⇒ đánh dấu `OTHER_APP`.
+- ⬜ GĐ3 Giao diện: trang Kênh Facebook thành bảng quản lý (app cấp token, trạng thái, hạn, kiểm tra lại, ngắt); banner "Đã đổi Facebook App — N Page cần đồng bộ"; ô chọn Page (Tạo bài, sidebar) chỉ cho chọn Page đăng được, Page khác mờ + lý do; FB SDK init bằng App ID runtime.
+- ⬜ GĐ4 Chặn & giám sát: route publish + worker từ chối Page không `postable`; job `check_page_tokens` hằng ngày; cảnh báo token hết hạn trong 7 ngày.
+- ⬜ Test: mock Graph (app khác / thiếu quyền / hết hạn); test DB luồng đồng bộ.
 
 ## Phase 2 — Lịch đăng ⏸ (tạm hoãn 2026-09-24, người dùng làm các phần cơ bản khác trước)
 
