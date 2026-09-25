@@ -30,9 +30,7 @@ Gói Business/Cloud **không có Redis**, mà BullMQ bắt buộc cần Redis �
    ```
    - Nếu mật khẩu có ký tự đặc biệt (`@ : / # ? &`…) phải **URL-encode** (vd `@` → `%40`), hoặc đặt mật khẩu chỉ gồm chữ + số.
    - Nếu `localhost` không kết nối được, lấy "MySQL host" hiển thị trong trang Databases thay vào.
-## MySQL info
-  DB u774510961_db_autopost
-  u/p : u774510961_u_autopost / P2026_autopost
+   - ⚠️ **Không ghi user/mật khẩu thật vào file này** (repo công khai). Chỉ để trong `.env.production` (đã gitignore) và hPanel.
 
 ### 1.2 Redis (Redis Cloud – miễn phí)
 1. Đăng ký tại https://redis.io/try-free → tạo database **Free (30 MB)**, chọn region gần nhất (Singapore nếu có).
