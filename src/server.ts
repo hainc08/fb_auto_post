@@ -18,7 +18,7 @@ import settingsRoutes from './routes/settings.routes';
 import imagesRoutes from './routes/images.routes';
 
 // Worker imports
-import { initPostWorker, initScheduleWorker } from './services/scheduler.service';
+import { startWorkers } from './services/scheduler.service';
 
 const app = express();
 
@@ -145,14 +145,9 @@ app.use(errorHandler);
 
 async function start() {
   try {
-    // Initialize workers
+    // Background jobs (MariaDB queue) run in this same process
     if (config.env !== 'test') {
-      const postWorker = initPostWorker();
-      const scheduleWorker = initScheduleWorker();
-      logger.info('✅ Workers initialized', {
-        postWorker: postWorker.name,
-        scheduleWorker: scheduleWorker.name,
-      });
+      startWorkers();
     }
 
     // Start server
