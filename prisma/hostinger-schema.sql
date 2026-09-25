@@ -184,6 +184,30 @@ CREATE TABLE `post_schedules` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `jobs` (
+    `id` VARCHAR(191) NOT NULL,
+    `type` VARCHAR(50) NOT NULL,
+    `key` VARCHAR(100) NULL,
+    `payload` JSON NOT NULL,
+    `status` ENUM('PENDING', 'RUNNING', 'DONE', 'FAILED') NOT NULL DEFAULT 'PENDING',
+    `runAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `attempts` INTEGER NOT NULL DEFAULT 0,
+    `maxAttempts` INTEGER NOT NULL DEFAULT 3,
+    `lockToken` VARCHAR(36) NULL,
+    `lockedAt` DATETIME(3) NULL,
+    `interrupted` BOOLEAN NOT NULL DEFAULT false,
+    `lastError` TEXT NULL,
+    `finishedAt` DATETIME(3) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `jobs_key_key`(`key`),
+    INDEX `jobs_status_runAt_idx`(`status`, `runAt`),
+    INDEX `jobs_lockToken_idx`(`lockToken`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `api_keys` ADD CONSTRAINT `api_keys_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 

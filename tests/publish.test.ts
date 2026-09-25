@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { UnrecoverableError } from 'bullmq';
+import { UnrecoverableJobError } from '../src/lib/job-queue';
 import { FacebookClient, FacebookApiError } from '../src/lib/clients/facebook';
 import { HttpNetworkError, HttpTimeoutError } from '../src/lib/http';
 import { classifyFailure } from '../src/lib/job-failure';
@@ -65,7 +65,7 @@ describe('classifyFailure', () => {
     expect(token).toMatchObject({ retryable: false, code: 'code 190/463 · trace TR' });
   });
 
-  it('keeps UnrecoverableError final', () => {
-    expect(classifyFailure(new UnrecoverableError('no content'), 'compose_fields')).toEqual({ message: 'no content', retryable: false });
+  it('keeps UnrecoverableJobError final', () => {
+    expect(classifyFailure(new UnrecoverableJobError('no content'), 'compose_fields')).toEqual({ message: 'no content', retryable: false });
   });
 });

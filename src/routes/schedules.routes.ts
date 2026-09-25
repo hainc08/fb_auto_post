@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../utils/prisma';
 import { AuthRequest, authenticate, requirePlan } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
-import { addScheduleJob, removeScheduleJob } from '../services/scheduler.service';
+import { removeScheduleJob, syncScheduleJob } from '../services/scheduler.service';
 
 const router = Router();
 router.use(authenticate);
@@ -13,8 +13,8 @@ router.use(authenticate);
 const createScheduleSchema = z.object({
   pageId: z.string().uuid(),
   name: z.string().min(1).max(100),
-  frequency: z.enum(['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'CUSTOM_CRON']),
-  cronExpr: z.string().optional(),
+  // Custom cron is no longer supported: the job queue computes runs in Vietnam time
+  frequency: z.enum(['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY']),
   timezone: z.string().optional().default('Asia/Ho_Chi_Minh'),
   startDate: z.string().datetime(),
   endDate: z.string().datetime().optional(),
@@ -22,26 +22,6 @@ const createScheduleSchema = z.object({
   inputData: z.record(z.string()).optional(),
   autoGenImage: z.boolean().optional().default(true),
 });
-
-// ─── Frequency to Cron Expression ───────────────
-
-function frequencyToCron(frequency: string, startDate: Date): string {
-  const minutes = startDate.getMinutes();
-  const hours = startDate.getHours();
-
-  switch (frequency) {
-    case 'DAILY':
-      return `${minutes} ${hours} * * *`;
-    case 'WEEKLY':
-      return `${minutes} ${hours} * * ${startDate.getDay()}`;
-    case 'MONTHLY':
-      return `${minutes} ${hours} ${startDate.getDate()} * *`;
-    case 'ONCE':
-      return `${minutes} ${hours} ${startDate.getDate()} ${startDate.getMonth() + 1} *`;
-    default:
-      return `0 9 * * *`; // Default: 9 AM daily
-  }
-}
 
 // ─── List Schedules ─────────────────────────────
 
@@ -76,37 +56,33 @@ router.post(
     if (!page) throw createError(404, 'Page not found');
 
     const startDate = new Date(data.startDate);
-
-    // Resolve cron expression
-    const cronExpr =
-      data.frequency === 'CUSTOM_CRON' && data.cronExpr
-        ? data.cronExpr
-        : frequencyToCron(data.frequency, startDate);
+    const endDate = data.endDate ? new Date(data.endDate) : undefined;
+    if (endDate && endDate <= startDate) throw createError(400, 'Ngày kết thúc phải sau thời điểm bắt đầu.');
+    if (data.frequency === 'ONCE' && startDate <= new Date()) {
+      throw createError(400, 'Thời điểm đăng đã qua, hãy chọn thời điểm trong tương lai.');
+    }
 
     const schedule = await prisma.postSchedule.create({
       data: {
         userId,
         pageId: data.pageId,
         name: data.name,
-        frequency: data.frequency as any,
-        cronExpr,
+        frequency: data.frequency,
         timezone: data.timezone!,
         startDate,
-        endDate: data.endDate ? new Date(data.endDate) : undefined,
+        endDate,
         templateId: data.templateId,
         inputData: data.inputData || undefined,
         autoGenImage: data.autoGenImage!,
-        nextRunAt: startDate,
       },
       include: {
         page: { select: { id: true, pageName: true } },
       },
     });
 
-    // Add to job queue
-    await addScheduleJob(schedule.id, cronExpr, data.timezone!);
+    const nextRunAt = await syncScheduleJob(schedule);
 
-    res.status(201).json({ success: true, data: schedule });
+    res.status(201).json({ success: true, data: { ...schedule, nextRunAt } });
   })
 );
 
@@ -132,14 +108,10 @@ router.put(
       },
     });
 
-    // Update job queue if cron changed
-    if (data.cronExpr || data.frequency) {
-      await removeScheduleJob(schedule.id);
-      const newCron = data.cronExpr || updated.cronExpr || '0 9 * * *';
-      await addScheduleJob(schedule.id, newCron, updated.timezone);
-    }
+    // Any change (time, frequency, end date) moves the next run
+    const nextRunAt = await syncScheduleJob(updated);
 
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: { ...updated, nextRunAt } });
   })
 );
 
@@ -159,13 +131,9 @@ router.patch(
       data: { isActive: !schedule.isActive },
     });
 
-    if (updated.isActive && updated.cronExpr) {
-      await addScheduleJob(updated.id, updated.cronExpr, updated.timezone);
-    } else {
-      await removeScheduleJob(updated.id);
-    }
+    const nextRunAt = await syncScheduleJob(updated);
 
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: { ...updated, nextRunAt } });
   })
 );
 

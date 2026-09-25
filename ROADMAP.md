@@ -46,7 +46,7 @@
 4. Luôn giữ sẵn N bài cho các lượt kế tiếp (mặc định 3), tự viết bù khi duyệt/xoá.
 5. Đến giờ mà bài chưa duyệt → dời sang khung giờ trống kế tiếp, các bài sau lùi theo.
 
-**Chờ duyệt:** hướng kỹ thuật A (đề xuất): 1 job BullMQ chạy mỗi phút, dữ liệu gốc nằm trong MariaDB (tạo bù bài + đăng bài đã duyệt / dời bài chưa duyệt), job tự tạo lại khi khởi động. Giả định chưa xác nhận: bài theo lịch luôn có ảnh AI; 1 lịch = 1 Page; nhắc duyệt bằng số bài chờ duyệt trên menu/Dashboard (chưa gửi email); bỏ lịch cũ và cron tuỳ biến.
+**Chờ duyệt:** hướng kỹ thuật A (đề xuất): 1 job chạy mỗi phút (hàng đợi MariaDB `jobs`, đã thay BullMQ từ 2026-09-25), dữ liệu gốc nằm trong MariaDB (tạo bù bài + đăng bài đã duyệt / dời bài chưa duyệt), job tự tạo lại khi khởi động. Giả định chưa xác nhận: bài theo lịch luôn có ảnh AI; 1 lịch = 1 Page; nhắc duyệt bằng số bài chờ duyệt trên menu/Dashboard (chưa gửi email); bỏ lịch cũ và cron tuỳ biến.
 
 **Lỗi của lịch hiện tại cần xử lý khi làm:** cùng 1 ý tưởng cho mọi lượt; đăng thẳng không duyệt; giờ tính theo máy chủ (sai khi server chạy UTC); "Một lần" thực ra lặp lại hằng năm; ngày kết thúc bị bỏ qua; sửa giờ không cập nhật lịch chạy; lịch chỉ nằm trong Redis nên mất khi Redis bị xoá.
 

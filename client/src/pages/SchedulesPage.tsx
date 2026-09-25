@@ -7,7 +7,6 @@ interface ScheduleData {
   name: string;
   isActive: boolean;
   frequency: string;
-  cronExpr: string | null;
   timezone: string;
   startDate: string;
   endDate: string | null;
@@ -29,7 +28,6 @@ export default function SchedulesPage() {
     pageId: '',
     name: '',
     frequency: 'DAILY',
-    cronExpr: '',
     startDate: '',
     endDate: '',
     idea: '',
@@ -60,7 +58,6 @@ export default function SchedulesPage() {
         inputData: { basicInfo: idea.trim() },
         startDate: new Date(form.startDate).toISOString(),
         endDate: form.endDate ? new Date(form.endDate).toISOString() : undefined,
-        cronExpr: form.frequency === 'CUSTOM_CRON' ? form.cronExpr : undefined,
       });
       setShowModal(false);
       loadData();
@@ -87,7 +84,7 @@ export default function SchedulesPage() {
     DAILY: 'Hàng ngày',
     WEEKLY: 'Hàng tuần',
     MONTHLY: 'Hàng tháng',
-    CUSTOM_CRON: 'Tùy chỉnh',
+    CUSTOM_CRON: 'Tùy chỉnh (cũ)',
   };
 
   return (
@@ -98,7 +95,7 @@ export default function SchedulesPage() {
           <p>Tự động đăng bài theo lịch trình</p>
         </div>
         <button className="btn btn-primary" onClick={() => {
-          setForm({ pageId: '', name: '', frequency: 'DAILY', cronExpr: '', startDate: '', endDate: '', idea: '' });
+          setForm({ pageId: '', name: '', frequency: 'DAILY', startDate: '', endDate: '', idea: '' });
           setShowModal(true);
         }}>
           <Plus size={18} /> Tạo lịch mới
@@ -149,13 +146,6 @@ export default function SchedulesPage() {
                   <span style={{ color: 'var(--text-tertiary)' }}>Tổng đã chạy:</span>
                   <strong style={{ marginLeft: 6 }}>{s.totalRuns}</strong>
                 </div>
-                <div>
-                  <span style={{ color: 'var(--text-tertiary)' }}>Cron:</span>
-                  <code style={{
-                    marginLeft: 6, background: 'var(--bg-glass)',
-                    padding: '2px 6px', borderRadius: 4, fontSize: '0.75rem',
-                  }}>{s.cronExpr || '—'}</code>
-                </div>
                 {s.lastRunAt && (
                   <div>
                     <span style={{ color: 'var(--text-tertiary)' }}>Lần cuối:</span>
@@ -165,7 +155,7 @@ export default function SchedulesPage() {
                 {s.nextRunAt && (
                   <div>
                     <span style={{ color: 'var(--text-tertiary)' }}>Tiếp theo:</span>
-                    <span style={{ marginLeft: 6 }}>{new Date(s.nextRunAt).toLocaleDateString('vi-VN')}</span>
+                    <span style={{ marginLeft: 6 }}>{new Date(s.nextRunAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
                   </div>
                 )}
               </div>
@@ -224,21 +214,11 @@ export default function SchedulesPage() {
                 <option value="DAILY">Hàng ngày</option>
                 <option value="WEEKLY">Hàng tuần</option>
                 <option value="MONTHLY">Hàng tháng</option>
-                <option value="CUSTOM_CRON">Tùy chỉnh (Cron)</option>
               </select>
             </div>
 
-            {form.frequency === 'CUSTOM_CRON' && (
-              <div className="form-group">
-                <label className="form-label">Cron Expression</label>
-                <input className="form-input" value={form.cronExpr}
-                  onChange={e => setForm({ ...form, cronExpr: e.target.value })}
-                  placeholder="VD: 0 9 * * * (9h sáng mỗi ngày)" />
-              </div>
-            )}
-
             <div className="form-group">
-              <label className="form-label">Bắt đầu từ *</label>
+              <label className="form-label">Bắt đầu từ * <small style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(giờ Việt Nam; lịch lặp lại giữ đúng giờ này)</small></label>
               <input className="form-input" type="datetime-local" value={form.startDate}
                 onChange={e => setForm({ ...form, startDate: e.target.value })} />
             </div>

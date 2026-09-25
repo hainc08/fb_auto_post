@@ -47,54 +47,61 @@ enum ScheduleFrequency {
   DAILY
   WEEKLY
   MONTHLY
-  CUSTOM_CRON
+  CUSTOM_CRON // legacy, no longer accepted by the API
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
 }
 
 // ─── User & Authentication ──────────────────────
 
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
+  id            String  @id @default(uuid())
+  email         String  @unique
   passwordHash  String?
   name          String
-  avatar        String?   @db.Text
-  isActive      Boolean   @default(true)
-  emailVerified Boolean   @default(false)
+  avatar        String? @db.Text
+  isActive      Boolean @default(true)
+  emailVerified Boolean @default(false)
 
   // Subscription
   plan          SubscriptionPlan @default(FREE)
   planExpiresAt DateTime?
 
   // Facebook OAuth (optional - user can also connect pages separately)
-  facebookUserId    String?   @unique
-  facebookToken     String?   @db.Text
-  facebookTokenExp  DateTime?
+  facebookUserId   String?   @unique
+  facebookToken    String?   @db.Text
+  facebookTokenExp DateTime?
 
   // Timestamps
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  lastLoginAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
 
   // Relations
-  pages         FacebookPage[]
-  templates     ContentTemplate[]
-  posts         Post[]
-  schedules     PostSchedule[]
-  apiKeys       ApiKey[]
-  settings      Setting[]
+  pages     FacebookPage[]
+  templates ContentTemplate[]
+  posts     Post[]
+  schedules PostSchedule[]
+  apiKeys   ApiKey[]
+  settings  Setting[]
 
   @@map("users")
 }
 
 model ApiKey {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  key       String   @unique
+  key       String    @unique
   name      String
-  isActive  Boolean  @default(true)
+  isActive  Boolean   @default(true)
   lastUsed  DateTime?
   expiresAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -120,20 +127,20 @@ model Setting {
 // ─── Facebook Pages ─────────────────────────────
 
 model FacebookPage {
-  id              String   @id @default(uuid())
+  id              String  @id @default(uuid())
   userId          String
-  pageId          String   // Facebook Page ID
+  pageId          String // Facebook Page ID
   pageName        String
-  pageAccessToken String   @db.Text // Encrypted
+  pageAccessToken String  @db.Text // Encrypted
   pageCategory    String?
-  pageAvatar      String?  @db.Text
-  isActive        Boolean  @default(true)
+  pageAvatar      String? @db.Text
+  isActive        Boolean @default(true)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   posts     Post[]
   schedules PostSchedule[]
 
@@ -144,23 +151,23 @@ model FacebookPage {
 // ─── Content Templates ──────────────────────────
 
 model ContentTemplate {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   userId      String
   name        String
   description String?
 
   // Template content
-  promptTemplate String  @db.Text  // Prompt template for AI (with {{variables}})
-  imagePrompt    String? @db.Text  // Image generation prompt template
-  hashtags       Json?             // Default hashtags (string[])
-  category       String?           // Content category (product, promo, tips, etc.)
+  promptTemplate String  @db.Text // Prompt template for AI (with {{variables}})
+  imagePrompt    String? @db.Text // Image generation prompt template
+  hashtags       Json? // Default hashtags (string[])
+  category       String? // Content category (product, promo, tips, etc.)
 
   // Variables schema (JSON)
-  variables      Json?   // e.g., [{"name": "product", "type": "string", "required": true}]
+  variables Json? // e.g., [{"name": "product", "type": "string", "required": true}]
 
-  isActive       Boolean @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -172,54 +179,54 @@ model ContentTemplate {
 // ─── Posts ───────────────────────────────────────
 
 model Post {
-  id         String     @id @default(uuid())
+  id         String  @id @default(uuid())
   userId     String
   pageId     String
   templateId String?
 
   // Input (Create Post form)
-  topic         String?  @db.VarChar(500)
-  tone          String?            // friendly | professional | humorous
-  language      String   @default("vi")
-  extraNotes    String?  @db.Text
-  mode          PostMode @default(PREVIEW)
+  topic      String?  @db.VarChar(500)
+  tone       String? // friendly | professional | humorous
+  language   String   @default("vi")
+  extraNotes String?  @db.Text
+  mode       PostMode @default(PREVIEW)
 
   // Content
-  caption       String?  @db.Text  // Caption as generated by AI (without hashtags)
-  message       String?  @db.Text  // Final text to publish (caption + hashtags), user-editable
-  imagePath     String?            // storage/images/{postId}.jpg
-  imageUrl      String?  @db.Text  // Generated/uploaded image URL
-  imagePrompt   String?  @db.Text  // Prompt used to generate image
-  hashtags      Json?              // Applied hashtags (string[])
-  callToAction  String?            // CTA text
+  caption      String? @db.Text // Caption as generated by AI (without hashtags)
+  message      String? @db.Text // Final text to publish (caption + hashtags), user-editable
+  imagePath    String? // storage/images/{postId}.jpg
+  imageUrl     String? @db.Text // Generated/uploaded image URL
+  imagePrompt  String? @db.Text // Prompt used to generate image
+  hashtags     Json? // Applied hashtags (string[])
+  callToAction String? // CTA text
 
   // AI Generation metadata
-  aiPrompt      String?  @db.Text  // The actual prompt sent to AI
-  aiResponse    String?  @db.Text  // Raw AI response
+  aiPrompt   String? @db.Text // The actual prompt sent to AI
+  aiResponse String? @db.Text // Raw AI response
 
   // Facebook response
-  fbPostId      String?            // Facebook post ID after publishing
-  fbPhotoId     String?            // Facebook photo ID
-  fbPermalink   String?  @db.Text  // Permalink to the post
+  fbPostId    String? // Facebook post ID after publishing
+  fbPhotoId   String? // Facebook photo ID
+  fbPermalink String? @db.Text // Permalink to the post
 
   // Status
-  status        PostStatus @default(DRAFT)
-  errorMessage  String?    @db.Text
-  errorStep     String?              // Pipeline step that failed
-  errorCode     String?              // Upstream error code / fbtrace_id
-  publishedAt   DateTime?
-  scheduledAt   DateTime?
+  status       PostStatus @default(DRAFT)
+  errorMessage String?    @db.Text
+  errorStep    String? // Pipeline step that failed
+  errorCode    String? // Upstream error code / fbtrace_id
+  publishedAt  DateTime?
+  scheduledAt  DateTime?
 
   // Input variables (JSON) - data used to fill template
-  inputData     Json?
+  inputData Json?
 
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  page     FacebookPage      @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  template ContentTemplate?  @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page     FacebookPage     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  template ContentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   logs     PostLog[]
   steps    PostStep[]
 
@@ -231,8 +238,8 @@ model Post {
 model PostLog {
   id        String   @id @default(uuid())
   postId    String
-  action    String   // e.g., "created", "ai_generated", "image_generated", "published", "failed"
-  details   Json?    // Additional details
+  action    String // e.g., "created", "ai_generated", "image_generated", "published", "failed"
+  details   Json? // Additional details
   createdAt DateTime @default(now())
 
   post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
@@ -244,12 +251,12 @@ model PostLog {
 model PostStep {
   id              String     @id @default(uuid())
   postId          String
-  name            String     // generate_content | compose_fields | generate_image | save_image | publish_facebook | check_result
+  name            String // generate_content | compose_fields | generate_image | save_image | publish_facebook | check_result
   status          StepStatus
   startedAt       DateTime   @default(now())
   finishedAt      DateTime?
   durationMs      Int?
-  requestSummary  Json?      // Never contains tokens or image base64
+  requestSummary  Json? // Never contains tokens or image base64
   responseSummary Json?
   error           String?    @db.Text
 
@@ -262,35 +269,67 @@ model PostStep {
 // ─── Schedules ──────────────────────────────────
 
 model PostSchedule {
-  id        String            @id @default(uuid())
-  userId    String
-  pageId    String
-  name      String
-  isActive  Boolean           @default(true)
+  id       String  @id @default(uuid())
+  userId   String
+  pageId   String
+  name     String
+  isActive Boolean @default(true)
 
   // Schedule config
-  frequency   ScheduleFrequency
-  cronExpr    String?           // For CUSTOM_CRON
-  timezone    String            @default("Asia/Ho_Chi_Minh")
-  startDate   DateTime
-  endDate     DateTime?
+  frequency ScheduleFrequency
+  cronExpr  String? // For CUSTOM_CRON
+  timezone  String            @default("Asia/Ho_Chi_Minh")
+  startDate DateTime
+  endDate   DateTime?
 
   // Content config
-  templateId  String?
-  inputData   Json?             // Default input data for template
-  autoGenImage Boolean          @default(true)
+  templateId   String?
+  inputData    Json? // Default input data for template
+  autoGenImage Boolean @default(true)
 
   // Tracking
-  lastRunAt   DateTime?
-  nextRunAt   DateTime?
-  totalRuns   Int               @default(0)
+  lastRunAt DateTime?
+  nextRunAt DateTime?
+  totalRuns Int       @default(0)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
 
   @@map("post_schedules")
+}
+
+// ─── Job Queue ──────────────────────────────────
+// Background work (publishing, schedules) queued in MariaDB — no Redis needed.
+// A worker in the app process claims due rows with an atomic UPDATE … LIMIT 1.
+
+model Job {
+  id          String    @id @default(uuid())
+  type        String    @db.VarChar(50) // publish_post | run_schedule
+  /**
+   * Unique for jobs that must exist once (e.g. "schedule:<id>"); null for one-off jobs
+   */
+  key         String?   @unique @db.VarChar(100)
+  payload     Json
+  status      JobStatus @default(PENDING)
+  runAt       DateTime  @default(now())
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  lockToken   String?   @db.VarChar(36)
+  lockedAt    DateTime?
+  /**
+   * Set when the process died while this job was RUNNING
+   */
+  interrupted Boolean   @default(false)
+  lastError   String?   @db.Text
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, runAt])
+  @@index([lockToken])
+  @@map("jobs")
 }

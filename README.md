@@ -8,7 +8,7 @@ Hệ thống **đăng bài tự động lên Facebook Page** với AI Content & 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
 │  React Dashboard │────▶│  Express API     │────▶│  MariaDB        │
-│  (Vite + TS)     │     │  (Node.js + TS)  │     │  + Redis        │
+│  (Vite + TS)     │     │  (Node.js + TS)  │     │  (jobs queue)   │
 └─────────────────┘     └──────┬───────────┘     └─────────────────┘
                                │
                     ┌──────────┼──────────┐
@@ -84,7 +84,7 @@ cd client && npm run dev
 ## 🌐 Deploy
 
 Hostinger (Business/Cloud Node.js) build từ branch `deploy`, sinh bằng `npm run deploy:branch -- --push` (không sửa tay branch này). Xem [docs/DEPLOY_HOSTINGER.md](docs/DEPLOY_HOSTINGER.md).
-Tóm tắt: build `npm run build:prod && npm run db:deploy`, entry `dist/server.js`, Node 22, Redis ngoài qua `REDIS_URL`, bắt buộc `BASIC_AUTH_USER/PASS`.
+Tóm tắt: build `npm run build:prod && npm run db:deploy`, entry `dist/server.js`, Node 22, hàng đợi job nằm trong MariaDB (không cần Redis), bắt buộc `BASIC_AUTH_USER/PASS`.
 
 ## 📁 Project Structure
 
@@ -111,7 +111,7 @@ auto_post/
 │   │   ├── image.service.ts   # Cloudflare Workers AI
 │   │   ├── facebook.service.ts # Facebook Graph API
 │   │   ├── email.service.ts   # Email notifications
-│   │   └── scheduler.service.ts # BullMQ job queue + pipeline
+│   │   └── scheduler.service.ts # MariaDB job queue + pipeline
 │   └── utils/
 │       ├── logger.ts          # Winston logger
 │       └── prisma.ts          # Prisma client singleton
