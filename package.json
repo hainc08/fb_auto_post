@@ -1,0 +1,55 @@
+{
+  "name": "auto-post-facebook",
+  "version": "1.0.0",
+  "description": "SaaS Web Service - Auto Post to Facebook Pages with AI Content Generation",
+  "main": "dist/server.js",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "build:client": "npm --prefix client ci --include=dev --no-audit --no-fund && npm --prefix client run build",
+    "build:prod": "npm install --include=dev --no-audit --no-fund && prisma generate && tsc && npm run build:client",
+    "db:deploy": "prisma db push --skip-generate",
+    "deploy:branch": "node scripts/sync-deploy-branch.mjs",
+    "start": "node dist/server.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx -r dotenv/config seed_page.ts",
+    "db:studio": "prisma studio",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@google/genai": "^2.24.0",
+    "@google/generative-ai": "^0.21.0",
+    "@prisma/client": "^6.9.0",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.31.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.0",
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.15",
+    "uuid": "^10.0.0",
+    "winston": "^3.15.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.25",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.7.0",
+    "@types/nodemailer": "^6.4.16",
+    "@types/uuid": "^10.0.0",
+    "prisma": "^6.9.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^5.0.1"
+  }
+}
