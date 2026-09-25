@@ -53,6 +53,11 @@ const sourceSha = git(['rev-parse', 'HEAD']);
 const sourceShort = sourceSha.slice(0, 7);
 const sourceBranch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
 
+if (sourceBranch === BRANCH) {
+  console.error(`✗ You are on "${BRANCH}". Switch back first: git checkout main (never commit on ${BRANCH}).`);
+  process.exit(1);
+}
+
 for (const p of DEPLOY_PATHS) {
   try {
     git(['cat-file', '-e', `${sourceSha}:${p}`]);
