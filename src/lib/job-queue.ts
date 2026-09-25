@@ -14,7 +14,7 @@ import { logger } from '../utils/logger';
  *   `interrupted = true`, so its handler can decide whether a retry is safe.
  */
 
-export type JobType = 'publish_post' | 'publish_target' | 'run_schedule';
+export type JobType = 'publish_post' | 'publish_target' | 'run_schedule' | 'check_page_tokens';
 
 /** Throw from a handler to fail the job now, without retrying. */
 export class UnrecoverableJobError extends Error {
@@ -135,6 +135,28 @@ async function pruneOldJobs(now = new Date()): Promise<void> {
   });
 }
 
+/** Heartbeat of the worker in this process, shown by /health. */
+export const workerStatus = {
+  startedAt: null as Date | null,
+  lastPollAt: null as Date | null,
+  running: 0,
+  processed: 0,
+};
+
+/** Jobs that are due now but not taken yet (a growing number means the worker is not running). */
+export async function countDueJobs(): Promise<number> {
+  return prisma.job.count({ where: { status: 'PENDING', runAt: { lte: new Date() } } });
+}
+
+export interface JobWorker {
+  (): void; // stop
+  /**
+   * Run due jobs now and wait for them, until none is due or the time budget
+   * is spent. Used by the cron tick, so a sleeping app still publishes on time.
+   */
+  drain(budgetMs?: number): Promise<number>;
+}
+
 export interface WorkerOptions {
   pollMs?: number;
   concurrency?: number;
@@ -143,15 +165,18 @@ export interface WorkerOptions {
 /**
  * Poll the queue and run due jobs in this process. Returns a stop function.
  */
-export function startJobWorker(handlers: Partial<Record<JobType, JobHandler>>, options: WorkerOptions = {}): () => void {
+export function startJobWorker(handlers: Partial<Record<JobType, JobHandler>>, options: WorkerOptions = {}): JobWorker {
   const { pollMs = 3_000, concurrency = 2 } = options;
   const types = Object.keys(handlers);
   let running = 0;
   let polling = false;
   let stopped = false;
 
+  const inFlight = new Set<Promise<void>>();
+
   async function run(job: Job) {
     running++;
+    workerStatus.running = running;
     try {
       const result = await handlers[job.type as JobType]!(job);
       await finishJob(job, result);
@@ -159,23 +184,45 @@ export function startJobWorker(handlers: Partial<Record<JobType, JobHandler>>, o
       await failJob(job, error).catch((e) => logger.error('[Jobs] Could not record failure', { jobId: job.id, error: (e as Error).message }));
     } finally {
       running--;
+      workerStatus.running = running;
+      workerStatus.processed++;
     }
   }
 
-  async function poll() {
-    if (polling || stopped) return;
+  /** Claim due jobs up to the concurrency limit; returns how many were started. */
+  async function poll(): Promise<number> {
+    if (polling || stopped) return 0;
     polling = true;
+    workerStatus.lastPollAt = new Date();
+    let started = 0;
     try {
       while (running < concurrency && !stopped) {
         const job = await claimNextJob(types);
         if (!job) break;
-        void run(job);
+        const task = run(job);
+        inFlight.add(task);
+        void task.finally(() => inFlight.delete(task));
+        started++;
       }
     } catch (error) {
       logger.error('[Jobs] Poll failed', { error: (error as Error).message });
     } finally {
       polling = false;
     }
+    return started;
+  }
+
+  async function drain(budgetMs = 45_000): Promise<number> {
+    const until = Date.now() + budgetMs;
+    let total = 0;
+    while (!stopped && Date.now() < until) {
+      const started = await poll();
+      total += started;
+      if (inFlight.size === 0 && started === 0) break;
+      // Wait for one job to finish (or a short tick) before claiming more
+      await Promise.race([...inFlight, new Promise((r) => setTimeout(r, 250))]);
+    }
+    return total;
   }
 
   async function maintain() {
@@ -190,11 +237,13 @@ export function startJobWorker(handlers: Partial<Record<JobType, JobHandler>>, o
   void maintain().then(poll);
   const pollTimer = setInterval(poll, pollMs);
   const maintainTimer = setInterval(maintain, 60_000);
+  workerStatus.startedAt = new Date();
   logger.info('[Jobs] Worker started', { types, pollMs, concurrency });
 
-  return () => {
+  const stop = () => {
     stopped = true;
     clearInterval(pollTimer);
     clearInterval(maintainTimer);
   };
+  return Object.assign(stop, { drain });
 }

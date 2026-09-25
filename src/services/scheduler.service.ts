@@ -7,7 +7,8 @@ import { readImage, saveImage } from '../lib/image-store';
 import { composeMessage } from '../lib/format-post';
 import { FacebookClient } from '../lib/clients/facebook';
 import { classifyFailure, UNCERTAIN_PUBLISH_MESSAGE } from '../lib/job-failure';
-import { enqueue, removeKeyedJob, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobResult } from '../lib/job-queue';
+import { enqueue, removeKeyedJob, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobResult, JobWorker } from '../lib/job-queue';
+import { blockMessage, blockReason, checkPages } from '../lib/page-health';
 import { Frequency, nextRunAt } from '../lib/schedule-time';
 import { backfillTargets, refreshPostStatus } from '../lib/post-targets';
 import { generateFromIdea, generatePostContent } from './ai.service';
@@ -251,6 +252,12 @@ async function runTargetJob(job: Job): Promise<void> {
       throw new UnrecoverableJobError(UNCERTAIN_PUBLISH_MESSAGE);
     }
 
+    // Scheduled / queued posts: the Page may have become unusable since queueing
+    // (App ID changed, token expired, Page disconnected). Never publish through the old app.
+    const current = await getSettings(userId);
+    const blocked = blockReason(page, current.fbAppId);
+    if (blocked) throw new UnrecoverableJobError(`Không đăng được lên Page này: ${blockMessage(blocked, page)}`);
+
     const finalMessage = post.message ?? composeMessage(post.caption, toStringArray(post.hashtags), post.callToAction);
     const image = post.imagePath ? await readImage(post.imagePath) : null;
     if (post.imagePath && !image) throw new UnrecoverableJobError('Không đọc được ảnh của bài trên máy chủ. Hãy tạo lại hoặc tải lại ảnh.');
@@ -390,10 +397,63 @@ async function runScheduleJob(job: Job): Promise<JobResult | void> {
 // ─── Worker ─────────────────────────────────────
 
 /** Start processing queued jobs in this process. Returns a stop function. */
-export function startWorkers(): () => void {
+let worker: JobWorker | null = null;
+
+/** The worker running in this process (for the cron tick), if started. */
+export const getWorker = () => worker;
+
+export function startWorkers(): JobWorker {
   void backfillTargets().catch((e) => logger.error('[Targets] Backfill failed', { error: (e as Error).message }));
   void bookMissingScheduleJobs();
-  return startJobWorker({ publish_post: runPublishJob, publish_target: runTargetJob, run_schedule: runScheduleJob });
+  void bookTokenCheck();
+  worker = startJobWorker({
+    publish_post: runPublishJob,
+    publish_target: runTargetJob,
+    run_schedule: runScheduleJob,
+    check_page_tokens: runTokenCheckJob,
+  });
+  return worker;
+}
+
+// ─── Daily Page token check ─────────────────────
+
+const TOKEN_CHECK_KEY = 'system:check_page_tokens';
+/** 03:00 in Vietnam (20:00 UTC the day before) */
+const TOKEN_CHECK_TIME = new Date('2026-01-01T20:00:00.000Z');
+const EXPIRY_WARNING_MS = 7 * 24 * 60 * 60_000;
+
+const nextTokenCheck = () =>
+  nextRunAt({ frequency: 'DAILY', startDate: TOKEN_CHECK_TIME, timezone: 'Asia/Ho_Chi_Minh' }, new Date())!;
+
+/** Keep exactly one pending daily check booked (re-booked if it ever failed). */
+async function bookTokenCheck(): Promise<void> {
+  try {
+    const existing = await prisma.job.findUnique({ where: { key: TOKEN_CHECK_KEY } });
+    if (existing && (existing.status === 'PENDING' || existing.status === 'RUNNING')) return;
+    await upsertKeyedJob(TOKEN_CHECK_KEY, 'check_page_tokens', {}, nextTokenCheck());
+  } catch (error) {
+    logger.error('[Pages] Could not book the daily token check', { error: (error as Error).message });
+  }
+}
+
+/**
+ * Re-check every connected Page token once a day, so expired / revoked tokens
+ * show up (and block publishing) before a scheduled post hits them.
+ */
+async function runTokenCheckJob(): Promise<JobResult> {
+  const owners = await prisma.facebookPage.findMany({ where: { isActive: true }, select: { userId: true }, distinct: ['userId'] });
+  for (const { userId } of owners) {
+    try {
+      const pages = await checkPages(userId);
+      const settings = await getSettings(userId);
+      const blocked = pages.filter((p) => blockReason(p, settings.fbAppId));
+      const expiring = pages.filter((p) => p.tokenExpiresAt && p.tokenExpiresAt.getTime() - Date.now() < EXPIRY_WARNING_MS);
+      logger.info('[Pages] Daily token check', { userId, pages: pages.length, blocked: blocked.length, expiringSoon: expiring.length });
+    } catch (error) {
+      logger.error('[Pages] Daily token check failed', { userId, error: (error as Error).message });
+    }
+  }
+  return { rescheduleAt: nextTokenCheck() };
 }
 
 /**
