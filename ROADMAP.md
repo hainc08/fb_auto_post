@@ -56,6 +56,9 @@
 - ✅ GĐ4 (2026-09-25) Chặn & giám sát: route tạo bài / publish / đăng lại + worker (bài hẹn giờ, lịch) từ chối Page không `postable`; `/cron/tick` (CRON_SECRET) cho Cron Job hPanel mỗi phút, `/health` báo nhịp worker + `dueJobs`; job `check_page_tokens` hằng ngày; cảnh báo token hết hạn trong 7 ngày.
 - ✅ Test: mock Graph (app khác / thiếu quyền / hết hạn) — `tests/page-health.test.ts`; test DB luồng đồng bộ — `tests/page-sync.db.test.ts`.
 
+## Phase 1c — Facebook Story (ảnh + video giọng đọc, phụ đề karaoke) ⬜ plan đã lưu (2026-09-25)
+Nguồn: `prompt_creator_video.md`. Review + plan chi tiết: `docs/STORY_VIDEO_PLAN.md`. Đã chốt: AI viết kịch bản ngắn · xem trước rồi mới đăng · TTS Azure F0 miễn phí (500k ký tự/tháng). Bắt buộc làm **GĐ0 PoC FFmpeg trên Hostinger** trước.
+
 ## Phase 2 — Lịch đăng ⏸ (tạm hoãn 2026-09-24, người dùng làm các phần cơ bản khác trước)
 
 **Quyết định đã chốt khi brainstorm (2026-09-24), dùng lại khi tiếp tục:**
