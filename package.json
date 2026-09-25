@@ -8,9 +8,10 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "npm run build:prod && npm run db:deploy",
+    "build:backend": "tsc",
     "build:client": "npm --prefix client ci --include=dev --no-audit --no-fund && npm --prefix client run build",
-    "build:prod": "npm install --include=dev --no-audit --no-fund && prisma generate && tsc && npm run build:client",
+    "build:prod": "npm install --include=dev --no-audit --no-fund && prisma generate && npm run build:backend && npm run build:client",
     "db:deploy": "prisma db push --skip-generate",
     "deploy:branch": "node scripts/sync-deploy-branch.mjs",
     "start": "node dist/server.js",
