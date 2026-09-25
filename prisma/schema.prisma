@@ -50,6 +50,13 @@ enum ScheduleFrequency {
   CUSTOM_CRON // legacy, no longer accepted by the API
 }
 
+enum TargetStatus {
+  PENDING
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
 enum JobStatus {
   PENDING
   RUNNING
@@ -143,6 +150,7 @@ model FacebookPage {
   user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   posts     Post[]
   schedules PostSchedule[]
+  targets   PostTarget[]
 
   @@unique([userId, pageId])
   @@map("facebook_pages")
@@ -229,6 +237,7 @@ model Post {
   template ContentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   logs     PostLog[]
   steps    PostStep[]
+  targets  PostTarget[]
 
   @@index([userId, status])
   @@index([scheduledAt])
@@ -332,4 +341,34 @@ model Job {
   @@index([status, runAt])
   @@index([lockToken])
   @@map("jobs")
+}
+
+// ─── Post Targets ───────────────────────────────
+// One post (content + image) published to several Pages; each Page has its own
+// status, Facebook post id, link and error. Post.status is the aggregate.
+
+model PostTarget {
+  id           String       @id @default(uuid())
+  postId       String
+  pageId       String // FacebookPage.id
+  status       TargetStatus @default(PENDING)
+  /**
+   * When this Page is due (Pages are staggered to avoid spam signals)
+   */
+  scheduledAt  DateTime?
+  fbPostId     String?
+  fbPhotoId    String?
+  fbPermalink  String?      @db.Text
+  errorMessage String?      @db.Text
+  errorCode    String?
+  publishedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  post Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, pageId])
+  @@index([pageId])
+  @@map("post_targets")
 }

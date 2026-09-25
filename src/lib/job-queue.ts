@@ -14,7 +14,7 @@ import { logger } from '../utils/logger';
  *   `interrupted = true`, so its handler can decide whether a retry is safe.
  */
 
-export type JobType = 'publish_post' | 'run_schedule';
+export type JobType = 'publish_post' | 'publish_target' | 'run_schedule';
 
 /** Throw from a handler to fail the job now, without retrying. */
 export class UnrecoverableJobError extends Error {

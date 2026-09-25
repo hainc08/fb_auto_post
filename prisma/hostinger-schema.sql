@@ -208,6 +208,27 @@ CREATE TABLE `jobs` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `post_targets` (
+    `id` VARCHAR(191) NOT NULL,
+    `postId` VARCHAR(191) NOT NULL,
+    `pageId` VARCHAR(191) NOT NULL,
+    `status` ENUM('PENDING', 'PUBLISHING', 'PUBLISHED', 'FAILED') NOT NULL DEFAULT 'PENDING',
+    `scheduledAt` DATETIME(3) NULL,
+    `fbPostId` VARCHAR(191) NULL,
+    `fbPhotoId` VARCHAR(191) NULL,
+    `fbPermalink` TEXT NULL,
+    `errorMessage` TEXT NULL,
+    `errorCode` VARCHAR(191) NULL,
+    `publishedAt` DATETIME(3) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `post_targets_pageId_idx`(`pageId`),
+    UNIQUE INDEX `post_targets_postId_pageId_key`(`postId`, `pageId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `api_keys` ADD CONSTRAINT `api_keys_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -240,4 +261,10 @@ ALTER TABLE `post_schedules` ADD CONSTRAINT `post_schedules_userId_fkey` FOREIGN
 
 -- AddForeignKey
 ALTER TABLE `post_schedules` ADD CONSTRAINT `post_schedules_pageId_fkey` FOREIGN KEY (`pageId`) REFERENCES `facebook_pages`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `post_targets` ADD CONSTRAINT `post_targets_postId_fkey` FOREIGN KEY (`postId`) REFERENCES `posts`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `post_targets` ADD CONSTRAINT `post_targets_pageId_fkey` FOREIGN KEY (`pageId`) REFERENCES `facebook_pages`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
