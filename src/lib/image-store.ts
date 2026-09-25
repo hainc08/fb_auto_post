@@ -4,9 +4,15 @@ import path from 'node:path';
 /**
  * Post images on local disk (storage/images, git-ignored, never under public/).
  * Served through GET /api/images/:postId. File names are generated here only.
+ *
+ * STORAGE_DIR moves the files outside the app folder (production), so a
+ * redeploy from GitHub never wipes them. Post.imagePath keeps the logical
+ * form "storage/images/<file>" either way.
  */
 
-export const IMAGE_DIR = path.resolve(process.cwd(), 'storage', 'images');
+export const IMAGE_DIR = path.resolve(process.env.STORAGE_DIR || path.join(process.cwd(), 'storage'), 'images');
+const LOGICAL_PREFIX = 'storage/images/';
+const STORED_FILE = /^[0-9a-f-]{36}-\d+\.(jpg|png|webp)$/i;
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // Facebook accepts larger, but 8 MB keeps uploads fast
 
 export type ImageMime = 'image/jpeg' | 'image/png' | 'image/webp';
@@ -26,7 +32,7 @@ export function detectImageMime(buffer: Buffer): ImageMime | null {
 }
 
 export interface StoredImage {
-  /** Relative to the project root, stored in Post.imagePath */
+  /** Logical path "storage/images/<file>", stored in Post.imagePath */
   imagePath: string;
   /** Public API path, stored in Post.imageUrl (cache-busted per version) */
   imageUrl: string;
@@ -44,13 +50,14 @@ export async function saveImage(postId: string, buffer: Buffer): Promise<StoredI
   await mkdir(IMAGE_DIR, { recursive: true });
   await writeFile(path.join(IMAGE_DIR, fileName), buffer);
 
-  return { imagePath: `storage/images/${fileName}`, imageUrl: `/api/images/${postId}?v=${version}`, mime };
+  return { imagePath: `${LOGICAL_PREFIX}${fileName}`, imageUrl: `/api/images/${postId}?v=${version}`, mime };
 }
 
-/** Resolve a stored imagePath safely (must stay inside IMAGE_DIR). */
+/** Resolve a stored imagePath safely: only file names this module generates, inside IMAGE_DIR. */
 function resolveStored(imagePath: string): string | null {
-  const full = path.resolve(process.cwd(), imagePath);
-  return full.startsWith(IMAGE_DIR + path.sep) ? full : null;
+  if (!imagePath.startsWith(LOGICAL_PREFIX)) return null;
+  const fileName = imagePath.slice(LOGICAL_PREFIX.length);
+  return STORED_FILE.test(fileName) ? path.join(IMAGE_DIR, fileName) : null;
 }
 
 export async function readImage(imagePath: string): Promise<{ buffer: Buffer; mime: ImageMime } | null> {

@@ -3,9 +3,16 @@
   "version": "1.0.0",
   "description": "SaaS Web Service - Auto Post to Facebook Pages with AI Content Generation",
   "main": "dist/server.js",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "build:client": "npm --prefix client ci --include=dev --no-audit --no-fund && npm --prefix client run build",
+    "build:prod": "npm install --include=dev --no-audit --no-fund && prisma generate && tsc && npm run build:client",
+    "db:deploy": "prisma db push --skip-generate",
+    "deploy:branch": "node scripts/sync-deploy-branch.mjs",
     "start": "node dist/server.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",

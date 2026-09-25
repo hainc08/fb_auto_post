@@ -81,6 +81,11 @@ cd client && npm run dev
 - **Dashboard**: http://localhost:5173
 - **API Docs**: http://localhost:3000/api
 
+## 🌐 Deploy
+
+Hostinger (Business/Cloud Node.js) build từ branch `deploy`, sinh bằng `npm run deploy:branch -- --push` (không sửa tay branch này). Xem [docs/DEPLOY_HOSTINGER.md](docs/DEPLOY_HOSTINGER.md).
+Tóm tắt: build `npm run build:prod && npm run db:deploy`, entry `dist/server.js`, Node 22, Redis ngoài qua `REDIS_URL`, bắt buộc `BASIC_AUTH_USER/PASS`.
+
 ## 📁 Project Structure
 
 ```

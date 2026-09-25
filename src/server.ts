@@ -1,8 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { config } from './config';
 import { logger } from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
+import { basicAuthGate } from './middleware/basic-auth.middleware';
 
 // Route imports
 import authRoutes from './routes/auth.routes';
@@ -20,6 +23,16 @@ import { initPostWorker, initScheduleWorker } from './services/scheduler.service
 const app = express();
 
 // ─── Middleware ──────────────────────────────────
+
+// Behind the hosting proxy (HTTPS terminated upstream)
+app.set('trust proxy', 1);
+
+const gate = basicAuthGate(process.env.BASIC_AUTH_USER, process.env.BASIC_AUTH_PASS);
+if (gate) {
+  app.use(gate);
+} else if (config.env === 'production') {
+  logger.warn('⚠️  BASIC_AUTH_USER/BASIC_AUTH_PASS not set: the app (settings, API keys, publishing) is open to anyone with the URL');
+}
 
 app.use(cors({
   origin: [config.clientUrl, 'http://localhost:5173', 'http://localhost:3000'],
@@ -110,6 +123,18 @@ app.get('/api', (_req, res) => {
     },
   });
 });
+
+// ─── Web client (production build) ──────────────
+// Same origin as the API, so no CORS and one Node app on the host.
+
+const clientDist = path.resolve(process.cwd(), 'client', 'dist');
+if (existsSync(path.join(clientDist, 'index.html'))) {
+  app.use(express.static(clientDist, { index: false, maxAge: '1h' }));
+  // SPA fallback: any non-API GET returns index.html (React Router handles the path)
+  app.get(/^\/(?!api\/|api$|health$).*/, (_req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
 
 // ─── Error Handling ─────────────────────────────
 

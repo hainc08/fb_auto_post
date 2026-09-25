@@ -1,4 +1,6 @@
-const API_ORIGIN = 'http://localhost:3000';
+// Dev: Vite (5173) talks to the API on 3000. Production: the API serves this
+// build itself, so calls stay same-origin. VITE_API_ORIGIN overrides both.
+const API_ORIGIN: string = import.meta.env.VITE_API_ORIGIN ?? (import.meta.env.DEV ? 'http://localhost:3000' : '');
 const API_BASE = `${API_ORIGIN}/api`;
 
 /** Server-relative asset paths (e.g. /api/images/…) → absolute URL for <img src>. */
