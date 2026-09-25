@@ -137,6 +137,23 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
     await prisma.job.deleteMany({ where: { id: { in: mine.slice(1).map((j) => j.id) } } });
   });
 
+  it('the worker refuses a Page whose token belongs to another app (e.g. App ID changed after scheduling)', async () => {
+    const post = await createPost(2);
+    // Page 2 is now on an old app's token
+    await prisma.facebookPage.update({ where: { id: pages[1].id }, data: { tokenStatus: 'OTHER_APP', tokenAppId: 'OLD_APP_ID' } });
+    try {
+      await enqueuePost(post.id, userId, { skipAi: true, targetIds: post.targets.map((t) => t.id), intervalMs: 0 });
+      const done = await waitForStatus(post.id, ['PUBLISHED', 'FAILED']);
+      expect(done.status).toBe('FAILED');
+      const blocked = await prisma.postTarget.findFirstOrThrow({ where: { postId: post.id, pageId: pages[1].id } });
+      expect(blocked).toMatchObject({ status: 'FAILED', fbPostId: null });
+      expect(blocked.errorMessage).toMatch(/Không đăng được lên Page này: Token do Facebook App khác cấp \(OLD_APP_ID\)/);
+      expect(publishCalls).toEqual(['TEST_MP_1']); // nothing sent through the old app
+    } finally {
+      await prisma.facebookPage.update({ where: { id: pages[1].id }, data: { tokenStatus: 'UNCHECKED', tokenAppId: null } });
+    }
+  });
+
   it('a double click never publishes the same Page twice', async () => {
     const post = await createPost(2);
     const targetIds = post.targets.map((t) => t.id);

@@ -53,7 +53,7 @@
 - ✅ GĐ1 (2026-09-25) Dữ liệu & kiểm tra: cột `tokenAppId`, `tokenStatus` (VALID/OTHER_APP/EXPIRED/MISSING_PERMISSIONS/REVOKED/UNCHECKED), `tokenExpiresAt`, `missingScopes`, `tokenCheckedAt`, `tokenError`; `src/lib/page-health.ts` (debug_token từng Page); tự điền cho Page cũ; `/pages` trả `postable` + lý do.
 - ✅ GĐ2 (2026-09-25) Đồng bộ Page: `POST /pages/sync/preview` (cập nhật / thêm mới / mất quyền) + `/pages/sync/apply`; gộp 3 đường kết nối cũ (FB Login, đổi token, nhập tay) vào luồng này; lưu App ID mới ⇒ đánh dấu `OTHER_APP`.
 - ✅ GĐ3 (2026-09-25) Giao diện: trang Kênh Facebook thành bảng quản lý (app cấp token, trạng thái, hạn, kiểm tra lại, ngắt); banner "Đã đổi Facebook App — N Page cần đồng bộ"; ô chọn Page (Tạo bài, sidebar) chỉ cho chọn Page đăng được, Page khác mờ + lý do; FB SDK init bằng App ID runtime.
-- 🔄 GĐ4 Chặn & giám sát: ✅ route tạo bài / publish / đăng lại từ chối Page không `postable`; ⬜ worker từ chối (bài hẹn giờ, lịch); job `check_page_tokens` hằng ngày; cảnh báo token hết hạn trong 7 ngày.
+- ✅ GĐ4 (2026-09-25) Chặn & giám sát: route tạo bài / publish / đăng lại + worker (bài hẹn giờ, lịch) từ chối Page không `postable`; `/cron/tick` (CRON_SECRET) cho Cron Job hPanel mỗi phút, `/health` báo nhịp worker + `dueJobs`; job `check_page_tokens` hằng ngày; cảnh báo token hết hạn trong 7 ngày.
 - ✅ Test: mock Graph (app khác / thiếu quyền / hết hạn) — `tests/page-health.test.ts`; test DB luồng đồng bộ — `tests/page-sync.db.test.ts`.
 
 ## Phase 2 — Lịch đăng ⏸ (tạm hoãn 2026-09-24, người dùng làm các phần cơ bản khác trước)

@@ -111,3 +111,21 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('MariaDB job queue', () => {
     expect(recovered).toMatchObject({ status: 'PENDING', interrupted: true, lockToken: null });
   });
 });
+
+describe.skipIf(!process.env.RUN_DB_TESTS)('drain (cron tick)', () => {
+  afterAll(cleanup);
+
+  it('runs every due job now and waits for them, even with a slow poll interval', async () => {
+    await cleanup();
+    const jobs = await Promise.all([1, 2, 3].map((i) => enqueue(T, { i })));
+    const worker = startJobWorker({ [T]: async () => { await new Promise((r) => setTimeout(r, 100)); } } as never, { pollMs: 3_600_000, concurrency: 2 });
+    try {
+      // The start-up poll may already take some; drain finishes the rest and waits
+      await worker.drain(10_000);
+      const statuses = await prisma.job.findMany({ where: { id: { in: jobs.map((j) => j.id) } }, select: { status: true } });
+      expect(statuses.every((s) => s.status === 'DONE')).toBe(true);
+    } finally {
+      worker();
+    }
+  });
+});

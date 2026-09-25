@@ -5,19 +5,20 @@ import { createHash, timingSafeEqual } from 'node:crypto';
  * Site-wide HTTP Basic Auth gate for deployments where the app is public on the
  * internet while in-app login is still bypassed (see auth.middleware.ts).
  * Enabled only when BASIC_AUTH_USER and BASIC_AUTH_PASS are both set.
- * /health stays open for uptime monitors.
+ * /health stays open for uptime monitors; /cron/tick checks CRON_SECRET instead.
  */
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest();
 
 /** Constant-time comparison (hashing first makes lengths equal). */
-const safeEqual = (a: string, b: string) => timingSafeEqual(sha256(a), sha256(b));
+export const safeEqual = (a: string, b: string) => timingSafeEqual(sha256(a), sha256(b));
 
 export function basicAuthGate(user: string | undefined, pass: string | undefined) {
   if (!user || !pass) return null;
 
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (req.path === '/health') return next();
+    // Uptime monitors, and the cron tick (which has its own secret)
+    if (req.path === '/health' || req.path === '/cron/tick') return next();
 
     const header = req.headers.authorization ?? '';
     if (header.startsWith('Basic ')) {

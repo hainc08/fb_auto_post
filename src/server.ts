@@ -4,7 +4,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { config } from './config';
 import { logger } from './utils/logger';
-import { errorHandler, notFoundHandler } from './middleware/error.middleware';
+import { asyncHandler, createError, errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { basicAuthGate } from './middleware/basic-auth.middleware';
 
 // Route imports
@@ -18,7 +18,9 @@ import settingsRoutes from './routes/settings.routes';
 import imagesRoutes from './routes/images.routes';
 
 // Worker imports
-import { startWorkers } from './services/scheduler.service';
+import { getWorker, startWorkers } from './services/scheduler.service';
+import { countDueJobs, workerStatus } from './lib/job-queue';
+import { safeEqual } from './middleware/basic-auth.middleware';
 import { checkUncheckedPages } from './lib/page-health';
 
 const app = express();
@@ -53,14 +55,40 @@ app.use((req, _res, next) => {
 
 // ─── Health Check ───────────────────────────────
 
-app.get('/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    env: config.env,
-  });
-});
+app.get(
+  '/health',
+  asyncHandler(async (_req, res) => {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      env: config.env,
+      // Is the background worker alive? A growing dueJobs count means it is not.
+      worker: workerStatus,
+      dueJobs: await countDueJobs().catch(() => null),
+    });
+  })
+);
+
+// ─── Cron tick ──────────────────────────────────
+// Hostinger may put the app to sleep when nobody visits it; a cron job calling
+// this every minute wakes it and runs whatever is due (scheduled posts…).
+//   curl -fsS "https://<domain>/cron/tick?key=<CRON_SECRET>"
+
+app.all(
+  '/cron/tick',
+  asyncHandler(async (req, res) => {
+    const secret = process.env.CRON_SECRET;
+    if (!secret) throw createError(404, 'Cron tick is disabled (CRON_SECRET not set)');
+    const given = String(req.get('x-cron-secret') ?? req.query.key ?? '');
+    if (!given || !safeEqual(given, secret)) throw createError(401, 'Invalid cron key');
+
+    const worker = getWorker();
+    if (!worker) throw createError(503, 'Worker not running');
+    const processed = await worker.drain(45_000);
+    res.json({ ok: true, processed, dueJobs: await countDueJobs() });
+  })
+);
 
 // ─── API Routes ─────────────────────────────────
 

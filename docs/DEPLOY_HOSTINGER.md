@@ -82,6 +82,7 @@ node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" #
 | `BASIC_AUTH_USER` | vd `admin` |
 | `BASIC_AUTH_PASS` | mục 1.2 |
 | `STORAGE_DIR` | mục 1.3 |
+| `CRON_SECRET` | chuỗi ngẫu nhiên — cho Cron Job ở mục 4 |
 | `VITE_FB_APP_ID` | Facebook App ID (dùng lúc build giao diện, cho nút "Kết nối Page") |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | tuỳ chọn — có thể nhập sau trong **Cấu hình** |
 | `GEMINI_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | tuỳ chọn — có thể nhập sau trong **Cấu hình** |
@@ -110,11 +111,26 @@ developers.facebook.com → App → **Settings → Basic**:
 
 ---
 
-## 4. Giữ worker luôn chạy (quan trọng cho bài hẹn giờ)
+## 4. Đăng bài hẹn giờ đúng giờ (Cron Job + UptimeRobot)
 
-Worker đăng bài chạy **chung tiến trình** với web. Nếu Hostinger tạm dừng app khi không có truy cập, bài hẹn giờ sẽ bị trễ tới lần truy cập kế tiếp.
-- Tạo monitor miễn phí tại https://uptimerobot.com → HTTP(s) → URL `https://ten-mien/health` → mỗi **5 phút**. Vừa giữ app thức, vừa báo khi app sập.
-- Bài hẹn giờ và lịch nằm trong bảng `jobs`; **không xoá bảng này** khi dọn DB.
+Worker đăng bài chạy **chung tiến trình** với web. Nếu Hostinger cho app "ngủ" khi không có ai truy cập, bài hẹn giờ và lịch sẽ **trễ** (không mất — job nằm trong bảng `jobs` — nhưng chỉ chạy khi app thức lại).
+
+**4.1 Cron Job gọi `/cron/tick` mỗi phút (chính)**
+1. Thêm biến môi trường `CRON_SECRET` (chuỗi ngẫu nhiên dài, đã có sẵn trong `.env.production`) → Redeploy.
+2. hPanel → **Advanced → Cron Jobs** → tạo job **mỗi phút** (`* * * * *`), lệnh:
+   ```bash
+   curl -fsS -m 55 "https://ten-mien-cua-ban.com/cron/tick?key=CRON_SECRET_CUA_BAN" > /dev/null
+   ```
+   Mỗi lần gọi: đánh thức app, chạy hết job tới hạn (tối đa ~45 giây) rồi trả `{"ok":true,"processed":N}`. Không cần mật khẩu Basic Auth; sai/thiếu key → 401.
+
+**4.2 Theo dõi**
+- `https://ten-mien/health` có mục `worker.lastPollAt` (lần quét gần nhất) và `dueJobs` (job tới hạn chưa chạy). `dueJobs` tăng dần ⇒ worker không chạy.
+- UptimeRobot (miễn phí) → HTTP(s) → `https://ten-mien/health` mỗi **5 phút**: báo khi app sập.
+
+**4.3 Tự kiểm tra token hằng ngày**
+Lúc 03:00 (giờ VN) app kiểm tra lại token mọi Page. Page hết hạn / bị thu hồi / thiếu quyền sẽ bị chặn đăng và hiện cảnh báo; token sắp hết hạn trong 7 ngày cũng được nhắc. Bài hẹn giờ gặp Page không hợp lệ sẽ báo lỗi rõ ràng thay vì đăng qua app cũ.
+
+- **Không xoá bảng `jobs`** khi dọn DB.
 
 ---
 
