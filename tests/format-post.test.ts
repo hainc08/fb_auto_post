@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatPostText, splitTrailingHashtags, SEPARATOR } from '../src/lib/format-post';
+import { composeMessage, formatPostText, splitTrailingHashtags, SEPARATOR } from '../src/lib/format-post';
 
 // Real Gemini output from the E2E run (single newlines, hashtags glued to the question)
 const REAL_OUTPUT = `Sau những cuộc họp trực tuyến kéo dài, việc đọc lại toàn bộ biên bản để tổng hợp danh sách việc cần làm có thể tốn rất nhiều thời gian. 🤔
@@ -84,5 +84,21 @@ describe('splitTrailingHashtags', () => {
     const { body, hashtags } = splitTrailingHashtags('Dùng #AI để viết email nhanh hơn.');
     expect(body).toBe('Dùng #AI để viết email nhanh hơn.');
     expect(hashtags).toEqual([]);
+  });
+});
+
+describe('composeMessage', () => {
+  it('appends hashtags and CTA without changing the caption', () => {
+    expect(composeMessage('Nội dung.', ['#AI', 'VanPhong'], 'Inbox ngay')).toBe('Nội dung.\n\n#AI #VanPhong\n\n👉 Inbox ngay');
+  });
+
+  it('is stable when called again on the same stored fields (retry-safe)', () => {
+    const once = composeMessage('Nội dung.', ['AI'], 'CTA');
+    expect(composeMessage('Nội dung.', ['AI'], 'CTA')).toBe(once);
+  });
+
+  it('skips empty parts', () => {
+    expect(composeMessage('Chỉ caption', [], '  ')).toBe('Chỉ caption');
+    expect(composeMessage(null, ['AI'])).toBe('#AI');
   });
 });

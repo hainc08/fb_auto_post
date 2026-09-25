@@ -118,6 +118,18 @@ export function splitTrailingHashtags(text: string): { body: string; hashtags: s
   return { body: text.slice(0, match.index).trim(), hashtags };
 }
 
+/**
+ * The text actually published: caption, then hashtags, then CTA.
+ * Pure, so a retried publish always builds the same message from the stored fields.
+ */
+export function composeMessage(caption: string | null | undefined, hashtags: string[], callToAction?: string | null): string {
+  let message = (caption ?? '').trim();
+  const tags = hashtags.map((h) => h.trim().replace(/^#+/, '')).filter(Boolean);
+  if (tags.length) message += `\n\n${tags.map((h) => `#${h}`).join(' ')}`;
+  if (callToAction?.trim()) message += `\n\n👉 ${callToAction.trim()}`;
+  return message.trim();
+}
+
 function trimBlankEdges(lines: string[]): string[] {
   let start = 0;
   let end = lines.length;

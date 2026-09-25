@@ -156,7 +156,13 @@ export default function PostsPage() {
     setPosts((list) => list.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
   }
 
-  const message = detail ? composeMessage(detail) : '';
+  // Published: show exactly what went to Facebook. Posts published before `message`
+  // existed had the full text written into `caption`, so fall back to it as-is.
+  const message = !detail
+    ? ''
+    : detail.status === 'PUBLISHED'
+      ? (detail.message ?? detail.caption ?? '')
+      : composeMessage(detail);
 
   return (
     <div className="split-view">

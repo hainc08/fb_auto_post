@@ -18,6 +18,8 @@ export const config = {
 
   // Redis
   redis: {
+    /** Full URL for hosted Redis (e.g. rediss://default:pass@host:port); takes precedence over host/port */
+    url: process.env.REDIS_URL || undefined,
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
     password: process.env.REDIS_PASSWORD || undefined,

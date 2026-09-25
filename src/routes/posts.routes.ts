@@ -156,6 +156,11 @@ router.post(
       }
     }
 
+    // A scheduled post publishes unattended, so it needs something to publish
+    if (data.scheduledAt && !data.caption?.trim() && !data.templateId && !data.inputData?.basicInfo?.trim()) {
+      throw createError(400, 'Bài hẹn giờ cần có caption, mẫu nội dung hoặc ý tưởng để AI viết.');
+    }
+
     const post = await prisma.post.create({
       data: {
         userId,
@@ -180,6 +185,16 @@ router.post(
     await prisma.postLog.create({
       data: { postId: post.id, action: 'created' },
     });
+
+    // Scheduled: queue a delayed publish. The worker skips it if the post was
+    // deleted or already published by then.
+    if (post.scheduledAt) {
+      const delay = Math.max(0, post.scheduledAt.getTime() - Date.now());
+      await enqueuePost(post.id, userId, { delay });
+      await prisma.postLog.create({
+        data: { postId: post.id, action: 'scheduled', details: { scheduledAt: post.scheduledAt.toISOString() } },
+      });
+    }
 
     res.status(201).json({ success: true, data: post });
   })

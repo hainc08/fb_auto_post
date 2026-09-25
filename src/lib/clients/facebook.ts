@@ -10,6 +10,9 @@ const TIMEOUT_MS = 60_000;
 
 export const REQUIRED_SCOPES = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'];
 
+/** Graph API codes for temporary failures: unknown/service error and rate limits */
+const TRANSIENT_CODES = [1, 2, 4, 17, 32, 613];
+
 export interface FacebookAppConfig {
   appId: string;
   appSecret: string;
@@ -28,6 +31,11 @@ export class FacebookApiError extends Error {
   ) {
     super(message);
     this.name = 'FacebookApiError';
+  }
+
+  /** Temporary Facebook-side problems (outage, rate limit) that may pass on a later attempt. */
+  get retryable(): boolean {
+    return this.code !== undefined && TRANSIENT_CODES.includes(this.code);
   }
 
   /** e.g. "code 190/463 · trace AbC123" */
@@ -167,6 +175,55 @@ export class FacebookClient {
   async getPage(pageId: string, pageToken: string): Promise<Omit<GraphPage, 'access_token'>> {
     return this.get(pageId, { fields: 'id,name,category', access_token: pageToken }, [pageToken]);
   }
+
+  /**
+   * POST once, never retried here: Facebook may have created the post even when
+   * we never saw the response, and a blind retry would publish it twice.
+   */
+  private async postOnce<T>(path: string, body: FormData | URLSearchParams, pageToken: string): Promise<T> {
+    const response = await fetchWithRetry(
+      this.url(path),
+      { method: 'POST', body },
+      { timeoutMs: TIMEOUT_MS, retries: 0, retryOnTimeout: false }
+    );
+    return this.parse<T>(response, [pageToken]);
+  }
+
+  /** Upload a photo with its caption to the Page feed. */
+  async publishPhoto(pageId: string, pageToken: string, image: { buffer: Buffer; mime: string }, message: string): Promise<PublishedPost> {
+    const form = new FormData();
+    form.append('source', new Blob([image.buffer], { type: image.mime }), `post-image.${image.mime.split('/')[1] ?? 'jpg'}`);
+    form.append('message', message);
+    form.append('access_token', pageToken);
+
+    const res = await this.postOnce<{ id: string; post_id?: string }>(`${pageId}/photos`, form, pageToken);
+    return { postId: res.post_id ?? res.id, photoId: res.id };
+  }
+
+  /** Text-only post. */
+  async publishText(pageId: string, pageToken: string, message: string): Promise<PublishedPost> {
+    const res = await this.postOnce<{ id: string }>(
+      `${pageId}/feed`,
+      new URLSearchParams({ message, access_token: pageToken }),
+      pageToken
+    );
+    return { postId: res.id };
+  }
+
+  /** Permalink of a published post; optional, so failures return undefined. */
+  async getPermalink(postId: string, pageToken: string): Promise<string | undefined> {
+    try {
+      const res = await this.get<{ permalink_url?: string }>(postId, { fields: 'permalink_url', access_token: pageToken }, [pageToken]);
+      return res.permalink_url;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+export interface PublishedPost {
+  postId: string;
+  photoId?: string;
 }
 
 interface RawDebugData {

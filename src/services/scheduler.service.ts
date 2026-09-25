@@ -1,4 +1,4 @@
-import { Queue, Worker, Job } from 'bullmq';
+import { Queue, Worker, Job, UnrecoverableError } from 'bullmq';
 import IORedis from 'ioredis';
 import { config } from '../config';
 import { logger } from '../utils/logger';
@@ -6,10 +6,12 @@ import prisma from '../utils/prisma';
 import { toStringArray } from '../utils/json';
 import { getSettings, revealSecret } from '../lib/settings';
 import { readImage, saveImage } from '../lib/image-store';
+import { composeMessage } from '../lib/format-post';
+import { FacebookClient } from '../lib/clients/facebook';
+import { classifyFailure } from '../lib/job-failure';
 import { Prisma } from '@prisma/client';
 import { generateFromIdea, generatePostContent } from './ai.service';
 import { cloudflareConfigFrom, generateImage } from './image.service';
-import * as facebookService from './facebook.service';
 import { sendPostNotification } from './email.service';
 
 /**
@@ -18,12 +20,14 @@ import { sendPostNotification } from './email.service';
  */
 
 // Redis connection for BullMQ
-const connection = new IORedis({
-  host: config.redis.host,
-  port: config.redis.port,
-  password: config.redis.password,
-  maxRetriesPerRequest: null,
-});
+const connection = config.redis.url
+  ? new IORedis(config.redis.url, { maxRetriesPerRequest: null })
+  : new IORedis({
+      host: config.redis.host,
+      port: config.redis.port,
+      password: config.redis.password,
+      maxRetriesPerRequest: null,
+    });
 
 // ─── Queues ─────────────────────────────────────
 
@@ -70,18 +74,23 @@ export interface ScheduleCheckJob {
  * 4. Generate image (= "HTTP Request to Cloudflare" + "Convert to Image")
  * 5. Publish to Facebook (= "Facebook Graph API" + "HTTP Request")
  * 6. Check result & notify (= "If" + "Send a message")
+ *
+ * Retry rules: a post that already has fbPostId is never published again, and
+ * the post is only marked FAILED (and the user emailed) once no retry is left.
  */
 export function initPostWorker(): Worker {
   const worker = new Worker<PostPipelineJob>(
     'post-pipeline',
     async (job: Job<PostPipelineJob>) => {
       const { postId, userId, skipAiGeneration, skipImageGeneration } = job.data;
-      logger.info(`[Pipeline] Starting post pipeline`, { postId, jobId: job.id });
+      const attempt = job.attemptsMade + 1;
+      const maxAttempts = job.opts.attempts ?? 1;
+      let step = 'load_post';
+      logger.info(`[Pipeline] Starting post pipeline`, { postId, jobId: job.id, attempt });
 
       try {
         // ─── Step 1: Load post data ───────────────────
         await job.updateProgress(10);
-        await logStep(postId, 'pipeline_started', { jobId: job.id });
 
         const post = await prisma.post.findUnique({
           where: { id: postId },
@@ -92,10 +101,19 @@ export function initPostWorker(): Worker {
           },
         });
 
-        if (!post) throw new Error(`Post ${postId} not found`);
-        if (post.userId !== userId) throw new Error('Unauthorized');
+        // Deleted while queued (e.g. a scheduled post) — nothing to do
+        if (!post) {
+          logger.warn('[Pipeline] Post no longer exists, skipping', { postId });
+          return { skipped: 'deleted' };
+        }
+        if (post.userId !== userId) throw new UnrecoverableError('Unauthorized');
+        // Already on Facebook (published by another job or an earlier attempt)
+        if (post.status === 'PUBLISHED' || post.fbPostId) {
+          logger.warn('[Pipeline] Post already published, skipping', { postId, fbPostId: post.fbPostId });
+          return { skipped: 'already_published', fbPostId: post.fbPostId };
+        }
 
-        // Update status to GENERATING
+        await logStep(postId, 'pipeline_started', { jobId: job.id ?? null, attempt });
         await prisma.post.update({
           where: { id: postId },
           data: { status: 'GENERATING' },
@@ -105,7 +123,8 @@ export function initPostWorker(): Worker {
         const variables = (post.inputData as Record<string, string>) || {};
         const idea = variables.basicInfo?.trim();
 
-        if (!skipAiGeneration && (post.template || idea)) {
+        if (!skipAiGeneration && !post.caption && (post.template || idea)) {
+          step = 'generate_content';
           await job.updateProgress(25);
           logger.info('[Pipeline] Generating AI content...', { postId });
           await logStep(postId, 'ai_generation_started');
@@ -144,102 +163,94 @@ export function initPostWorker(): Worker {
         }
 
         // ─── Step 3: Edit/Format Fields ───────────────
+        // Built from the stored fields every time; `caption` itself is never modified
+        step = 'compose_fields';
         await job.updateProgress(40);
-        
-        // Combine caption with hashtags and CTA
-        let finalCaption = post.caption || '';
-        
-        const hashtags = toStringArray(post.hashtags);
-        if (hashtags.length > 0) {
-          const hashtagStr = hashtags.map((h) => 
-            h.startsWith('#') ? h : `#${h}`
-          ).join(' ');
-          finalCaption += `\n\n${hashtagStr}`;
-        }
-
-        if (post.callToAction) {
-          finalCaption += `\n\n👉 ${post.callToAction}`;
-        }
+        const finalMessage = composeMessage(post.caption, toStringArray(post.hashtags), post.callToAction);
 
         // ─── Step 4: Image (stored → publish as-is; else generate + store) ──
-        let imageBuffer: Buffer | null = null;
-        let imageMime = 'image/jpeg';
+        let image: { buffer: Buffer; mime: string } | null = null;
 
         const stored = post.imagePath ? await readImage(post.imagePath) : null;
         if (stored) {
-          imageBuffer = stored.buffer;
-          imageMime = stored.mime;
+          image = stored;
           await logStep(postId, 'image_reused', { imageSize: stored.buffer.length });
         } else if (!skipImageGeneration && post.imagePrompt) {
+          step = 'generate_image';
           await job.updateProgress(55);
           logger.info('[Pipeline] Generating image...', { postId });
           await logStep(postId, 'image_generation_started');
 
           const settings = await getSettings(userId);
-          imageBuffer = await generateImage({
+          const buffer = await generateImage({
             cloudflare: cloudflareConfigFrom(settings),
             prompt: post.imagePrompt,
           });
 
           // Keep what we publish, so the app shows the same image
-          const saved = await saveImage(postId, imageBuffer);
-          imageMime = saved.mime;
+          step = 'save_image';
+          const saved = await saveImage(postId, buffer);
+          image = { buffer, mime: saved.mime };
           await prisma.post.update({ where: { id: postId }, data: { imagePath: saved.imagePath, imageUrl: saved.imageUrl } });
 
           await logStep(postId, 'image_generation_completed', {
-            imageSize: imageBuffer.length,
+            imageSize: buffer.length,
           });
         }
 
+        if (!finalMessage && !image) {
+          throw new UnrecoverableError('Bài chưa có nội dung hoặc ảnh để đăng.');
+        }
+
         // ─── Step 5: Publish to Facebook ──────────────
+        step = 'publish_facebook';
         await job.updateProgress(75);
         logger.info('[Pipeline] Publishing to Facebook...', { postId, pageId: post.page.pageId });
         await logStep(postId, 'facebook_publish_started');
 
-        // Update status to PUBLISHING
         await prisma.post.update({
           where: { id: postId },
           data: { status: 'PUBLISHING' },
         });
 
-        let publishResult: facebookService.PublishResult;
+        const settings = await getSettings(userId);
+        const pageToken = revealSecret(post.page.pageAccessToken);
+        const facebook = new FacebookClient(
+          { appId: settings.fbAppId, appSecret: settings.fbAppSecret, graphVersion: settings.fbGraphVersion },
+          [pageToken]
+        );
 
-        if (imageBuffer) {
-          // Publish photo post (with image)
-          publishResult = await facebookService.publishPhotoPost(
-            post.page.pageId,
-            revealSecret(post.page.pageAccessToken),
-            imageBuffer,
-            finalCaption,
-            imageMime
-          );
-        } else {
-          // Publish text-only post
-          publishResult = await facebookService.publishTextPost(
-            post.page.pageId,
-            revealSecret(post.page.pageAccessToken),
-            finalCaption
-          );
-        }
+        const published = image
+          ? await facebook.publishPhoto(post.page.pageId, pageToken, image, finalMessage)
+          : await facebook.publishText(post.page.pageId, pageToken, finalMessage);
 
-        // ─── Step 6: Update & Notify ──────────────────
-        await job.updateProgress(90);
-
-        // Update post as PUBLISHED
+        // Record the Facebook id right away: from here on, a retry must never publish again
         const updatedPost = await prisma.post.update({
           where: { id: postId },
           data: {
             status: 'PUBLISHED',
-            fbPostId: publishResult.postId,
-            fbPermalink: publishResult.permalink,
-            caption: finalCaption,
+            fbPostId: published.postId,
+            fbPhotoId: published.photoId,
+            message: finalMessage,
             publishedAt: new Date(),
+            errorMessage: null,
+            errorStep: null,
+            errorCode: null,
           },
         });
 
+        // ─── Step 6: Update & Notify ──────────────────
+        step = 'check_result';
+        await job.updateProgress(90);
+
+        const permalink = await facebook.getPermalink(published.postId, pageToken);
+        if (permalink) {
+          await prisma.post.update({ where: { id: postId }, data: { fbPermalink: permalink } });
+        }
+
         await logStep(postId, 'published', {
-          fbPostId: publishResult.postId,
-          permalink: publishResult.permalink,
+          fbPostId: published.postId,
+          permalink: permalink ?? null,
         });
 
         // Send success notification email
@@ -247,36 +258,44 @@ export function initPostWorker(): Worker {
           to: post.user.email,
           userName: post.user.name,
           pageName: post.page.pageName,
-          postCaption: finalCaption,
+          postCaption: finalMessage,
           status: 'success',
-          permalink: publishResult.permalink,
+          permalink,
           publishedAt: updatedPost.publishedAt!,
         });
 
         await job.updateProgress(100);
         logger.info('[Pipeline] Post published successfully!', {
           postId,
-          fbPostId: publishResult.postId,
+          fbPostId: published.postId,
         });
 
-        return { success: true, fbPostId: publishResult.postId };
+        return { success: true, fbPostId: published.postId };
 
       } catch (error) {
-        const errorMessage = (error as Error).message;
-        logger.error('[Pipeline] Post pipeline failed:', { postId, error: errorMessage });
+        const failure = classifyFailure(error, step);
+        const isFinal = !failure.retryable || attempt >= maxAttempts;
+        logger.error('[Pipeline] Post pipeline failed:', { postId, step, attempt, final: isFinal, error: failure.message });
 
-        // Update post as FAILED
-        await prisma.post.update({
+        if (!isFinal) {
+          // BullMQ will retry; the post keeps its in-progress status meanwhile
+          await logStep(postId, 'attempt_failed', { step, attempt, error: failure.message }).catch(() => {});
+          throw error;
+        }
+
+        // updateMany: no throw if the post was deleted mid-run
+        await prisma.post.updateMany({
           where: { id: postId },
           data: {
             status: 'FAILED',
-            errorMessage,
+            errorMessage: failure.message,
+            errorStep: step,
+            errorCode: failure.code ?? null,
           },
         });
+        await logStep(postId, 'failed', { step, attempt, error: failure.message }).catch(() => {});
 
-        await logStep(postId, 'failed', { error: errorMessage });
-
-        // Send failure notification
+        // Send failure notification (once, on the final attempt)
         const post = await prisma.post.findUnique({
           where: { id: postId },
           include: {
@@ -292,12 +311,12 @@ export function initPostWorker(): Worker {
             pageName: post.page.pageName,
             postCaption: post.caption || '(No caption)',
             status: 'failed',
-            errorMessage,
+            errorMessage: failure.message,
             publishedAt: new Date(),
           });
         }
 
-        throw error;
+        throw failure.retryable ? error : new UnrecoverableError(failure.message);
       }
     },
     {

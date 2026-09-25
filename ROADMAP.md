@@ -35,6 +35,7 @@
 - Áp `imagePromptPrefix` + `systemPrompt` từ Settings
 - Create Post 1 luồng: tự tạo nháp khi bấm "AI viết bài"; toast thay `alert`
 - Theo dõi trạng thái đăng realtime (poll) + nút "Thử lại" cho bài FAILED
+- ✅ (2026-09-25) Sửa lỗi độ tin cậy khi đăng: caption gốc không bị ghi đè (bản đăng lưu vào `message`); chỉ báo FAILED + email ở lần thử cuối; không đăng trùng (chặn khi đã có `fbPostId`, không retry khi Facebook timeout); bài có `scheduledAt` được đưa vào hàng đợi trễ; worker dùng `lib/clients/facebook` (Graph v23, lỗi tiếng Việt)
 
 ## Phase 2 — Lịch đăng ⏸ (tạm hoãn 2026-09-24, người dùng làm các phần cơ bản khác trước)
 
