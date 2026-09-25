@@ -68,6 +68,12 @@ CREATE TABLE `facebook_pages` (
     `pageCategory` VARCHAR(191) NULL,
     `pageAvatar` TEXT NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
+    `tokenAppId` VARCHAR(191) NULL,
+    `tokenStatus` ENUM('UNCHECKED', 'VALID', 'OTHER_APP', 'EXPIRED', 'REVOKED', 'MISSING_PERMISSIONS', 'ERROR') NOT NULL DEFAULT 'UNCHECKED',
+    `tokenExpiresAt` DATETIME(3) NULL,
+    `missingScopes` JSON NULL,
+    `tokenCheckedAt` DATETIME(3) NULL,
+    `tokenError` TEXT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
