@@ -160,8 +160,13 @@ export const postsApi = {
   improve: (id: string, instruction: string, caption?: string) =>
     apiFetch(`/posts/${id}/improve`, { method: 'POST', body: JSON.stringify({ instruction, caption }) }),
 
-  publish: (id: string) =>
-    apiFetch(`/posts/${id}/publish`, { method: 'POST' }),
+  /** Publish to `pageIds` (default: the post's Pages), `intervalMinutes` apart. */
+  publish: (id: string, body?: { pageIds?: string[]; intervalMinutes?: number }) =>
+    apiFetch<{ pages: number; intervalMinutes: number }>(`/posts/${id}/publish`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+
+  /** Publish again to one Page that failed. */
+  retryTarget: (id: string, targetId: string) =>
+    apiFetch(`/posts/${id}/targets/${targetId}/retry`, { method: 'POST' }),
 
   delete: (id: string) =>
     apiFetch(`/posts/${id}`, { method: 'DELETE' }),

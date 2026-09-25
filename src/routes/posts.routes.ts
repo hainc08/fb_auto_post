@@ -12,14 +12,19 @@ import { cloudflareConfigFrom, generateImage } from '../services/image.service';
 import { MAX_IMAGE_BYTES, removeImage, saveImage } from '../lib/image-store';
 import { logger } from '../utils/logger';
 import { getSettings } from '../lib/settings';
+import { DEFAULT_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES, isLiveOnAnyPage, syncTargets } from '../lib/post-targets';
 
 const router = Router();
 router.use(authenticate);
 
 // ─── Validation Schemas ─────────────────────────
 
+const pageIdsSchema = z.array(z.string().uuid()).min(1, 'Chọn ít nhất 1 Page').max(50);
+
 const createPostSchema = z.object({
-  pageId: z.string().uuid(),
+  /** Legacy single Page; `pageIds` wins when both are sent */
+  pageId: z.string().uuid().optional(),
+  pageIds: pageIdsSchema.optional(),
   templateId: z.string().uuid().optional(),
   caption: z.string().optional(),
   imageUrl: z.string().optional(),
@@ -31,6 +36,23 @@ const createPostSchema = z.object({
 });
 
 const EDITABLE_STATUSES: PostStatus[] = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'];
+
+const LOCKED_MESSAGE = 'Bài đã lên ít nhất 1 Page nên không sửa nội dung được nữa (để mọi Page giống nhau). Bạn vẫn có thể đăng lại các Page lỗi.';
+
+/** All given Pages must belong to the user and be active. */
+async function assertOwnPages(userId: string, pageIds: string[]) {
+  const unique = [...new Set(pageIds)];
+  const count = await prisma.facebookPage.count({ where: { id: { in: unique }, userId, isActive: true } });
+  if (count !== unique.length) throw createError(404, 'Có Page không tồn tại hoặc đã ngắt kết nối.');
+  return unique;
+}
+
+const targetInclude = {
+  targets: {
+    include: { page: { select: { id: true, pageName: true, pageAvatar: true } } },
+    orderBy: [{ scheduledAt: 'asc' as const }, { createdAt: 'asc' as const }],
+  },
+};
 
 const updatePostSchema = z
   .object({
@@ -82,6 +104,7 @@ router.get(
           createdAt: true,
           page: { select: { id: true, pageName: true, pageAvatar: true } },
           template: { select: { id: true, name: true } },
+          targets: { select: { status: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -114,6 +137,7 @@ router.get(
         page: { select: { id: true, pageName: true, pageAvatar: true, pageId: true } },
         template: { select: { id: true, name: true } },
         logs: { orderBy: { createdAt: 'asc' } },
+        ...targetInclude,
       },
     });
 
@@ -131,11 +155,9 @@ router.post(
     const data = createPostSchema.parse(req.body);
     const userId = req.user!.id;
 
-    // Verify page ownership
-    const page = await prisma.facebookPage.findFirst({
-      where: { id: data.pageId, userId, isActive: true },
-    });
-    if (!page) throw createError(404, 'Facebook page not found');
+    const requested = data.pageIds ?? (data.pageId ? [data.pageId] : []);
+    if (requested.length === 0) throw createError(400, 'Chọn ít nhất 1 Page.');
+    const pageIds = await assertOwnPages(userId, requested);
 
     // Check monthly post limit
     const planLimit = config.planLimits[req.user!.plan as keyof typeof config.planLimits];
@@ -164,7 +186,9 @@ router.post(
     const post = await prisma.post.create({
       data: {
         userId,
-        pageId: data.pageId,
+        // First Page = the one shown in previews; every Page is a target
+        pageId: pageIds[0],
+        targets: { create: pageIds.map((pageId) => ({ pageId })) },
         templateId: data.templateId,
         caption: data.caption,
         imageUrl: data.imageUrl,
@@ -190,7 +214,7 @@ router.post(
     // deleted or already published by then.
     if (post.scheduledAt) {
       const delay = Math.max(0, post.scheduledAt.getTime() - Date.now());
-      await enqueuePost(post.id, userId, { delay });
+      await enqueuePost(post.id, userId, { delay, intervalMs: DEFAULT_INTERVAL_MINUTES * 60_000 });
       await prisma.postLog.create({
         data: { postId: post.id, action: 'scheduled', details: { scheduledAt: post.scheduledAt.toISOString() } },
       });
@@ -218,6 +242,7 @@ router.patch(
     if (!EDITABLE_STATUSES.includes(post.status)) {
       throw createError(409, 'Bài đang được xử lý (tạo nội dung hoặc đăng), hãy thử lại sau ít giây.');
     }
+    if (await isLiveOnAnyPage(post.id)) throw createError(409, LOCKED_MESSAGE);
 
     const caption = data.caption !== undefined ? data.caption.trim() : post.caption;
     // An edited failed/draft post with content is ready to publish again
@@ -315,6 +340,7 @@ async function findImageEditablePost(req: AuthRequest) {
   if (!IMAGE_EDITABLE.includes(post.status)) {
     throw createError(409, post.status === 'PUBLISHED' ? 'Bài đã đăng, không đổi ảnh được.' : 'Bài đang được xử lý, hãy thử lại sau.');
   }
+  if (await isLiveOnAnyPage(post.id)) throw createError(409, LOCKED_MESSAGE);
   return post;
 }
 
@@ -421,37 +447,73 @@ router.post(
 
 // ─── Publish Post (Enqueue Pipeline) ────────────
 
+const publishSchema = z.object({
+  /** Pages to publish to (replaces the unpublished selection); default: current targets */
+  pageIds: pageIdsSchema.optional(),
+  /** Gap between two Pages, in minutes */
+  intervalMinutes: z.number().int().min(0).max(MAX_INTERVAL_MINUTES).default(DEFAULT_INTERVAL_MINUTES),
+});
+
+const QUEUEABLE: PostStatus[] = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED', 'PUBLISHED'];
+
+/** Mark the post as queued; fails for a second click while the first run is going. */
+async function claimForPublishing(postId: string) {
+  const { count } = await prisma.post.updateMany({
+    where: { id: postId, status: { in: QUEUEABLE } },
+    data: { status: 'GENERATING' },
+  });
+  if (count === 0) throw createError(409, 'Bài đang được xử lý hoặc đang đăng, hãy chờ xong rồi thử lại.');
+}
+
 router.post(
   '/:id/publish',
   asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { pageIds, intervalMinutes } = publishSchema.parse(req.body ?? {});
     const post = await prisma.post.findFirst({
       where: { id: req.params.id, userId: req.user!.id },
-      include: { page: true },
     });
 
     if (!post) throw createError(404, 'Post not found');
-    if (post.status === 'PUBLISHED') throw createError(400, 'Post is already published');
-    if (post.status === 'PUBLISHING') throw createError(400, 'Post is currently being published');
     if (!post.caption && !post.templateId) {
       throw createError(400, 'Post must have caption or template before publishing');
     }
 
-    // Determine what to skip
+    if (pageIds) await syncTargets(post.id, await assertOwnPages(req.user!.id, pageIds));
+    const targets = await prisma.postTarget.findMany({ where: { postId: post.id, status: { not: 'PUBLISHED' } } });
+    if (targets.length === 0) throw createError(400, 'Bài đã được đăng trên tất cả Page đã chọn.');
+
+    await claimForPublishing(post.id);
+
     // A post that already has content is published as-is (keeps user edits);
     // AI generation only runs for template posts that were never generated.
-    const skipAi = !!post.caption;
-    const skipImage = !!post.imagePath;
-
-    // Enqueue the publishing pipeline
     const jobId = await enqueuePost(post.id, req.user!.id, {
-      skipAi,
-      skipImage,
+      skipAi: !!post.caption,
+      skipImage: !!post.imagePath,
+      targetIds: targets.map((t) => t.id),
+      intervalMs: intervalMinutes * 60_000,
     });
 
     res.json({
       success: true,
-      data: { jobId, message: 'Post queued for publishing' },
+      data: { jobId, pages: targets.length, intervalMinutes, message: 'Post queued for publishing' },
     });
+  })
+);
+
+// ─── Retry one Page ─────────────────────────────
+
+router.post(
+  '/:id/targets/:targetId/retry',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const target = await prisma.postTarget.findFirst({
+      where: { id: req.params.targetId, postId: req.params.id, post: { userId: req.user!.id } },
+    });
+    if (!target) throw createError(404, 'Không tìm thấy Page của bài này.');
+    if (target.status !== 'FAILED') throw createError(400, 'Chỉ đăng lại được Page đang báo lỗi.');
+
+    await claimForPublishing(target.postId);
+    const jobId = await enqueuePost(target.postId, req.user!.id, { skipAi: true, targetIds: [target.id], intervalMs: 0 });
+    res.json({ success: true, data: { jobId } });
   })
 );
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, PenLine, Send, Trash2, ExternalLink, Check, X, Plus } from 'lucide-react';
+import { Search, PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw } from 'lucide-react';
 import { postsApi, assetUrl } from '../api';
 import EditPostModal from '../components/EditPostModal';
 import { useToast } from '../components/Toast';
@@ -19,7 +19,39 @@ interface PostData {
   errorMessage: string | null;
   createdAt: string;
   page: { id: string; pageName: string; pageAvatar: string | null };
+  targets?: Array<{ status: TargetStatus }>;
 }
+
+type TargetStatus = 'PENDING' | 'PUBLISHING' | 'PUBLISHED' | 'FAILED';
+
+interface TargetData {
+  id: string;
+  status: TargetStatus;
+  scheduledAt: string | null;
+  publishedAt: string | null;
+  fbPermalink: string | null;
+  errorMessage: string | null;
+  page: { id: string; pageName: string };
+}
+
+const TARGET_META: Record<TargetStatus, { label: string; cls: string }> = {
+  PENDING: { label: 'Chờ đăng', cls: 'badge-scheduled' },
+  PUBLISHING: { label: 'Đang đăng…', cls: 'badge-publishing' },
+  PUBLISHED: { label: 'Đã đăng', cls: 'badge-published' },
+  FAILED: { label: 'Lỗi', cls: 'badge-failed' },
+};
+
+const RETRY_INTERVAL_MINUTES = 2;
+
+function countTargets(targets: Array<{ status: TargetStatus }> = []) {
+  return {
+    total: targets.length,
+    published: targets.filter((t) => t.status === 'PUBLISHED').length,
+    failed: targets.filter((t) => t.status === 'FAILED').length,
+  };
+}
+
+const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
 const TABS: Array<{ value: string; label: string }> = [
   { value: '', label: 'Tất cả' },
@@ -65,6 +97,7 @@ export default function PostsPage() {
   const [confirming, setConfirming] = useState<'publish' | 'delete' | null>(null);
   const [acting, setActing] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [retrying, setRetrying] = useState<string | null>(null);
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -117,21 +150,35 @@ export default function PostsPage() {
     setExpanded(false);
     if (!selectedId) return setDetail(null);
     postsApi.get(selectedId).then((r) => setDetail(r.data)).catch(() => setDetail(null));
-  }, [selectedId, selected?.status, selected?.caption, selected?.imageUrl]);
+  }, [selectedId, selected?.status, selected?.caption, selected?.imageUrl, selected?.targets?.map((t) => t.status).join()]);
 
   async function publish() {
     if (!selectedId) return;
     if (confirming !== 'publish') return setConfirming('publish');
     setActing(true);
     try {
-      await postsApi.publish(selectedId);
-      toast.success('Đã đưa bài vào hàng đợi đăng.');
+      const res = await postsApi.publish(selectedId, { intervalMinutes: RETRY_INTERVAL_MINUTES });
+      toast.success(res.data.pages > 1 ? `Đang đăng lên ${res.data.pages} Page.` : 'Đã đưa bài vào hàng đợi đăng.');
       await load();
     } catch (e: any) {
       toast.error(e.message);
     } finally {
       setActing(false);
       setConfirming(null);
+    }
+  }
+
+  async function retryTarget(targetId: string) {
+    if (!selectedId) return;
+    setRetrying(targetId);
+    try {
+      await postsApi.retryTarget(selectedId, targetId);
+      toast.success('Đang đăng lại lên Page này.');
+      await load();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setRetrying(null);
     }
   }
 
@@ -158,9 +205,12 @@ export default function PostsPage() {
 
   // Published: show exactly what went to Facebook. Posts published before `message`
   // existed had the full text written into `caption`, so fall back to it as-is.
+  const targets: TargetData[] = detail?.targets ?? [];
+  const tally = countTargets(targets);
+  const liveSomewhere = tally.published > 0;
   const message = !detail
     ? ''
-    : detail.status === 'PUBLISHED'
+    : detail.status === 'PUBLISHED' || liveSomewhere
       ? (detail.message ?? detail.caption ?? '')
       : composeMessage(detail);
 
@@ -217,12 +267,19 @@ export default function PostsPage() {
                     <span className="post-meta error">{p.errorMessage}</span>
                   ) : (
                     <span className="post-meta">
-                      {p.page?.pageName} · {wordCount(p.caption)} từ
+                      {(p.targets?.length ?? 0) > 1 ? `${p.targets!.length} Page` : p.page?.pageName} · {wordCount(p.caption)} từ
                       {p.hashtags?.length ? ` · ${p.hashtags.map((h) => `#${h.replace(/^#+/, '')}`).join(' ')}` : ''}
                     </span>
                   )}
                 </span>
-                <StatusBadge status={p.status} />
+                <span className="row" style={{ gap: 6, flexShrink: 0 }}>
+                  {(p.targets?.length ?? 0) > 1 && ['PUBLISHED', 'FAILED', 'PUBLISHING'].includes(p.status) && (
+                    <span className="badge badge-draft badge-pages" title="Số Page đã đăng thành công">
+                      {countTargets(p.targets).published}/{p.targets!.length} Page
+                    </span>
+                  )}
+                  <StatusBadge status={p.status} />
+                </span>
                 <span className="post-time">{formatWhen(p.publishedAt ?? p.createdAt)}</span>
               </button>
             ))}
@@ -240,7 +297,7 @@ export default function PostsPage() {
           <>
             <div className="row">
               <h2 className="card-title">Xem trước</h2>
-              {EDITABLE.includes(detail.status) && (
+              {EDITABLE.includes(detail.status) && !liveSomewhere && (
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditingId(detail.id)}>
                   <PenLine size={14} aria-hidden="true" /> Chỉnh sửa
                 </button>
@@ -251,7 +308,10 @@ export default function PostsPage() {
               <div className="fb-head">
                 <span className="avatar">{pageInitials(detail.page?.pageName)}</span>
                 <div>
-                  <div className="fb-page">{detail.page?.pageName}</div>
+                  <div className="fb-page">
+                    {detail.page?.pageName}
+                    {targets.length > 1 && <span className="muted" style={{ fontWeight: 400 }}> và {targets.length - 1} Page khác</span>}
+                  </div>
                   <div className="fb-time">{detail.publishedAt ? formatWhen(detail.publishedAt) : 'Bản xem trước'} · Công khai</div>
                 </div>
               </div>
@@ -289,7 +349,55 @@ export default function PostsPage() {
             </article>
             <span className="field-hint" style={{ marginTop: -8 }}>Phần tô vàng là hook — người xem thấy trước khi bấm "Xem thêm".</span>
 
-            {detail.status === 'FAILED' && detail.errorMessage && (
+            {targets.length > 0 && (targets.length > 1 || targets[0].status !== 'PENDING') && (
+              <div className="stack" style={{ gap: 10 }}>
+                <div className="target-summary">
+                  <span className="form-label" style={{ margin: 0 }}>
+                    Trạng thái trên từng Page · {tally.published}/{tally.total} đã đăng{tally.failed ? ` · ${tally.failed} lỗi` : ''}
+                  </span>
+                  <span className="target-progress" aria-hidden="true">
+                    <i className="ok" style={{ width: `${(tally.published / tally.total) * 100}%` }} />
+                    <i className="bad" style={{ width: `${(tally.failed / tally.total) * 100}%` }} />
+                  </span>
+                </div>
+                <ul className="target-list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {targets.map((t) => (
+                    <li key={t.id} className="target-row">
+                      <span className="avatar" aria-hidden="true">{pageInitials(t.page.pageName)}</span>
+                      <span className="name" title={t.page.pageName}>{t.page.pageName}</span>
+                      <span className="actions">
+                        {t.status === 'PUBLISHED' && t.fbPermalink && (
+                          <a className="target-link" href={t.fbPermalink} target="_blank" rel="noreferrer">
+                            Xem bài <ExternalLink size={12} aria-hidden="true" />
+                          </a>
+                        )}
+                        {t.status === 'FAILED' && (
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => retryTarget(t.id)} disabled={!!retrying || detail.status === 'PUBLISHING' || detail.status === 'GENERATING'}>
+                            {retrying === t.id ? <div className="spinner" /> : <RotateCcw size={13} aria-hidden="true" />} Đăng lại
+                          </button>
+                        )}
+                        <span className={`badge ${TARGET_META[t.status].cls}`}>{TARGET_META[t.status].label}</span>
+                      </span>
+                      <span className={`detail ${t.status === 'FAILED' ? 'error' : ''}`}>
+                        {t.status === 'PUBLISHED'
+                          ? t.publishedAt ? `Đăng lúc ${timeOf(t.publishedAt)}${t.fbPermalink ? '' : ' · chưa lấy được link'}` : 'Đã đăng'
+                          : t.status === 'FAILED'
+                            ? t.errorMessage ?? 'Đăng thất bại'
+                            : t.status === 'PUBLISHING'
+                              ? 'Đang gửi lên Facebook…'
+                              : t.errorMessage?.startsWith('Đang thử lại')
+                                ? t.errorMessage
+                                : t.scheduledAt && ['GENERATING', 'PUBLISHING'].includes(detail.status)
+                                  ? `Dự kiến lúc ${timeOf(t.scheduledAt)}`
+                                  : 'Chưa đăng'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {detail.status === 'FAILED' && detail.errorMessage && targets.length <= 1 && (
               <div className="test-result fail" style={{ margin: 0 }}>
                 <div className="test-result-head"><X size={16} aria-hidden="true" /><span>{detail.errorMessage}</span></div>
               </div>
@@ -315,7 +423,7 @@ export default function PostsPage() {
             <div className="spacer" />
 
             <div className="stack" style={{ gap: 8 }}>
-              {detail.fbPermalink && (
+              {detail.fbPermalink && targets.length <= 1 && (
                 <a className="btn btn-secondary btn-block" href={detail.fbPermalink} target="_blank" rel="noreferrer">
                   <ExternalLink size={15} aria-hidden="true" /> Xem trên Facebook
                 </a>
@@ -323,7 +431,11 @@ export default function PostsPage() {
               {PUBLISHABLE.includes(detail.status) && (
                 <button type="button" className="btn btn-primary btn-lg btn-block" onClick={publish} disabled={acting || !detail.caption}>
                   {acting && confirming === 'publish' ? <div className="spinner" /> : <Send size={16} aria-hidden="true" />}
-                  {confirming === 'publish' ? 'Bấm lần nữa để đăng công khai' : detail.status === 'FAILED' ? 'Đăng lại' : 'Duyệt & đăng ngay'}
+                  {confirming === 'publish'
+                    ? 'Bấm lần nữa để đăng công khai'
+                    : detail.status === 'FAILED'
+                      ? tally.total > 1 ? `Đăng lại ${tally.total - tally.published} Page chưa lên` : 'Đăng lại'
+                      : tally.total > 1 ? `Duyệt & đăng lên ${tally.total} Page` : 'Duyệt & đăng ngay'}
                 </button>
               )}
               {detail.status !== 'PUBLISHING' && (

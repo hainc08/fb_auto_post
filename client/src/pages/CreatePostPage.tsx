@@ -15,6 +15,25 @@ const QUICK_REWRITES = [
 
 const normalizeTag = (t: string) => t.trim().replace(/^#+/, '').replace(/\s+/g, '');
 
+/** Gap between Pages when one post goes to several (same text on many Pages at once looks like spam). */
+const INTERVAL_OPTIONS = [0, 1, 2, 5, 10];
+const DEFAULT_INTERVAL = 2;
+const PAGES_KEY = 'autopost.selectedPages';
+
+function rememberedPages(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(PAGES_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes} phút`;
+  const h = Math.floor(minutes / 60);
+  return minutes % 60 ? `${h} giờ ${minutes % 60} phút` : `${h} giờ`;
+}
+
 type Busy = null | 'writing' | 'rewriting' | 'image' | 'upload' | 'saving' | 'publishing';
 
 export default function CreatePostPage() {
@@ -24,7 +43,8 @@ export default function CreatePostPage() {
   const initial = (location.state ?? {}) as { idea?: string; autoGenerate?: boolean };
 
   const [pages, setPages] = useState<any[]>([]);
-  const [pageId, setPageId] = useState('');
+  const [pageIds, setPageIds] = useState<string[]>([]);
+  const [intervalMinutes, setIntervalMinutes] = useState(DEFAULT_INTERVAL);
   const [idea, setIdea] = useState(initial.idea ?? '');
   const [postId, setPostId] = useState<string | null>(null);
   const [savedIdea, setSavedIdea] = useState('');
@@ -45,20 +65,36 @@ export default function CreatePostPage() {
       .then((r) => {
         const active = r.data.filter((p: any) => p.isActive);
         setPages(active);
-        if (active[0]) setPageId(active[0].id);
+        // Last selection (still connected), else the first Page
+        const kept = rememberedPages().filter((id) => active.some((p: any) => p.id === id));
+        setPageIds(kept.length ? kept : active[0] ? [active[0].id] : []);
       })
       .catch(() => toast.error('Không tải được danh sách Page.'));
   }, []);
 
   // Coming from "Viết nhanh với AI" on the dashboard: write right away
   useEffect(() => {
-    if (initial.autoGenerate && pageId && idea.trim() && !autoRan.current) {
+    if (initial.autoGenerate && pageIds.length && idea.trim() && !autoRan.current) {
       autoRan.current = true;
       write();
     }
-  }, [pageId]);
+  }, [pageIds]);
 
-  const page = pages.find((p) => p.id === pageId);
+  useEffect(() => {
+    try {
+      if (pageIds.length) localStorage.setItem(PAGES_KEY, JSON.stringify(pageIds));
+    } catch {
+      /* private mode: selection just isn't remembered */
+    }
+  }, [pageIds]);
+
+  // Keep the Page order of the list, so the preview shows the first one
+  const selectedPages = pages.filter((p) => pageIds.includes(p.id));
+  const page = selectedPages[0];
+  const allSelected = pages.length > 0 && selectedPages.length === pages.length;
+  const togglePage = (id: string) =>
+    setPageIds((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
+  const totalMinutes = Math.max(0, selectedPages.length - 1) * intervalMinutes;
   const message = caption.trim() + (hashtags.length ? `\n\n${hashtags.map((h) => `#${h}`).join(' ')}` : '');
 
   /** Create the post on first use; keep its idea in sync afterwards. */
@@ -70,14 +106,14 @@ export default function CreatePostPage() {
       }
       return postId;
     }
-    const res = await postsApi.create({ pageId, inputData: { basicInfo: idea.trim() } });
+    const res = await postsApi.create({ pageIds: selectedPages.map((p) => p.id), inputData: { basicInfo: idea.trim() } });
     setPostId(res.data.id);
     setSavedIdea(idea.trim());
     return res.data.id;
   }
 
   async function write() {
-    if (!pageId) return toast.error('Chọn Page để đăng trước.');
+    if (!selectedPages.length) return toast.error('Chọn ít nhất 1 Page để đăng.');
     if (!idea.trim()) return toast.error('Nhập ý tưởng bài viết.');
     setBusy('writing');
     const t0 = performance.now();
@@ -129,7 +165,7 @@ export default function CreatePostPage() {
     if (!file) return;
     if (!UPLOAD_TYPES.includes(file.type)) return toast.error('Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.');
     if (file.size > MAX_UPLOAD_BYTES) return toast.error('Ảnh vượt quá 8 MB.');
-    if (!pageId) return toast.error('Chọn Page để đăng trước.');
+    if (!selectedPages.length) return toast.error('Chọn ít nhất 1 Page để đăng.');
     setBusy('upload');
     try {
       const id = postId ?? (await ensurePost());
@@ -168,12 +204,17 @@ export default function CreatePostPage() {
 
   async function publish() {
     if (!postId) return;
+    if (!selectedPages.length) return toast.error('Chọn ít nhất 1 Page để đăng.');
     if (!confirmPublish) return setConfirmPublish(true);
     setBusy('publishing');
     try {
       if (!(await save(true))) return;
-      await postsApi.publish(postId);
-      toast.success('Bài đã vào hàng đợi đăng lên Facebook.');
+      const res = await postsApi.publish(postId, { pageIds: selectedPages.map((p) => p.id), intervalMinutes });
+      toast.success(
+        res.data.pages > 1
+          ? `Đang đăng lên ${res.data.pages} Page${intervalMinutes ? `, cách nhau ${intervalMinutes} phút` : ''}.`
+          : 'Bài đã vào hàng đợi đăng lên Facebook.'
+      );
       navigate(`/posts?selected=${postId}`);
     } catch (e: any) {
       toast.error(e.message);
@@ -234,18 +275,32 @@ export default function CreatePostPage() {
           </ol>
         </section>
 
-        <section className="card">
-          <label htmlFor="page-select" className="form-label">Đăng lên Page</label>
-          <select id="page-select" className="form-select" value={pageId} onChange={(e) => setPageId(e.target.value)} disabled={!!postId}>
-            {pages.length === 0 && <option value="">Chưa kết nối Page</option>}
-            {pages.map((p) => (
-              <option key={p.id} value={p.id}>{p.pageName}</option>
-            ))}
-          </select>
+        <section className="card" aria-labelledby="page-picker-label">
+          <div className="picker-head">
+            <span id="page-picker-label" className="form-label" style={{ margin: 0 }}>
+              Đăng lên {selectedPages.length}/{pages.length} Page
+            </span>
+            {pages.length > 1 && (
+              <button type="button" className="link-btn" onClick={() => setPageIds(allSelected ? [] : pages.map((p) => p.id))}>
+                {allSelected ? 'Bỏ chọn' : 'Tất cả'}
+              </button>
+            )}
+          </div>
           {pages.length === 0 ? (
             <p className="field-warning">Kết nối Page trong <a href="/settings">Cài đặt</a> trước.</p>
           ) : (
-            <p className="field-hint">{postId ? 'Đã gắn với bài này.' : 'Có thể đổi trước khi viết.'}</p>
+            <>
+              <div className="page-picker" role="group" aria-labelledby="page-picker-label">
+                {pages.map((p) => (
+                  <label key={p.id} className="page-option">
+                    <input type="checkbox" id={`page-${p.id}`} checked={pageIds.includes(p.id)} onChange={() => togglePage(p.id)} />
+                    <span className="avatar" aria-hidden="true">{pageInitials(p.pageName)}</span>
+                    <span className="name" title={p.pageName}>{p.pageName}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="field-hint">Cùng một nội dung và ảnh được đăng lên mọi Page đã chọn. Có thể đổi đến lúc bấm đăng.</p>
+            </>
           )}
         </section>
       </aside>
@@ -264,7 +319,7 @@ export default function CreatePostPage() {
               onKeyDown={(e) => e.key === 'Enter' && !busy && write()}
               placeholder="VD: Tóm tắt biên bản cuộc họp dài thành danh sách việc cần làm"
             />
-            <button type="button" className="btn btn-dark" onClick={write} disabled={!!busy || !idea.trim() || !pageId}>
+            <button type="button" className="btn btn-dark" onClick={write} disabled={!!busy || !idea.trim() || !selectedPages.length}>
               {busy === 'writing' ? <div className="spinner" /> : hasContent ? <RefreshCw size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
               {hasContent ? 'Viết lại' : 'Viết bài bằng AI'}
             </button>
@@ -346,7 +401,7 @@ export default function CreatePostPage() {
                 {busy === 'image' ? <div className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />}
                 {previewImage ? 'Tạo lại bằng AI' : 'Tạo ảnh bằng AI'}
               </button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!busy || !pageId}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!busy || !selectedPages.length}>
                 {busy === 'upload' ? <div className="spinner" /> : <Upload size={14} aria-hidden="true" />}
                 Tải ảnh lên
               </button>
@@ -363,7 +418,9 @@ export default function CreatePostPage() {
             <span className="avatar">{pageInitials(page?.pageName)}</span>
             <div>
               <div className="fb-page">{page?.pageName ?? 'Facebook Page'}</div>
-              <div className="fb-time">Xem trước trên Facebook</div>
+              <div className="fb-time">
+                Xem trước trên Facebook{selectedPages.length > 1 ? ` · và ${selectedPages.length - 1} Page khác` : ''}
+              </div>
             </div>
           </div>
           <div className="fb-body clamped">
@@ -388,9 +445,30 @@ export default function CreatePostPage() {
         </p>
 
         <div className="stack" style={{ gap: 8 }}>
-          <button type="button" className="btn btn-primary btn-lg btn-block" onClick={publish} disabled={!!busy || !hasContent}>
+          {selectedPages.length > 1 && (
+            <div className="stack" style={{ gap: 4 }}>
+              <div className="interval-row">
+                <label htmlFor="interval">Giãn cách giữa các Page</label>
+                <select id="interval" className="form-select" value={intervalMinutes} onChange={(e) => setIntervalMinutes(Number(e.target.value))}>
+                  {INTERVAL_OPTIONS.map((m) => (
+                    <option key={m} value={m}>{m === 0 ? 'Đăng cùng lúc' : `${m} phút`}</option>
+                  ))}
+                </select>
+              </div>
+              <span className="field-hint" style={{ margin: 0 }}>
+                {intervalMinutes === 0
+                  ? 'Cùng nội dung lên nhiều Page một lúc dễ bị Facebook coi là spam.'
+                  : `${selectedPages.length} Page, xong sau khoảng ${formatDuration(totalMinutes)}.`}
+              </span>
+            </div>
+          )}
+          <button type="button" className="btn btn-primary btn-lg btn-block" onClick={publish} disabled={!!busy || !hasContent || !selectedPages.length}>
             {busy === 'publishing' ? <div className="spinner" /> : <Send size={16} aria-hidden="true" />}
-            {confirmPublish ? 'Bấm lần nữa để đăng công khai' : 'Duyệt & đăng ngay'}
+            {confirmPublish
+              ? 'Bấm lần nữa để đăng công khai'
+              : selectedPages.length > 1
+                ? `Duyệt & đăng lên ${selectedPages.length} Page`
+                : 'Duyệt & đăng ngay'}
           </button>
           <button type="button" className="btn btn-secondary btn-block" onClick={handleSave} disabled={!!busy || !postId}>
             {busy === 'saving' ? <div className="spinner" /> : null}
