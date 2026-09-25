@@ -10,6 +10,10 @@ const TIMEOUT_MS = 60_000;
 
 export const REQUIRED_SCOPES = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'];
 
+/** A Page token belongs to the app that issued it; after switching App ID it must be re-issued. */
+export const OTHER_APP_TOKEN_MESSAGE =
+  'Token của Page do một Facebook App khác cấp (thường là app cũ). Hãy lấy token mới bằng App hiện tại: Cài đặt → Facebook → "Đổi token dài hạn".';
+
 /** Graph API codes for temporary failures: unknown/service error and rate limits */
 const TRANSIENT_CODES = [1, 2, 4, 17, 32, 613];
 
@@ -69,6 +73,7 @@ function toVietnamese(code: number | undefined, subcode: number | undefined, raw
     case 506:
       return 'Facebook từ chối vì bài đăng trùng với bài vừa đăng gần đây.';
     case 100:
+      if (/did not match the Viewing App/i.test(raw)) return OTHER_APP_TOKEN_MESSAGE;
       return `Tham số gửi lên Facebook không hợp lệ (sai Page ID, ảnh lỗi…): ${raw}`;
     case 1:
     case 2:

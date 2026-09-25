@@ -40,3 +40,19 @@ describe('FacebookClient.exchangeLongLivedUserToken', () => {
     expect(url.searchParams.get('grant_type')).toBe('fb_exchange_token');
   });
 });
+
+describe('FacebookClient.debugToken with a token from another app', () => {
+  it('explains that the Page token must be re-issued with the current app', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => graphError(100, '(#100) The App_id in the input_token did not match the Viewing App')));
+    const error = (await client().debugToken('EAApagetokenfromoldapp1234567890').catch((e) => e)) as FacebookApiError;
+    expect(error.message).toMatch(/App khác cấp/);
+    expect(error.message).toMatch(/Đổi token dài hạn/);
+    expect(error.retryable).toBe(false);
+  });
+
+  it('keeps the generic message for other code-100 errors', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => graphError(100, 'Invalid parameter')));
+    const error = (await client().debugToken('EAAsomething1234567890abcdefgh').catch((e) => e)) as FacebookApiError;
+    expect(error.message).toMatch(/Tham số gửi lên Facebook không hợp lệ/);
+  });
+});
