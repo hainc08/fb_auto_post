@@ -8,7 +8,7 @@ import { decrypt, encrypt } from '../lib/crypto';
 import { redactSecrets } from '../lib/http';
 import { GeminiClient } from '../lib/clients/gemini';
 import { CloudflareClient } from '../lib/clients/cloudflare';
-import { FacebookApiError, FacebookClient } from '../lib/clients/facebook';
+import { FacebookApiError, FacebookClient, OTHER_APP_TOKEN_MESSAGE, type TokenDebugInfo } from '../lib/clients/facebook';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -156,36 +156,81 @@ async function testFacebook(
   pageDbId?: string
 ): Promise<TestResult> {
   const fb = facebookClient(settings);
-  const page = await prisma.facebookPage.findFirst({
+
+  // 1. The App ID / App Secret themselves (throws a clear error when wrong)
+  const app = await fb.debugToken(`${settings.fbAppId}|${settings.fbAppSecret}`);
+  if (!app.isValid) {
+    return { ok: false, message: 'App ID / App Secret không hợp lệ.', details: { error: app.error } };
+  }
+
+  const pages = await prisma.facebookPage.findMany({
     where: { userId, isActive: true, ...(pageDbId && { id: pageDbId }) },
     orderBy: { updatedAt: 'desc' },
   });
-
-  // No page yet: validate App ID/Secret by debugging the app token itself
-  if (!page) {
-    const info = await fb.debugToken(`${settings.fbAppId}|${settings.fbAppSecret}`);
-    return info.isValid
-      ? { ok: true, message: 'App ID / App Secret hợp lệ. Chưa có Page nào được kết nối.', details: { type: info.type } }
-      : { ok: false, message: 'App ID / App Secret không hợp lệ.', details: { error: info.error } };
+  if (pages.length === 0) {
+    return { ok: true, message: 'App ID / App Secret hợp lệ. Chưa có Page nào được kết nối.', details: { type: app.type } };
   }
 
-  const info = await fb.debugToken(revealSecret(page.pageAccessToken));
-  const details = { pageName: page.pageName, pageId: page.pageId, ...info };
+  // 2. Every connected Page token, against this app
+  type PageCheck = { page: (typeof pages)[number] } & (
+    | { kind: 'checked'; info: TokenDebugInfo }
+    | { kind: 'other_app' }
+    | { kind: 'error'; error: string }
+  );
+  const checks: PageCheck[] = await Promise.all(
+    pages.map(async (page): Promise<PageCheck> => {
+      try {
+        return { page, kind: 'checked', info: await fb.debugToken(revealSecret(page.pageAccessToken)) };
+      } catch (error) {
+        if (error instanceof FacebookApiError && error.message === OTHER_APP_TOKEN_MESSAGE) return { page, kind: 'other_app' };
+        return { page, kind: 'error', error: (error as Error).message };
+      }
+    })
+  );
 
-  if (!info.isValid) {
-    return { ok: false, message: `Token của Page "${page.pageName}" không hợp lệ${info.error ? `: ${info.error}` : '.'}`, details };
+  const names = (list: typeof checks) => list.map((c) => `"${c.page.pageName}"`).join(', ');
+  const otherApp = checks.filter((c) => c.kind === 'other_app');
+  const problems = checks.flatMap((c) => {
+    if (c.kind === 'error') return [`"${c.page.pageName}": ${c.error}`];
+    if (c.kind !== 'checked') return [];
+    const { info } = c;
+    if (!info.isValid) return [`"${c.page.pageName}": token không hợp lệ${info.error ? ` (${info.error})` : ''}`];
+    if (info.type !== 'PAGE') return [`"${c.page.pageName}": token loại ${info.type}, cần Page Access Token`];
+    if (info.missingScopes.length) return [`"${c.page.pageName}": thiếu quyền ${info.missingScopes.join(', ')}`];
+    return [];
+  });
+  const details = {
+    appId: settings.fbAppId,
+    pages: checks.map((c) => ({
+      pageName: c.page.pageName,
+      pageId: c.page.pageId,
+      ...(c.kind === 'other_app' ? { tokenFromOtherApp: true } : {}),
+      ...(c.kind === 'checked' ? { valid: c.info.isValid, expiresAt: c.info.expiresAt, missingScopes: c.info.missingScopes } : {}),
+      ...(c.kind === 'error' ? { error: c.error } : {}),
+    })),
+  };
+
+  if (otherApp.length) {
+    return {
+      ok: false,
+      message:
+        `App ID / App Secret hợp lệ, nhưng ${otherApp.length}/${pages.length} Page vẫn dùng token do app khác cấp: ${names(otherApp)}. ` +
+        'Các Page này vẫn đăng bài bằng app cũ (nếu app cũ ở chế độ Development thì người khác không xem được bài). ' +
+        'Lấy User token từ app mới (Graph API Explorer → chọn app mới → quyền pages_manage_posts, pages_read_engagement, pages_show_list) rồi bấm "Đổi token dài hạn" và chọn lại các Page.',
+      details,
+    };
   }
-  if (info.type !== 'PAGE') {
-    return { ok: false, message: `Token đang lưu là loại ${info.type}, cần Page Access Token.`, details };
+  if (problems.length) {
+    return { ok: false, message: `Có ${problems.length}/${pages.length} Page cần xử lý: ${problems.join('; ')}.`, details };
   }
-  if (info.missingScopes.length > 0) {
-    return { ok: false, message: `Token thiếu quyền: ${info.missingScopes.join(', ')}.`, details };
-  }
+
+  const expiries = checks.flatMap((c) => (c.kind === 'checked' && c.info.expiresAt ? [c.info.expiresAt] : [])).sort();
+  const label = pages.length === 1 ? `Token Page "${pages[0].pageName}"` : `Token của ${pages.length} Page`;
   return {
     ok: true,
-    message: info.expiresAt
-      ? `Token Page "${page.pageName}" hợp lệ, hết hạn ${new Date(info.expiresAt).toLocaleString('vi-VN')}.`
-      : `Token Page "${page.pageName}" hợp lệ, không hết hạn.`,
+    message: expiries.length
+      ? `${label} hợp lệ, sớm nhất hết hạn ${new Date(expiries[0]).toLocaleString('vi-VN')}.`
+      : `${label} hợp lệ, không hết hạn.`,
     details,
   };
 }
