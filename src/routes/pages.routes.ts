@@ -9,6 +9,8 @@ import { logger } from '../utils/logger';
 import { encrypt } from '../lib/crypto';
 import { getSettings } from '../lib/settings';
 import { checkPage, checkPages, withPostable } from '../lib/page-health';
+import { applySync, previewSync, SyncError, syncErrorMessage } from '../lib/page-sync';
+import { redactSecrets } from '../lib/http';
 
 const router = Router();
 
@@ -55,6 +57,44 @@ router.get(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const { appId, pages } = await listPages(req.user!.id);
     res.json({ success: true, data: pages, meta: { appId } });
+  })
+);
+
+// ─── Sync Pages with the current Facebook App ───
+
+router.post(
+  '/sync/preview',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { userToken } = z
+      .object({ userToken: z.string().trim().min(20, 'Dán User Access Token (chuỗi bắt đầu bằng EAA…)') })
+      .parse(req.body);
+    try {
+      res.json({ success: true, data: await previewSync(req.user!.id, userToken) });
+    } catch (error) {
+      if (!(error instanceof SyncError)) throw error;
+      const message = redactSecrets(syncErrorMessage(error), [userToken]);
+      logger.warn('Page sync preview failed', { step: error.step, error: message });
+      throw createError(400, error.errorCode ? `${message} (${error.errorCode})` : message);
+    }
+  })
+);
+
+router.post(
+  '/sync/apply',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { refs, disconnect } = z
+      .object({ refs: z.array(z.string()).max(200).default([]), disconnect: z.array(z.string().uuid()).max(200).default([]) })
+      .refine((d) => d.refs.length + d.disconnect.length > 0, 'Chưa chọn thay đổi nào')
+      .parse(req.body);
+    try {
+      const result = await applySync(req.user!.id, refs, disconnect);
+      logger.info('Pages synced', { userId: req.user!.id, ...result });
+      const { appId, pages } = await listPages(req.user!.id);
+      res.json({ success: true, data: { ...result, pages }, meta: { appId } });
+    } catch (error) {
+      if (error instanceof SyncError) throw createError(400, syncErrorMessage(error));
+      throw error;
+    }
   })
 );
 

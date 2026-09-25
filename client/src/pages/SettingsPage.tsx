@@ -6,10 +6,12 @@ import {
   type PublicSettings,
   type SecretStatus,
   type ConnectionTestResult,
-  type ExchangedPage,
+  type PageInfo,
   type SettingsGroup,
 } from '../api';
 import { useToast } from '../components/Toast';
+import PageSync from '../components/PageSync';
+import { PageStatusBadge, notifyPagesChanged } from '../components/PageStatus';
 
 type FieldKey = keyof PublicSettings;
 
@@ -45,7 +47,8 @@ export default function SettingsPage() {
   const [form, setForm] = useState<FormState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [results, setResults] = useState<Partial<Record<string, ConnectionTestResult>>>({});
-  const [pages, setPages] = useState<any[]>([]);
+  const [pages, setPages] = useState<PageInfo[]>([]);
+  const [appId, setAppId] = useState('');
   const [section, setSection] = useState<SettingsGroup>(() => {
     const hash = window.location.hash.replace('#', '');
     return hash === 'gemini' || hash === 'cloudflare' || hash === 'facebook' ? hash : 'facebook';
@@ -70,7 +73,10 @@ export default function SettingsPage() {
   function loadPages() {
     pagesApi
       .list()
-      .then((r) => setPages(r.data.filter((p: any) => p.isActive)))
+      .then((r) => {
+        setPages(r.data.filter((p) => p.isActive));
+        setAppId(r.meta?.appId ?? '');
+      })
       .catch(() => {});
   }
 
@@ -88,6 +94,11 @@ export default function SettingsPage() {
       setSaved(res.data);
       setForm((f) => ({ ...f!, ...pick(toForm(res.data), GROUP_FIELDS[group]) }));
       if (!quiet) toast.success('Đã lưu cấu hình.');
+      // A new App ID changes which Pages can publish
+      if (group === 'facebook') {
+        loadPages();
+        notifyPagesChanged();
+      }
       return true;
     } catch (e: any) {
       toast.error(`Lưu thất bại: ${e.message}`);
@@ -106,6 +117,11 @@ export default function SettingsPage() {
       setResults((r) => ({ ...r, [key]: { ok: false, message: e.message } }));
     } finally {
       setBusy(null);
+      // The Facebook check stores each Page's token status
+      if (group === 'facebook') {
+        loadPages();
+        notifyPagesChanged();
+      }
     }
   }
 
@@ -220,9 +236,10 @@ export default function SettingsPage() {
                         <div key={p.id} className="page-row">
                           <div className="page-row-main">
                             <div className="page-avatar">{p.pageName?.[0] ?? 'P'}</div>
-                            <div>
-                              <div className="page-name">{p.pageName}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div className="page-name">{p.pageName} <PageStatusBadge page={p} /></div>
                               <div className="page-meta">{p.pageId}{p.pageCategory ? ` · ${p.pageCategory}` : ''}</div>
+                              {p.blockMessage && <div className="field-warning" style={{ margin: '4px 0 0' }}>{p.blockMessage}</div>}
                             </div>
                             <button className="btn btn-secondary btn-sm" onClick={() => runTest('facebook', p.id)} disabled={!!busy}>
                               {busy === `test:page:${p.id}` ? <div className="spinner" /> : <><PlugZap size={14} /> Kiểm tra token</>}
@@ -234,7 +251,14 @@ export default function SettingsPage() {
                     </div>
                   )}
 
-                  <TokenExchange busy={!!busy} setBusy={setBusy} onConnected={loadPages} />
+                  <details className="settings-tool" open={pages.length === 0 || pages.some((p) => !p.postable)}>
+                    <summary>
+                      <RefreshCw size={14} /> Cách 1 — Đồng bộ Page với App hiện tại <span className="optional-tag">khuyên dùng</span>
+                    </summary>
+                    <div style={{ marginTop: 12 }}>
+                      <PageSync appId={appId} onApplied={() => loadPages()} />
+                    </div>
+                  </details>
                   <ManualPage busy={!!busy} setBusy={setBusy} onConnected={loadPages} />
 
                   <p className="field-note">
@@ -304,91 +328,6 @@ interface ToolProps {
   busy: boolean;
   setBusy: (v: string | null) => void;
   onConnected: () => void;
-}
-
-function TokenExchange({ busy, setBusy, onConnected }: ToolProps) {
-  const toast = useToast();
-  const [shortToken, setShortToken] = useState('');
-  const [found, setFound] = useState<ExchangedPage[] | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-
-  async function exchange() {
-    setBusy('exchange');
-    try {
-      const res = await settingsApi.exchangeToken(shortToken.trim());
-      setFound(res.data);
-      setSelected(new Set(res.data.map((p) => p.id)));
-      setShortToken('');
-      if (res.data.length === 0) toast.info('Token hợp lệ nhưng tài khoản không quản trị Page nào (hoặc chưa cấp quyền Page cho App).');
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function connect() {
-    if (!found) return;
-    setBusy('connect');
-    try {
-      const refs = found.filter((p) => selected.has(p.id)).map((p) => p.ref);
-      await settingsApi.connectPages(refs);
-      toast.success(`Đã kết nối ${refs.length} Page.`);
-      setFound(null);
-      onConnected();
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const toggle = (id: string) =>
-    setSelected((s) => {
-      const next = new Set(s);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-
-  return (
-    <details className="settings-tool" open={!!found}>
-      <summary>
-        <RefreshCw size={14} /> Cách 1 — Đổi User Access Token sang token dài hạn
-        <span className="optional-tag">cần App ID + App Secret</span>
-      </summary>
-      <ol className="tool-steps">
-        <li>Mở <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">Graph API Explorer</a>, ô <b>Meta App</b> chọn đúng App có App ID ở trên.</li>
-        <li>Ô <b>User or Page</b> để là <b>User Token</b>. Thêm quyền <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>pages_show_list</code> → Generate Access Token.</li>
-        <li>Dán <b>User Access Token</b> (chuỗi <code>EAA…</code>) vào ô dưới. Hệ thống tự đổi sang token dài hạn và lấy Page Access Token cho từng Page.</li>
-      </ol>
-      <div className="tool-row">
-        <input className={`form-input ${looksLikeAppSecret(shortToken) ? 'input-warn' : ''}`} type="password" autoComplete="off"
-          placeholder="User Access Token (EAA…) — không phải App Secret"
-          value={shortToken} onChange={(e) => setShortToken(e.target.value)} />
-        <button className="btn btn-primary btn-sm" onClick={exchange} disabled={busy || shortToken.trim().length < 20}>
-          {busy ? <div className="spinner" /> : 'Đổi token'}
-        </button>
-      </div>
-      {looksLikeAppSecret(shortToken) && (
-        <p className="field-warning">⚠ Đây giống App Secret (32 ký tự). Ô này cần User Access Token bắt đầu bằng EAA…</p>
-      )}
-
-      {found && found.length > 0 && (
-        <div className="exchange-result">
-          {found.map((p) => (
-            <label key={p.id} className={`pick-row ${selected.has(p.id) ? 'picked' : ''}`}>
-              <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
-              <span className="page-name">{p.name}</span>
-              <span className="page-meta">ID {p.id}{p.category ? ` · ${p.category}` : ''}</span>
-            </label>
-          ))}
-          <button className="btn btn-primary btn-sm" onClick={connect} disabled={busy || selected.size === 0}>
-            Kết nối {selected.size} Page đã chọn
-          </button>
-        </div>
-      )}
-    </details>
-  );
 }
 
 function ManualPage({ busy, setBusy, onConnected }: ToolProps) {

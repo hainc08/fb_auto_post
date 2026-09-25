@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './index.css';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
+import FacebookAppBanner from './components/FacebookAppBanner';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import PagesPage from './pages/PagesPage';
@@ -22,7 +23,10 @@ function AppLayout({ children, flush = false }: { children: React.ReactNode; flu
       <Sidebar />
       <div className="main-column">
         <Topbar />
-        <main className={`main-content ${flush ? 'flush' : ''}`}>{children}</main>
+        <main className={`main-content ${flush ? 'flush' : ''}`}>
+          <FacebookAppBanner />
+          {children}
+        </main>
       </div>
     </div>
   );

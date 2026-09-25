@@ -12,7 +12,7 @@ interface HealthRow {
 }
 
 /** Configuration status only — no live API calls (they cost quota on every page load). */
-function healthFrom(settings: PublicSettings | null, pageCount: number): HealthRow[] {
+function healthFrom(settings: PublicSettings | null, pageCount: number, postableCount: number): HealthRow[] {
   if (!settings) return [];
   const secret = (source: string): [Health, string] =>
     source === 'db' ? ['ok', 'Đã cấu hình'] : source === 'env' ? ['warn', 'Tạm từ .env'] : ['bad', 'Chưa có'];
@@ -22,7 +22,11 @@ function healthFrom(settings: PublicSettings | null, pageCount: number): HealthR
   return [
     { name: 'Gemini', state: gState, label: gLabel },
     { name: 'Cloudflare', state: cState, label: cLabel },
-    { name: 'Facebook', state: pageCount > 0 ? 'ok' : 'bad', label: pageCount > 0 ? `${pageCount} Page` : 'Chưa kết nối' },
+    {
+      name: 'Facebook',
+      state: pageCount === 0 || postableCount === 0 ? 'bad' : postableCount < pageCount ? 'warn' : 'ok',
+      label: pageCount === 0 ? 'Chưa kết nối' : postableCount < pageCount ? `${postableCount}/${pageCount} Page đăng được` : `${pageCount} Page`,
+    },
   ];
 }
 
@@ -53,7 +57,7 @@ export default function Sidebar() {
   }, [location.pathname]);
 
   const page = pages[0];
-  const health = healthFrom(settings, pages.length);
+  const health = healthFrom(settings, pages.length, pages.filter((p) => p.postable).length);
   const navClass = ({ isActive }: { isActive: boolean }) => `nav-item ${isActive ? 'active' : ''}`;
 
   return (
