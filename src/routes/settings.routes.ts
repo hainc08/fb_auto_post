@@ -8,8 +8,9 @@ import { decrypt, encrypt } from '../lib/crypto';
 import { redactSecrets } from '../lib/http';
 import { GeminiClient } from '../lib/clients/gemini';
 import { CloudflareClient } from '../lib/clients/cloudflare';
-import { FacebookApiError, FacebookClient, OTHER_APP_TOKEN_MESSAGE, type TokenDebugInfo } from '../lib/clients/facebook';
+import { FacebookApiError, FacebookClient } from '../lib/clients/facebook';
 import { logger } from '../utils/logger';
+import { blockMessage, blockReason, checkPage, checkPages } from '../lib/page-health';
 
 const router = Router();
 router.use(authenticate);
@@ -40,12 +41,25 @@ function facebookClient(settings: Awaited<ReturnType<typeof getSettings>>) {
 
 async function upsertPage(userId: string, page: { id: string; name: string; category?: string; token: string }) {
   const pageAccessToken = encrypt(page.token);
-  return prisma.facebookPage.upsert({
+  const saved = await prisma.facebookPage.upsert({
     where: { userId_pageId: { userId, pageId: page.id } },
     create: { userId, pageId: page.id, pageName: page.name, pageCategory: page.category, pageAccessToken },
-    update: { pageName: page.name, pageCategory: page.category, pageAccessToken, isActive: true },
+    update: {
+      pageName: page.name,
+      pageCategory: page.category,
+      pageAccessToken,
+      isActive: true,
+      // New token: forget the old one's health, then check it
+      tokenStatus: 'UNCHECKED',
+      tokenAppId: null,
+      tokenExpiresAt: null,
+      tokenError: null,
+      tokenCheckedAt: null,
+    },
     select: { id: true, pageId: true, pageName: true, pageCategory: true },
   });
+  await checkPage(userId, saved.id).catch((e) => logger.warn('Page check failed', { error: (e as Error).message }));
+  return saved;
 }
 
 /**
@@ -163,69 +177,57 @@ async function testFacebook(
     return { ok: false, message: 'App ID / App Secret không hợp lệ.', details: { error: app.error } };
   }
 
-  const pages = await prisma.facebookPage.findMany({
-    where: { userId, isActive: true, ...(pageDbId && { id: pageDbId }) },
-    orderBy: { updatedAt: 'desc' },
-  });
-  if (pages.length === 0) {
+  if (pageDbId && !(await prisma.facebookPage.findFirst({ where: { id: pageDbId, userId } }))) {
+    throw createError(404, 'Page not found');
+  }
+
+  // 2. Every connected Page token (stored, so the Pages screen shows the same result)
+  const checked = pageDbId ? [await checkPage(userId, pageDbId)] : await checkPages(userId);
+  if (checked.length === 0) {
     return { ok: true, message: 'App ID / App Secret hợp lệ. Chưa có Page nào được kết nối.', details: { type: app.type } };
   }
 
-  // 2. Every connected Page token, against this app
-  type PageCheck = { page: (typeof pages)[number] } & (
-    | { kind: 'checked'; info: TokenDebugInfo }
-    | { kind: 'other_app' }
-    | { kind: 'error'; error: string }
-  );
-  const checks: PageCheck[] = await Promise.all(
-    pages.map(async (page): Promise<PageCheck> => {
-      try {
-        return { page, kind: 'checked', info: await fb.debugToken(revealSecret(page.pageAccessToken)) };
-      } catch (error) {
-        if (error instanceof FacebookApiError && error.message === OTHER_APP_TOKEN_MESSAGE) return { page, kind: 'other_app' };
-        return { page, kind: 'error', error: (error as Error).message };
-      }
-    })
-  );
-
-  const names = (list: typeof checks) => list.map((c) => `"${c.page.pageName}"`).join(', ');
-  const otherApp = checks.filter((c) => c.kind === 'other_app');
-  const problems = checks.flatMap((c) => {
-    if (c.kind === 'error') return [`"${c.page.pageName}": ${c.error}`];
-    if (c.kind !== 'checked') return [];
-    const { info } = c;
-    if (!info.isValid) return [`"${c.page.pageName}": token không hợp lệ${info.error ? ` (${info.error})` : ''}`];
-    if (info.type !== 'PAGE') return [`"${c.page.pageName}": token loại ${info.type}, cần Page Access Token`];
-    if (info.missingScopes.length) return [`"${c.page.pageName}": thiếu quyền ${info.missingScopes.join(', ')}`];
-    return [];
-  });
+  const rows = checked.map((page) => ({ page, reason: blockReason(page, settings.fbAppId) }));
+  const names = (list: typeof rows) => list.map((r) => `"${r.page.pageName}"`).join(', ');
+  const otherApp = rows.filter((r) => r.reason === 'OTHER_APP');
+  const blocked = rows.filter((r) => r.reason && r.reason !== 'OTHER_APP');
+  const unknown = rows.filter((r) => !r.reason && r.page.tokenStatus === 'ERROR');
   const details = {
     appId: settings.fbAppId,
-    pages: checks.map((c) => ({
-      pageName: c.page.pageName,
-      pageId: c.page.pageId,
-      ...(c.kind === 'other_app' ? { tokenFromOtherApp: true } : {}),
-      ...(c.kind === 'checked' ? { valid: c.info.isValid, expiresAt: c.info.expiresAt, missingScopes: c.info.missingScopes } : {}),
-      ...(c.kind === 'error' ? { error: c.error } : {}),
+    pages: checked.map((p) => ({
+      pageName: p.pageName,
+      pageId: p.pageId,
+      tokenStatus: p.tokenStatus,
+      tokenAppId: p.tokenAppId,
+      expiresAt: p.tokenExpiresAt,
+      error: p.tokenError,
     })),
   };
 
   if (otherApp.length) {
+    const apps = [...new Set(otherApp.map((r) => r.page.tokenAppId).filter(Boolean))].join(', ');
     return {
       ok: false,
       message:
-        `App ID / App Secret hợp lệ, nhưng ${otherApp.length}/${pages.length} Page vẫn dùng token do app khác cấp: ${names(otherApp)}. ` +
-        'Các Page này vẫn đăng bài bằng app cũ (nếu app cũ ở chế độ Development thì người khác không xem được bài). ' +
-        'Lấy User token từ app mới (Graph API Explorer → chọn app mới → quyền pages_manage_posts, pages_read_engagement, pages_show_list) rồi bấm "Đổi token dài hạn" và chọn lại các Page.',
+        `App ID / App Secret hợp lệ, nhưng ${otherApp.length}/${checked.length} Page vẫn dùng token do app khác cấp${apps ? ` (${apps})` : ''}: ${names(otherApp)}. ` +
+        'Các Page này sẽ bị chặn đăng cho tới khi cấp lại token. ' +
+        'Lấy User token từ app hiện tại (Graph API Explorer → chọn app ' + settings.fbAppId + ' → quyền pages_manage_posts, pages_read_engagement, pages_show_list) rồi bấm "Đổi token dài hạn" và chọn lại các Page.',
       details,
     };
   }
-  if (problems.length) {
-    return { ok: false, message: `Có ${problems.length}/${pages.length} Page cần xử lý: ${problems.join('; ')}.`, details };
+  if (blocked.length) {
+    return {
+      ok: false,
+      message: `Có ${blocked.length}/${checked.length} Page cần xử lý: ${blocked.map((r) => `"${r.page.pageName}": ${blockMessage(r.reason!, r.page)}`).join('; ')}`,
+      details,
+    };
+  }
+  if (unknown.length) {
+    return { ok: false, message: `Chưa kiểm tra được ${names(unknown)}: ${unknown[0].page.tokenError ?? 'lỗi không rõ'}`, details };
   }
 
-  const expiries = checks.flatMap((c) => (c.kind === 'checked' && c.info.expiresAt ? [c.info.expiresAt] : [])).sort();
-  const label = pages.length === 1 ? `Token Page "${pages[0].pageName}"` : `Token của ${pages.length} Page`;
+  const expiries = checked.flatMap((p) => (p.tokenExpiresAt ? [p.tokenExpiresAt.getTime()] : [])).sort((a, b) => a - b);
+  const label = checked.length === 1 ? `Token Page "${checked[0].pageName}"` : `Token của ${checked.length} Page`;
   return {
     ok: true,
     message: expiries.length

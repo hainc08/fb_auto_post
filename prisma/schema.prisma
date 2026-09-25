@@ -50,6 +50,16 @@ enum ScheduleFrequency {
   CUSTOM_CRON // legacy, no longer accepted by the API
 }
 
+enum TokenStatus {
+  UNCHECKED
+  VALID
+  OTHER_APP
+  EXPIRED
+  REVOKED
+  MISSING_PERMISSIONS
+  ERROR // could not check (network, Facebook down)
+}
+
 enum TargetStatus {
   PENDING
   PUBLISHING
@@ -142,6 +152,15 @@ model FacebookPage {
   pageCategory    String?
   pageAvatar      String? @db.Text
   isActive        Boolean @default(true)
+
+  // Token health (see src/lib/page-health.ts). A Page is postable only with a
+  // valid token issued by the App ID currently in Settings.
+  tokenAppId     String? // Facebook App that issued pageAccessToken
+  tokenStatus    TokenStatus @default(UNCHECKED)
+  tokenExpiresAt DateTime?
+  missingScopes  Json? // string[]
+  tokenCheckedAt DateTime?
+  tokenError     String?     @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

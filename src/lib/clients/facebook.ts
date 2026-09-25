@@ -141,21 +141,17 @@ export class FacebookClient {
       { input_token: inputToken, access_token: this.appAccessToken },
       [inputToken]
     );
-    const d = res.data ?? ({} as RawDebugData);
-    const scopes = d.scopes ?? [];
+    return toDebugInfo(res.data, inputToken);
+  }
 
-    return {
-      isValid: !!d.is_valid,
-      type: d.type ?? 'UNKNOWN',
-      appId: d.app_id,
-      profileId: d.profile_id,
-      // expires_at = 0 means the token never expires
-      expiresAt: d.expires_at ? new Date(d.expires_at * 1000).toISOString() : null,
-      dataAccessExpiresAt: d.data_access_expires_at ? new Date(d.data_access_expires_at * 1000).toISOString() : null,
-      scopes,
-      missingScopes: REQUIRED_SCOPES.filter((s) => !scopes.includes(s)),
-      error: d.error?.message ? redactSecrets(d.error.message, [inputToken]) : undefined,
-    };
+  /**
+   * Inspect a token with itself as the access token: needs no App Secret and works
+   * whichever app issued it, so it reveals that app's ID. Throws (code 190) when
+   * the token is expired or revoked.
+   */
+  async inspectOwnToken(token: string): Promise<TokenDebugInfo> {
+    const res = await this.get<{ data: RawDebugData }>('debug_token', { input_token: token, access_token: token }, [token]);
+    return toDebugInfo(res.data, token);
   }
 
   /** Short-lived user token → long-lived (~60 days) user token. */
@@ -237,6 +233,23 @@ export class FacebookClient {
 export interface PublishedPost {
   postId: string;
   photoId?: string;
+}
+
+function toDebugInfo(raw: RawDebugData | undefined, inputToken: string): TokenDebugInfo {
+  const d = raw ?? ({} as RawDebugData);
+  const scopes = d.scopes ?? [];
+  return {
+    isValid: !!d.is_valid,
+    type: d.type ?? 'UNKNOWN',
+    appId: d.app_id,
+    profileId: d.profile_id,
+    // expires_at = 0 means the token never expires
+    expiresAt: d.expires_at ? new Date(d.expires_at * 1000).toISOString() : null,
+    dataAccessExpiresAt: d.data_access_expires_at ? new Date(d.data_access_expires_at * 1000).toISOString() : null,
+    scopes,
+    missingScopes: REQUIRED_SCOPES.filter((s) => !scopes.includes(s)),
+    error: d.error?.message ? redactSecrets(d.error.message, [inputToken]) : undefined,
+  };
 }
 
 interface RawDebugData {

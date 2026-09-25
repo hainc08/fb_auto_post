@@ -19,6 +19,7 @@ import imagesRoutes from './routes/images.routes';
 
 // Worker imports
 import { startWorkers } from './services/scheduler.service';
+import { checkUncheckedPages } from './lib/page-health';
 
 const app = express();
 
@@ -148,6 +149,8 @@ async function start() {
     // Background jobs (MariaDB queue) run in this same process
     if (config.env !== 'test') {
       startWorkers();
+      // Pages connected before token health existed: learn which app issued their tokens
+      void checkUncheckedPages();
     }
 
     // Start server
