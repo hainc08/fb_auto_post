@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Check, Sparkles, RefreshCw, ImageIcon, Send, X, Upload } from 'lucide-react';
-import { postsApi, pagesApi, assetUrl, MAX_UPLOAD_BYTES, UPLOAD_TYPES, type PageInfo, type PostUpdate } from '../api';
+import { Check, Sparkles, RefreshCw, ImageIcon, Send, X, Upload, AlertTriangle } from 'lucide-react';
+import { postsApi, pagesApi, domainsApi, assetUrl, MAX_UPLOAD_BYTES, UPLOAD_TYPES, type ContentDomain, type PageInfo, type PostUpdate } from '../api';
 import { useToast } from '../components/Toast';
 import { wordCount, pageInitials } from '../components/PostBits';
+import PromptPreview from '../components/PromptPreview';
 
 const HOOK_LENGTH = 125;
 
@@ -19,6 +20,15 @@ const normalizeTag = (t: string) => t.trim().replace(/^#+/, '').replace(/\s+/g, 
 const INTERVAL_OPTIONS = [0, 1, 2, 5, 10];
 const DEFAULT_INTERVAL = 2;
 const PAGES_KEY = 'autopost.selectedPages';
+const FORMAT_KEY = 'autopost.lastFormat';
+
+function rememberedFormat(): { domainId?: string; formatId?: string } {
+  try {
+    return JSON.parse(localStorage.getItem(FORMAT_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
 
 function rememberedPages(): string[] {
   try {
@@ -56,21 +66,40 @@ export default function CreatePostPage() {
   const [busy, setBusy] = useState<Busy>(null);
   const [timings, setTimings] = useState<{ writing?: number; image?: number }>({});
   const [confirmPublish, setConfirmPublish] = useState(false);
+  const [domains, setDomains] = useState<ContentDomain[]>([]);
+  const [domainId, setDomainId] = useState('');
+  const [formatId, setFormatId] = useState('');
+  /** Domain/format saved on the post, and the one its current text was written with */
+  const [savedPick, setSavedPick] = useState<{ domainId: string; formatId: string } | null>(null);
+  const [writtenPick, setWrittenPick] = useState<string | null>(null);
+  const [showPrompt, setShowPrompt] = useState(false);
   const autoRan = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    pagesApi
-      .list()
-      .then((r) => {
-        const active = r.data.filter((p) => p.isActive);
+    Promise.all([pagesApi.list(), domainsApi.list()])
+      .then(([pagesRes, domainsRes]) => {
+        const active = pagesRes.data.filter((p) => p.isActive);
         setPages(active);
         // Last selection (still postable), else the first postable Page
         const postable = active.filter((p) => p.postable);
         const kept = rememberedPages().filter((id) => postable.some((p) => p.id === id));
-        setPageIds(kept.length ? kept : postable[0] ? [postable[0].id] : []);
+        const picked = kept.length ? kept : postable[0] ? [postable[0].id] : [];
+        setPageIds(picked);
+
+        const list = domainsRes.data;
+        setDomains(list);
+        // Last choice → first Page's default domain → first domain
+        const last = rememberedFormat();
+        const firstPage = active.find((p) => p.id === picked[0]);
+        const domain = list.find((d) => d.id === last.domainId) ?? list.find((d) => d.id === firstPage?.defaultDomainId) ?? list[0];
+        if (domain) {
+          setDomainId(domain.id);
+          const format = domain.formats.find((f) => f.id === last.formatId) ?? domain.formats.find((f) => f.isDefault) ?? domain.formats[0];
+          setFormatId(format?.id ?? '');
+        }
       })
-      .catch(() => toast.error('Không tải được danh sách Page.'));
+      .catch(() => toast.error('Không tải được Page hoặc lĩnh vực.'));
   }, []);
 
   // Coming from "Viết nhanh với AI" on the dashboard: write right away
@@ -89,6 +118,14 @@ export default function CreatePostPage() {
     }
   }, [pageIds]);
 
+  useEffect(() => {
+    try {
+      if (domainId && formatId) localStorage.setItem(FORMAT_KEY, JSON.stringify({ domainId, formatId }));
+    } catch {
+      /* private mode */
+    }
+  }, [domainId, formatId]);
+
   // Keep the Page order of the list, so the preview shows the first one
   const postablePages = pages.filter((p) => p.postable);
   const selectedPages = postablePages.filter((p) => pageIds.includes(p.id));
@@ -99,19 +136,37 @@ export default function CreatePostPage() {
     setPageIds((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
   const totalMinutes = Math.max(0, selectedPages.length - 1) * intervalMinutes;
   const message = caption.trim() + (hashtags.length ? `\n\n${hashtags.map((h) => `#${h}`).join(' ')}` : '');
+  const domain = domains.find((d) => d.id === domainId);
+  const format = domain?.formats.find((f) => f.id === formatId);
+  const pickKey = `${domainId}:${formatId}`;
+  const pickChanged = !!writtenPick && writtenPick !== pickKey;
+  const pickDomain = (id: string) => {
+    const next = domains.find((d) => d.id === id);
+    setDomainId(id);
+    setFormatId(next?.formats.find((f) => f.isDefault)?.id ?? next?.formats[0]?.id ?? '');
+  };
+  const ownPages = pages.filter((p) => p.defaultDomainId === domainId);
+  const otherPages = pages.filter((p) => p.defaultDomainId !== domainId);
+  const offDomainSelected = selectedPages.filter((p) => p.defaultDomainId && p.defaultDomainId !== domainId);
 
-  /** Create the post on first use; keep its idea in sync afterwards. */
+  /** Create the post on first use; keep its idea, domain and format in sync afterwards. */
   async function ensurePost(): Promise<string> {
+    const pick = domainId && formatId ? { domainId, formatId } : undefined;
     if (postId) {
-      if (idea.trim() !== savedIdea) {
-        await postsApi.update(postId, { idea: idea.trim() });
+      const body: PostUpdate = {};
+      if (idea.trim() !== savedIdea) body.idea = idea.trim();
+      if (pick && (pick.domainId !== savedPick?.domainId || pick.formatId !== savedPick?.formatId)) Object.assign(body, pick);
+      if (Object.keys(body).length) {
+        await postsApi.update(postId, body);
         setSavedIdea(idea.trim());
+        if (pick) setSavedPick(pick);
       }
       return postId;
     }
-    const res = await postsApi.create({ pageIds: selectedPages.map((p) => p.id), inputData: { basicInfo: idea.trim() } });
+    const res = await postsApi.create({ pageIds: selectedPages.map((p) => p.id), inputData: { basicInfo: idea.trim() }, ...pick });
     setPostId(res.data.id);
     setSavedIdea(idea.trim());
+    setSavedPick({ domainId: res.data.domainId, formatId: res.data.formatId });
     return res.data.id;
   }
 
@@ -128,6 +183,7 @@ export default function CreatePostPage() {
       setHashtags((gen.hashtags ?? []).map(normalizeTag).filter(Boolean));
       setImagePrompt(gen.imagePrompt ?? '');
       setTimings({ writing: performance.now() - t0 });
+      setWrittenPick(pickKey);
     } catch (e: any) {
       toast.error(`AI chưa viết được bài: ${e.message}`);
     } finally {
@@ -293,24 +349,40 @@ export default function CreatePostPage() {
             <p className="field-warning">Kết nối Page trong <a href="/settings">Cài đặt</a> trước.</p>
           ) : (
             <>
-              <div className="page-picker" role="group" aria-labelledby="page-picker-label">
-                {pages.map((p) => (
-                  <label key={p.id} className={`page-option ${p.postable ? '' : 'disabled'}`} title={p.blockMessage ?? p.pageName}>
-                    <input
-                      type="checkbox"
-                      id={`page-${p.id}`}
-                      checked={p.postable && pageIds.includes(p.id)}
-                      onChange={() => togglePage(p.id)}
-                      disabled={!p.postable}
-                    />
-                    <span className="avatar" aria-hidden="true">{pageInitials(p.pageName)}</span>
-                    <span className="name">
-                      {p.pageName}
-                      {!p.postable && <span className="why">{p.blockReason === 'OTHER_APP' ? 'Token của app cũ' : p.blockMessage}</span>}
-                    </span>
-                  </label>
+              {[
+                { title: 'Page của lĩnh vực này', list: ownPages },
+                { title: 'Page khác', list: otherPages },
+              ]
+                .filter((g) => g.list.length > 0)
+                .map((g, _i, groups) => (
+                  <div key={g.title} className="page-group">
+                    {groups.length > 1 && <span className="page-group-title">{g.title}</span>}
+                    <div className="page-picker" role="group" aria-label={g.title}>
+                      {g.list.map((p) => (
+                        <label key={p.id} className={`page-option ${p.postable ? '' : 'disabled'}`} title={p.blockMessage ?? p.pageName}>
+                          <input
+                            type="checkbox"
+                            id={`page-${p.id}`}
+                            checked={p.postable && pageIds.includes(p.id)}
+                            onChange={() => togglePage(p.id)}
+                            disabled={!p.postable}
+                          />
+                          <span className="avatar" aria-hidden="true">{pageInitials(p.pageName)}</span>
+                          <span className="name">
+                            {p.pageName}
+                            {!p.postable && <span className="why">{p.blockReason === 'OTHER_APP' ? 'Token của app cũ' : p.blockMessage}</span>}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 ))}
-              </div>
+              {offDomainSelected.length > 0 && (
+                <p className="field-warning">
+                  <AlertTriangle size={13} aria-hidden="true" style={{ verticalAlign: -2 }} />{' '}
+                  {offDomainSelected.map((p) => p.pageName).join(', ')} mặc định dùng lĩnh vực khác — bài vẫn viết theo lĩnh vực đã chọn.
+                </p>
+              )}
               {blockedCount > 0 ? (
                 <p className="field-warning">
                   {blockedCount} Page chưa đăng được. <Link to="/pages?sync=1">Đồng bộ Page</Link> để cấp lại token.
@@ -325,24 +397,66 @@ export default function CreatePostPage() {
 
       {/* ─── Editor ─── */}
       <div className="stack" style={{ minWidth: 0 }}>
-        <section className="card">
-          <label htmlFor="idea" className="form-label">Ý tưởng bài viết</label>
-          <div className="row" style={{ alignItems: 'stretch' }}>
-            <input
-              id="idea"
-              className="form-input"
-              value={idea}
-              maxLength={500}
-              onChange={(e) => setIdea(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !busy && write()}
-              placeholder="VD: Tóm tắt biên bản cuộc họp dài thành danh sách việc cần làm"
-            />
-            <button type="button" className="btn btn-dark" onClick={write} disabled={!!busy || !idea.trim() || !selectedPages.length}>
-              {busy === 'writing' ? <div className="spinner" /> : hasContent ? <RefreshCw size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
-              {hasContent ? 'Viết lại' : 'Viết bài bằng AI'}
-            </button>
+        <section className="card stack" style={{ gap: 12 }}>
+          {domains.length > 0 && (
+            <div className="pick-row">
+              <label className="form-label" htmlFor="domain">Lĩnh vực</label>
+              <select id="domain" className="form-select" value={domainId} onChange={(e) => pickDomain(e.target.value)}>
+                {domains.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+              <span className="form-label" id="format-label">Định dạng</span>
+              <div className="format-chips" role="radiogroup" aria-labelledby="format-label">
+                {domain?.formats.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={f.id === formatId}
+                    className={`chip-btn ${f.id === formatId ? 'active' : ''}`}
+                    onClick={() => setFormatId(f.id)}
+                    title={f.withImage ? 'Có ảnh' : 'Chỉ chữ'}
+                  >
+                    {f.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div>
+            <label htmlFor="idea" className="form-label">Ý tưởng bài viết</label>
+            <div className="row" style={{ alignItems: 'stretch' }}>
+              <input
+                id="idea"
+                className="form-input"
+                value={idea}
+                maxLength={500}
+                onChange={(e) => setIdea(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !busy && write()}
+                placeholder="VD: Tóm tắt biên bản cuộc họp dài thành danh sách việc cần làm"
+              />
+              <button type="button" className="btn btn-dark" onClick={write} disabled={!!busy || !idea.trim() || !selectedPages.length}>
+                {busy === 'writing' ? <div className="spinner" /> : hasContent ? <RefreshCw size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
+                {hasContent ? 'Viết lại' : 'Viết bài bằng AI'}
+              </button>
+            </div>
           </div>
-          <p className="field-hint">AI viết theo System prompt trong Cài đặt, rồi tự tách đoạn và đưa hashtag xuống cuối.</p>
+          {pickChanged && hasContent && (
+            <p className="field-warning" role="status">
+              Bạn vừa đổi lĩnh vực/định dạng — bấm <strong>Viết lại</strong> để AI viết theo lựa chọn mới.
+            </p>
+          )}
+          <p className="field-hint" style={{ margin: 0 }}>
+            AI viết theo lĩnh vực <strong>{domain?.name ?? '…'}</strong> · định dạng <strong>{format?.name ?? '…'}</strong>
+            {format && !format.withImage ? ' (chỉ chữ, không tạo ảnh)' : ''}, rồi tự tách đoạn và đưa hashtag xuống cuối.{' '}
+            <button type="button" className="link-btn" onClick={() => setShowPrompt((v) => !v)} aria-expanded={showPrompt}>
+              {showPrompt ? 'Ẩn prompt' : 'Xem prompt'}
+            </button>
+          </p>
+          {showPrompt && format && domain && (
+            <PromptPreview key={`${formatId}:${idea}`} formats={domain.formats} formatId={formatId} idea={idea || 'ý tưởng của bạn'} pageId={page?.id} compact />
+          )}
         </section>
 
         <section className="card stack" style={{ gap: 12 }}>
