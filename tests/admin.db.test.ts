@@ -4,7 +4,7 @@ import prisma from '../src/utils/prisma';
 import { createApp } from '../src/app';
 import { readImage, removeImage, saveImage } from '../src/lib/image-store';
 import { startTestServer, api } from './helpers/http';
-import { cleanupTestUsers, createTestUser, TEST_EMAIL_DOMAIN } from './helpers/users';
+import { cleanupTestUsers, createTestUser, testEmail } from './helpers/users';
 
 let server: Awaited<ReturnType<typeof startTestServer>>;
 let adminCookie: string;
@@ -33,7 +33,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('admin: member management', { timeout
   });
 
   it('creates a member with the password the admin chose; the member logs in right away', async () => {
-    const email = `Lan.Nguyen${TEST_EMAIL_DOMAIN}`.toUpperCase();
+    const email = testEmail('Lan.Nguyen').toUpperCase();
     const created = await api(server.baseUrl, 'POST', '/api/admin/users', {
       cookie: adminCookie,
       body: { email: ` ${email} `, name: 'Lan', password: 'lan-pass-2026', role: 'USER' },
@@ -51,7 +51,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('admin: member management', { timeout
     expect(dup.status).toBe(409);
     const short = await api(server.baseUrl, 'POST', '/api/admin/users', {
       cookie: adminCookie,
-      body: { email: `s${TEST_EMAIL_DOMAIN}`, name: 'S', password: '123', role: 'USER' },
+      body: { email: testEmail('short'), name: 'S', password: '123', role: 'USER' },
     });
     expect(short.status).toBe(400);
   });
@@ -66,7 +66,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('admin: member management', { timeout
 
   it('editing password or email ends the member session; new credentials work, old ones do not', async () => {
     const m = await createTestUser();
-    const newEmail = `renamed-${Date.now()}${TEST_EMAIL_DOMAIN}`;
+    const newEmail = testEmail(`renamed-${Date.now()}`);
     const edit = await api(server.baseUrl, 'PATCH', `/api/admin/users/${m.user.id}`, {
       cookie: adminCookie,
       body: { name: 'Đổi tên', email: newEmail, password: 'new-pass-2026' },
