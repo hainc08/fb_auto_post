@@ -20,6 +20,11 @@ enum SubscriptionPlan {
   ENTERPRISE
 }
 
+enum UserRole {
+  ADMIN
+  USER
+}
+
 enum PostStatus {
   DRAFT
   GENERATING
@@ -84,6 +89,11 @@ model User {
   avatar        String? @db.Text
   isActive      Boolean @default(true)
   emailVerified Boolean @default(false)
+
+  // Access
+  role         UserRole @default(USER)
+  /// Bumped when the account is disabled or an admin changes its password / email / role => every session ends
+  tokenVersion Int      @default(0)
 
   // Subscription
   plan          SubscriptionPlan @default(FREE)
