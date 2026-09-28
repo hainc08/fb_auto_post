@@ -16,6 +16,8 @@ CREATE TABLE `users` (
     `avatar` TEXT NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
     `emailVerified` BOOLEAN NOT NULL DEFAULT false,
+    `role` ENUM('ADMIN', 'USER') NOT NULL DEFAULT 'USER',
+    `tokenVersion` INTEGER NOT NULL DEFAULT 0,
     `plan` ENUM('FREE', 'PRO', 'BUSINESS', 'ENTERPRISE') NOT NULL DEFAULT 'FREE',
     `planExpiresAt` DATETIME(3) NULL,
     `facebookUserId` VARCHAR(191) NULL,
