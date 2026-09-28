@@ -3,6 +3,7 @@ import prisma from '../utils/prisma';
 import { config, DEFAULT_JWT_SECRET } from '../config';
 import { logger } from '../utils/logger';
 import { hashPassword, normalizeEmail, passwordSchema } from './passwords';
+import { migrateDomains } from './domains';
 
 /** Values published in this public repo (old .env.example): anyone could sign sessions with them. */
 const KNOWN_SECRETS = new Set([DEFAULT_JWT_SECRET, 'your-super-secret-jwt-key-change-in-production']);
@@ -72,4 +73,6 @@ export async function ensureAdmin(env: NodeJS.ProcessEnv = process.env, db: Pris
 export async function runBootstrap(): Promise<void> {
   assertJwtSecret();
   await ensureAdmin();
+  const migrated = await migrateDomains();
+  if (migrated) logger.info('[Bootstrap] Content domains created from old system prompts', { users: migrated });
 }

@@ -41,6 +41,8 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('admin: member management', { timeout
     expect(created.status).toBe(201);
     expect(created.json.data).toMatchObject({ email: email.toLowerCase(), name: 'Lan', role: 'USER', isActive: true });
     expect(created.json.data).not.toHaveProperty('passwordHash');
+    // Every new member starts with the starter domain
+    expect(await prisma.contentDomain.count({ where: { userId: created.json.data.id } })).toBe(1);
 
     expect((await login(email.toLowerCase(), 'lan-pass-2026')).status).toBe(200);
 

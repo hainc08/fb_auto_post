@@ -6,6 +6,7 @@ import { asyncHandler, createError } from '../middleware/error.middleware';
 import { hashPassword, normalizeEmail, passwordSchema } from '../lib/passwords';
 import { accountChangeBlock } from '../lib/admin-guards';
 import { removeImage } from '../lib/image-store';
+import { createStarterDomains } from '../lib/domains';
 import { logger } from '../utils/logger';
 
 /** Member management. Admins never read other users' content here — only counts. */
@@ -55,6 +56,7 @@ router.post(
       data: { email: body.email, name: body.name, role: body.role, plan: 'ENTERPRISE', passwordHash: await hashPassword(body.password) },
       select: memberSelect,
     });
+    await createStarterDomains(user.id);
     logger.info('Member created', { adminId: req.user!.id, userId: user.id });
     res.status(201).json({ success: true, data: user });
   })
