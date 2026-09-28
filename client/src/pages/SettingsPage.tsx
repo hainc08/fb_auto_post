@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Save, PlugZap, Sparkles, Image as ImageIcon, KeyRound, CheckCircle2, XCircle, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import {
   settingsApi,
@@ -13,10 +14,10 @@ import { useToast } from '../components/Toast';
 import PageSync from '../components/PageSync';
 import { PageStatusBadge, notifyPagesChanged } from '../components/PageStatus';
 
-type FieldKey = keyof PublicSettings;
+type FieldKey = Exclude<keyof PublicSettings, 'systemPrompt'>;
 
 const GROUP_FIELDS: Record<SettingsGroup, FieldKey[]> = {
-  gemini: ['geminiApiKey', 'geminiModel', 'systemPrompt'],
+  gemini: ['geminiApiKey', 'geminiModel'],
   cloudflare: ['cfAccountId', 'cfApiToken', 'cfImageModel', 'cfSteps'],
   facebook: ['fbAppId', 'fbAppSecret', 'fbGraphVersion'],
 };
@@ -30,7 +31,6 @@ function toForm(s: PublicSettings): FormState {
   return {
     geminiApiKey: '',
     geminiModel: s.geminiModel,
-    systemPrompt: s.systemPrompt,
     cfAccountId: s.cfAccountId,
     cfApiToken: '',
     cfImageModel: s.cfImageModel,
@@ -180,17 +180,10 @@ export default function SettingsPage() {
                   <SecretField label="API key" status={saved.geminiApiKey} value={form.geminiApiKey} onChange={set('geminiApiKey')} />
                   <TextField label="Model" value={form.geminiModel} onChange={set('geminiModel')} hint="Mặc định gemini-2.5-flash" />
                 </div>
-                <div className="form-group">
-                  <label className="form-label" htmlFor="system-prompt">System prompt</label>
-                  <p className="field-hint" style={{ marginTop: 0, marginBottom: 8 }}>
-                    Chỉ dẫn gốc cho AI. Đặt <code>{'{{topic}}'}</code> ở nơi muốn chèn ý tưởng bài viết (không có thì ý tưởng được thêm vào cuối).
-                    Càng cụ thể về Fanpage, độc giả và giọng văn thì bài càng đúng chất thương hiệu.
-                  </p>
-                  <textarea id="system-prompt" className="form-textarea mono" rows={16} value={form.systemPrompt} onChange={(e) => set('systemPrompt')(e.target.value)} />
-                  {/\[TÊN PAGE\]|\[ĐỐI TƯỢNG ĐỘC GIẢ\]/.test(form.systemPrompt) && (
-                    <p className="field-warning">Prompt vẫn còn chỗ trống [TÊN PAGE] / [ĐỐI TƯỢNG ĐỘC GIẢ] — AI sẽ viết chung chung.</p>
-                  )}
-                </div>
+                <p className="field-hint settings-domains-link">
+                  Cách AI viết bài (đối tượng, giọng văn, cấu trúc) giờ nằm ở <Link to="/domains">Lĩnh vực</Link>. Prompt cũ của bạn đã được chuyển thành
+                  lĩnh vực "Mặc định".
+                </p>
                 <TestResultView result={results.gemini} />
                 {groupActions('gemini')}
               </div>

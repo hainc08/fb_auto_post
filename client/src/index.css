@@ -994,3 +994,14 @@ tbody tr:hover { background: var(--bg-secondary); }
 .page-group + .page-group { margin-top: 10px; }
 .page-group-title { font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-tertiary); }
 @media (max-width: 640px) { .pick-row { grid-template-columns: 1fr; } }
+
+/* ─── Domain labels, small selects, start checklist ─── */
+.domain-tag { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: var(--radius-full); background: var(--bg-secondary); color: var(--text-secondary); font-size: 11.5px; font-weight: 500; }
+.select-sm { height: 34px; font-size: 13px; padding-top: 0; padding-bottom: 0; }
+.start-checklist { gap: 12px; animation: auth-in var(--transition-base) both; }
+.checklist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 16px; }
+.checklist li { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.checklist li.done { color: var(--text-tertiary); text-decoration: line-through; }
+.checklist li.done svg { color: var(--success-500); }
+.dot-todo { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border-strong); flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) { .start-checklist { animation: none; } }

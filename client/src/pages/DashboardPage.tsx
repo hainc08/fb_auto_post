@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertTriangle, FileText, KeyRound, CheckCircle2, XCircle } from 'lucide-react';
-import { analyticsApi, settingsApi, type PublicSettings } from '../api';
+import { AlertTriangle, FileText, KeyRound, CheckCircle2, XCircle, ListChecks } from 'lucide-react';
+import { analyticsApi, settingsApi, pagesApi, type PublicSettings } from '../api';
+import { useAuth } from '../auth';
+import { DOMAINS_SEEN_KEY } from './DomainsPage';
 import { StatusBadge, PostThumb, formatWhen, postTitle } from '../components/PostBits';
 import { useToast } from '../components/Toast';
 
@@ -82,6 +84,8 @@ export default function DashboardPage() {
   const [settings, setSettings] = useState<PublicSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [idea, setIdea] = useState('');
+  const [postableCount, setPostableCount] = useState(0);
+  const { user } = useAuth();
 
   useEffect(() => {
     Promise.all([
@@ -90,6 +94,10 @@ export default function DashboardPage() {
         setRecent(r.data.recentPosts);
       }),
       settingsApi.get().then((r) => setSettings(r.data)).catch(() => {}),
+      pagesApi
+        .list()
+        .then((r) => setPostableCount(r.data.filter((p) => p.isActive && p.postable).length))
+        .catch(() => {}),
     ])
       .catch((e) => toast.error(`Không tải được số liệu: ${e.message}`))
       .finally(() => setLoading(false));
@@ -104,13 +112,15 @@ export default function DashboardPage() {
     <div className="stack" style={{ gap: 24 }}>
       <div className="page-header" style={{ marginBottom: 0 }}>
         <div>
-          <h1>{greeting()}, Admin</h1>
+          <h1>{greeting()}, {user?.name ?? 'bạn'}</h1>
           <p style={{ textTransform: 'none' }}>
             {today.charAt(0).toUpperCase() + today.slice(1)}
             {pageName ? ` · Fanpage ${pageName}` : ''}
           </p>
         </div>
       </div>
+
+      {stats && settings && <StartChecklist settings={settings} postableCount={postableCount} totalPosts={stats.totalPosts} />}
 
       {stats && (
         <div className="stats-grid" style={{ marginBottom: 0 }}>
@@ -205,7 +215,7 @@ export default function DashboardPage() {
             </div>
             <div className="row">
               <span className="field-hint" style={{ margin: 0, flex: 1 }}>
-                <KeyRound size={12} style={{ verticalAlign: -1 }} aria-hidden="true" /> Viết theo System prompt trong Cài đặt
+                <KeyRound size={12} style={{ verticalAlign: -1 }} aria-hidden="true" /> Viết theo lĩnh vực đã chọn lần trước
               </span>
               <button
                 type="button"
@@ -220,5 +230,44 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function seenDomains(): boolean {
+  try {
+    return localStorage.getItem(DOMAINS_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** First steps for a new account; ticks itself and disappears when all are done (spec §6). */
+function StartChecklist({ settings, postableCount, totalPosts }: { settings: PublicSettings; postableCount: number; totalPosts: number }) {
+  const items = [
+    { done: settings.geminiApiKey.source !== 'none' && settings.cfApiToken.source !== 'none', label: 'Nhập key Gemini và Cloudflare', to: '/settings#gemini' },
+    { done: !!settings.fbAppId && postableCount > 0, label: 'Nhập Facebook App và đồng bộ Page', to: '/pages?sync=1' },
+    { done: seenDomains(), label: 'Xem lĩnh vực nội dung (cách AI viết)', to: '/domains' },
+    { done: totalPosts > 0, label: 'Tạo bài đầu tiên', to: '/posts/create' },
+  ];
+  const left = items.filter((i) => !i.done).length;
+  if (left === 0) return null;
+  return (
+    <section className="card stack start-checklist" aria-labelledby="start-title">
+      <div className="row">
+        <ListChecks size={18} aria-hidden="true" />
+        <h2 id="start-title" className="card-title" style={{ flex: 1 }}>Bắt đầu</h2>
+        <span className="muted">
+          {items.length - left}/{items.length} xong
+        </span>
+      </div>
+      <ol className="checklist">
+        {items.map((i) => (
+          <li key={i.label} className={i.done ? 'done' : ''}>
+            {i.done ? <CheckCircle2 size={16} aria-hidden="true" /> : <span className="dot-todo" aria-hidden="true" />}
+            {i.done ? <span>{i.label}</span> : <Link to={i.to}>{i.label}</Link>}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

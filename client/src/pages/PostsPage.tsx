@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Search, PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw } from 'lucide-react';
-import { postsApi, assetUrl } from '../api';
+import { postsApi, domainsApi, assetUrl, type ContentDomain } from '../api';
 import EditPostModal from '../components/EditPostModal';
 import { useToast } from '../components/Toast';
 import { StatusBadge, PostThumb, formatWhen, postTitle, wordCount, pageInitials } from '../components/PostBits';
@@ -20,6 +20,8 @@ interface PostData {
   createdAt: string;
   page: { id: string; pageName: string; pageAvatar: string | null };
   targets?: Array<{ status: TargetStatus }>;
+  domain?: { id: string; name: string } | null;
+  format?: { id: string; name: string } | null;
 }
 
 type TargetStatus = 'PENDING' | 'PUBLISHING' | 'PUBLISHED' | 'FAILED';
@@ -89,6 +91,8 @@ export default function PostsPage() {
   const [params, setParams] = useSearchParams();
   const status = params.get('status') ?? '';
   const q = params.get('q') ?? '';
+  const domainFilter = params.get('domain') ?? '';
+  const [domains, setDomains] = useState<ContentDomain[]>([]);
   const [posts, setPosts] = useState<PostData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(params.get('selected'));
@@ -108,7 +112,7 @@ export default function PostsPage() {
 
   async function load() {
     try {
-      const res = await postsApi.list({ limit: '50' });
+      const res = await postsApi.list({ limit: '50', ...(domainFilter && { domainId: domainFilter }) });
       setPosts(res.data);
     } catch (e: any) {
       toast.error(`Không tải được bài đăng: ${e.message}`);
@@ -117,7 +121,14 @@ export default function PostsPage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    domainsApi.list(true).then((r) => setDomains(r.data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    void load();
+  }, [domainFilter]);
 
   // Poll while something is being generated/published
   useEffect(() => {
@@ -236,6 +247,14 @@ export default function PostsPage() {
               </button>
             ))}
           </div>
+          {domains.length > 1 && (
+            <select className="form-select select-sm" aria-label="Lọc theo lĩnh vực" value={domainFilter} onChange={(e) => setParam('domain', e.target.value)}>
+              <option value="">Mọi lĩnh vực</option>
+              {domains.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}{d.isArchived ? ' (lưu trữ)' : ''}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         {loading ? (
@@ -267,6 +286,7 @@ export default function PostsPage() {
                     <span className="post-meta error">{p.errorMessage}</span>
                   ) : (
                     <span className="post-meta">
+                      {p.domain && <span className="domain-tag">{p.domain.name}{p.format ? ` · ${p.format.name}` : ''}</span>}
                       {(p.targets?.length ?? 0) > 1 ? `${p.targets!.length} Page` : p.page?.pageName} · {wordCount(p.caption)} từ
                       {p.hashtags?.length ? ` · ${p.hashtags.map((h) => `#${h.replace(/^#+/, '')}`).join(' ')}` : ''}
                     </span>
