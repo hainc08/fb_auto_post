@@ -8,6 +8,7 @@ import { asyncHandler, createError, errorHandler, notFoundHandler } from './midd
 import { basicAuthGate, safeEqual } from './middleware/basic-auth.middleware';
 import { csrfGuard } from './middleware/auth.middleware';
 import authRoutes from './routes/auth.routes';
+import adminRoutes from './routes/admin.routes';
 import pagesRoutes from './routes/pages.routes';
 import templatesRoutes from './routes/templates.routes';
 import postsRoutes from './routes/posts.routes';
@@ -21,6 +22,7 @@ import { countDueJobs, workerStatus } from './lib/job-queue';
 /** Every API router and its mount path (the isolation test walks this list). */
 export const API_ROUTERS: ReadonlyArray<readonly [string, Router]> = [
   ['/api/auth', authRoutes],
+  ['/api/admin', adminRoutes],
   ['/api/pages', pagesRoutes],
   ['/api/templates', templatesRoutes],
   ['/api/posts', postsRoutes],

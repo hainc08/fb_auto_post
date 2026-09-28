@@ -154,6 +154,26 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
     }
   });
 
+  it('does not publish for a disabled account', async () => {
+    const disabled = await prisma.user.create({ data: { email: `disabled-${Date.now()}@autopost.test`, name: 'Disabled', isActive: false } });
+    const page = await prisma.facebookPage.create({
+      data: { userId: disabled.id, pageId: 'TEST_MP_DISABLED', pageName: 'Trang khoá', pageAccessToken: 'EAAfaketokendisabledxxxxxxxxxxxxxx' },
+    });
+    const post = await prisma.post.create({
+      data: { userId: disabled.id, pageId: page.id, caption: 'Không được đăng', status: 'GENERATING', targets: { create: [{ pageId: page.id }] } },
+      include: { targets: true },
+    });
+    try {
+      await enqueuePost(post.id, disabled.id, { skipAi: true, targetIds: post.targets.map((t) => t.id), intervalMs: 0 });
+      const done = await waitForStatus(post.id, ['PUBLISHED', 'FAILED']);
+      expect(done.status).toBe('FAILED');
+      expect(done.errorMessage).toMatch(/Tài khoản đã bị khoá/);
+      expect(publishCalls).not.toContain('TEST_MP_DISABLED');
+    } finally {
+      await prisma.user.delete({ where: { id: disabled.id } });
+    }
+  });
+
   it('a double click never publishes the same Page twice', async () => {
     const post = await createPost(2);
     const targetIds = post.targets.map((t) => t.id);

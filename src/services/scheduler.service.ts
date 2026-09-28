@@ -88,6 +88,7 @@ async function runPublishJob(job: Job): Promise<void> {
       return;
     }
     if (post.userId !== userId) throw new UnrecoverableJobError('Unauthorized');
+    if (!(await isAccountActive(userId))) throw new UnrecoverableJobError('Tài khoản đã bị khoá, không đăng bài.');
 
     // Pages still to publish (never re-publish a Page that has the post)
     const pending = post.targets.filter((t) => t.status !== 'PUBLISHED' && !t.fbPostId && (!targetIds || targetIds.includes(t.id)));
@@ -254,6 +255,7 @@ async function runTargetJob(job: Job): Promise<void> {
 
     // Scheduled / queued posts: the Page may have become unusable since queueing
     // (App ID changed, token expired, Page disconnected). Never publish through the old app.
+    if (!(await isAccountActive(userId))) throw new UnrecoverableJobError('Tài khoản đã bị khoá, không đăng bài.');
     const current = await getSettings(userId);
     const blocked = blockReason(page, current.fbAppId);
     if (blocked) throw new UnrecoverableJobError(`Không đăng được lên Page này: ${blockMessage(blocked, page)}`);
@@ -533,6 +535,11 @@ export async function removeScheduleJob(scheduleId: string): Promise<void> {
 }
 
 // ─── Utilities ──────────────────────────────────
+
+async function isAccountActive(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { isActive: true } });
+  return !!user?.isActive;
+}
 
 async function logStep(postId: string, action: string, details?: Prisma.InputJsonObject) {
   await prisma.postLog.create({
