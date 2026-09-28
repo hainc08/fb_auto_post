@@ -11,6 +11,8 @@ import authRoutes from './routes/auth.routes';
 import adminRoutes from './routes/admin.routes';
 import pagesRoutes from './routes/pages.routes';
 import templatesRoutes from './routes/templates.routes';
+import domainsRoutes from './routes/domains.routes';
+import formatsRoutes from './routes/formats.routes';
 import postsRoutes from './routes/posts.routes';
 import schedulesRoutes from './routes/schedules.routes';
 import analyticsRoutes from './routes/analytics.routes';
@@ -25,6 +27,8 @@ export const API_ROUTERS: ReadonlyArray<readonly [string, Router]> = [
   ['/api/admin', adminRoutes],
   ['/api/pages', pagesRoutes],
   ['/api/templates', templatesRoutes],
+  ['/api/domains', domainsRoutes],
+  ['/api/formats', formatsRoutes],
   ['/api/posts', postsRoutes],
   ['/api/schedules', schedulesRoutes],
   ['/api/analytics', analyticsRoutes],

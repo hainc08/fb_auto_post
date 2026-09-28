@@ -27,7 +27,7 @@ function listApiRoutes(): string[] {
   return out.sort();
 }
 
-type Ids = { postId: string; pageId: string; targetId: string; scheduleId: string; templateId: string };
+type Ids = { postId: string; pageId: string; targetId: string; scheduleId: string; templateId: string; domainId: string; formatId: string };
 type Case =
   | { kind: 'foreign-id'; path: (b: Ids) => string; body?: unknown } // must 404
   | { kind: 'list'; path: string } // must not contain B's markers
@@ -116,6 +116,23 @@ const ROUTE_CASES: Record<string, Case> = {
     body: { pageId: '1', pageAccessToken: 'EAAinvalidinvalidinvalid' },
     why: 'upsert theo (userId, pageId)',
   },
+  'GET /api/domains': { kind: 'list', path: '/api/domains?archived=1' },
+  'POST /api/domains': {
+    kind: 'own-scope',
+    path: '/api/domains',
+    body: { name: 'iso', format: { name: 'f', instructions: 'x' } },
+    why: 'gắn req.user.id',
+  },
+  'PATCH /api/domains/:id': { kind: 'foreign-id', path: (b) => `/api/domains/${b.domainId}`, body: { name: 'hack' } },
+  'DELETE /api/domains/:id': { kind: 'foreign-id', path: (b) => `/api/domains/${b.domainId}` },
+  'POST /api/domains/:id/formats': {
+    kind: 'foreign-id',
+    path: (b) => `/api/domains/${b.domainId}/formats`,
+    body: { name: 'hack', instructions: 'x' },
+  },
+  'PATCH /api/formats/:id': { kind: 'foreign-id', path: (b) => `/api/formats/${b.formatId}`, body: { name: 'hack' } },
+  'DELETE /api/formats/:id': { kind: 'foreign-id', path: (b) => `/api/formats/${b.formatId}` },
+  'POST /api/formats/:id/preview': { kind: 'foreign-id', path: (b) => `/api/formats/${b.formatId}/preview`, body: { idea: 'x' } },
   'GET /api/images/:postId': { kind: 'foreign-id', path: (b) => `/api/images/${b.postId}` },
 };
 
@@ -170,7 +187,23 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       data: { userId: userB.id, pageId: page.id, name: `${B_MARK} lịch`, frequency: 'DAILY', startDate: new Date(Date.now() + 86_400_000) },
     });
     const template = await prisma.contentTemplate.create({ data: { userId: userB.id, name: `${B_MARK} mẫu`, promptTemplate: 'mẫu của B' } });
-    b = { postId: post.id, pageId: page.id, targetId: post.targets[0].id, scheduleId: schedule.id, templateId: template.id };
+    const domain = await prisma.contentDomain.create({
+      data: {
+        userId: userB.id,
+        name: `${B_MARK} lĩnh vực`,
+        formats: { create: { name: `${B_MARK} định dạng`, instructions: 'của B', isDefault: true } },
+      },
+      include: { formats: true },
+    });
+    b = {
+      postId: post.id,
+      pageId: page.id,
+      targetId: post.targets[0].id,
+      scheduleId: schedule.id,
+      templateId: template.id,
+      domainId: domain.id,
+      formatId: domain.formats[0].id,
+    };
   });
 
   afterAll(async () => {
@@ -233,5 +266,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
     expect(await prisma.facebookPage.findUnique({ where: { id: b.pageId } })).toMatchObject({ isActive: true });
     expect(await prisma.postSchedule.findUnique({ where: { id: b.scheduleId } })).not.toBeNull();
     expect(await prisma.contentTemplate.findUnique({ where: { id: b.templateId } })).toMatchObject({ name: `${B_MARK} mẫu` });
+    expect(await prisma.contentDomain.findUnique({ where: { id: b.domainId } })).toMatchObject({ name: `${B_MARK} lĩnh vực`, isArchived: false });
+    expect(await prisma.contentFormat.findUnique({ where: { id: b.formatId } })).toMatchObject({ name: `${B_MARK} định dạng` });
   });
 });
