@@ -43,7 +43,11 @@ function mockGraph() {
 
 describe.skipIf(!process.env.RUN_DB_TESTS)('Đồng bộ Page', { timeout: 30_000 }, () => {
   beforeAll(async () => {
-    const user = (await prisma.user.findFirst()) ?? (await prisma.user.create({ data: { email: 'sync@test.local', name: 'Sync' } }));
+    const user = (await prisma.user.findFirst({
+      // Never another test file's temporary user: those are deleted while this file runs
+      where: { email: { not: { endsWith: '@autopost.test' } } },
+      orderBy: { createdAt: 'asc' },
+    })) ?? (await prisma.user.create({ data: { email: 'sync@test.local', name: 'Sync' } }));
     userId = user.id;
     appId = (await getSettings(userId)).fbAppId || '999';
     await prisma.facebookPage.deleteMany({ where: { pageId: { in: Object.values(P) } } });

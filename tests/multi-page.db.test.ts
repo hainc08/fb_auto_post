@@ -65,7 +65,11 @@ const waitForStatus = async (postId: string, done: string[], ms = 15_000) => {
 
 describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', { timeout: 40_000 }, () => {
   beforeAll(async () => {
-    const user = (await prisma.user.findFirst()) ?? (await prisma.user.create({ data: { email: 'mp@test.local', name: 'MP' } }));
+    const user = (await prisma.user.findFirst({
+      // Never another test file's temporary user: those are deleted while this file runs
+      where: { email: { not: { endsWith: '@autopost.test' } } },
+      orderBy: { createdAt: 'asc' },
+    })) ?? (await prisma.user.create({ data: { email: 'mp@test.local', name: 'MP' } }));
     userId = user.id;
     await prisma.facebookPage.deleteMany({ where: { pageId: { in: PAGE_IDS } } });
     pages = await Promise.all(
@@ -284,7 +288,8 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
     });
     const key = `schedule:${schedule.id}`;
     try {
-      await upsertKeyedJob(key, 'run_schedule', { scheduleId: schedule.id }, new Date());
+      const startedAt = new Date();
+      await upsertKeyedJob(key, 'run_schedule', { scheduleId: schedule.id }, startedAt);
       const until = Date.now() + 15_000;
       let post = null;
       while (Date.now() < until && !post) {
@@ -292,6 +297,12 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
         post = await prisma.post.findFirst({ where: { userId, domainId: domain.id } });
       }
       expect(post).toMatchObject({ domainId: domain.id, formatId: domain.formats[0].id });
+      // Let the schedule run and the post's own job finish before cleaning up,
+      // so no job of this test still holds a worker slot during the next test
+      await waitForStatus(post!.id, ['PUBLISHED', 'FAILED']);
+      while (Date.now() < until && ((await prisma.job.findUnique({ where: { key } }))?.runAt ?? new Date(0)) <= startedAt) {
+        await new Promise((r) => setTimeout(r, 150));
+      }
     } finally {
       await prisma.job.deleteMany({ where: { key } });
       await prisma.post.deleteMany({ where: { domainId: domain.id } });
