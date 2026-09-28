@@ -15,6 +15,8 @@ import { getSettings } from '../lib/settings';
 import { DEFAULT_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES, isLiveOnAnyPage, syncTargets } from '../lib/post-targets';
 import { blockMessage, blockReason } from '../lib/page-health';
 
+import { assertOwnTemplate } from '../lib/ownership';
+
 const router = Router();
 router.use(authenticate);
 
@@ -177,6 +179,7 @@ router.post(
 
     const requested = data.pageIds ?? (data.pageId ? [data.pageId] : []);
     if (requested.length === 0) throw createError(400, 'Chọn ít nhất 1 Page.');
+    await assertOwnTemplate(userId, data.templateId);
     const pageIds = await assertOwnPages(userId, requested);
 
     // Check monthly post limit

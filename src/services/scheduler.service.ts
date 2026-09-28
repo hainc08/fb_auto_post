@@ -88,7 +88,6 @@ async function runPublishJob(job: Job): Promise<void> {
       return;
     }
     if (post.userId !== userId) throw new UnrecoverableJobError('Unauthorized');
-    if (!(await isAccountActive(userId))) throw new UnrecoverableJobError('Tài khoản đã bị khoá, không đăng bài.');
 
     // Pages still to publish (never re-publish a Page that has the post)
     const pending = post.targets.filter((t) => t.status !== 'PUBLISHED' && !t.fbPostId && (!targetIds || targetIds.includes(t.id)));
@@ -97,6 +96,8 @@ async function runPublishJob(job: Job): Promise<void> {
       logger.warn('[Pipeline] No Page left to publish, skipping', { postId });
       return;
     }
+    // After pendingTargetIds: the failure is recorded on each Page too
+    if (!(await isAccountActive(userId))) throw new UnrecoverableJobError('Tài khoản đã bị khoá, không đăng bài.');
 
     await logStep(postId, 'pipeline_started', { jobId: job.id, attempt, pages: pending.length });
     await prisma.post.update({
@@ -256,6 +257,8 @@ async function runTargetJob(job: Job): Promise<void> {
     // Scheduled / queued posts: the Page may have become unusable since queueing
     // (App ID changed, token expired, Page disconnected). Never publish through the old app.
     if (!(await isAccountActive(userId))) throw new UnrecoverableJobError('Tài khoản đã bị khoá, không đăng bài.');
+    // Never publish with another account's Page token, whatever the target row says
+    if (page.userId !== userId) throw new UnrecoverableJobError('Page này không thuộc tài khoản của bạn.');
     const current = await getSettings(userId);
     const blocked = blockReason(page, current.fbAppId);
     if (blocked) throw new UnrecoverableJobError(`Không đăng được lên Page này: ${blockMessage(blocked, page)}`);
@@ -356,6 +359,16 @@ async function runScheduleJob(job: Job): Promise<JobResult | void> {
 
   const schedule = await prisma.postSchedule.findUnique({ where: { id: scheduleId } });
   if (!schedule || !schedule.isActive) return;
+
+  // Disabled account: create nothing, keep the schedule booked for when it is re-enabled
+  if (!(await isAccountActive(schedule.userId))) {
+    const later = nextRunAt(
+      { frequency: schedule.frequency as Frequency, startDate: schedule.startDate, endDate: schedule.endDate, timezone: schedule.timezone },
+      new Date()
+    );
+    logger.info('[Scheduler] Account disabled, skipping schedule run', { scheduleId });
+    return later ? { rescheduleAt: later } : undefined;
+  }
 
   logger.info('[Scheduler] Processing schedule', { scheduleId, name: schedule.name });
 

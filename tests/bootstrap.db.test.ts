@@ -26,6 +26,8 @@ describe('assertJwtSecret', () => {
   it('refuses the default or a short secret in production only', () => {
     expect(() => assertJwtSecret('production', DEFAULT_JWT_SECRET)).toThrow(/JWT_SECRET/);
     expect(() => assertJwtSecret('production', 'short')).toThrow(/JWT_SECRET/);
+    // The old public .env.example value is long enough but known to everyone
+    expect(() => assertJwtSecret('production', 'your-super-secret-jwt-key-change-in-production')).toThrow(/JWT_SECRET/);
     expect(() => assertJwtSecret('production', 'x'.repeat(40))).not.toThrow();
     expect(() => assertJwtSecret('development', DEFAULT_JWT_SECRET)).not.toThrow();
   });

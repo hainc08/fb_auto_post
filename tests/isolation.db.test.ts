@@ -123,6 +123,7 @@ const B_MARK = 'ISO_B_SECRET_MARK';
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('img')]);
 let server: Awaited<ReturnType<typeof startTestServer>>;
 let aCookie: string;
+let aOwn: { pageId: string; scheduleId: string };
 let b: Ids;
 let bImagePath: string;
 
@@ -139,7 +140,15 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
 
   beforeAll(async () => {
     server = await startTestServer(createApp());
-    aCookie = (await createTestUser({ name: 'User A' })).cookie;
+    const a = await createTestUser({ name: 'User A' });
+    aCookie = a.cookie;
+    const aPage = await prisma.facebookPage.create({
+      data: { userId: a.user.id, pageId: 'ISO_A_PAGE', pageName: 'A Page', pageAccessToken: 'EAAisolationfaketokenaaaaaaaaaaaa' },
+    });
+    const aSchedule = await prisma.postSchedule.create({
+      data: { userId: a.user.id, pageId: aPage.id, name: 'A lịch', frequency: 'DAILY', startDate: new Date(Date.now() + 86_400_000) },
+    });
+    aOwn = { pageId: aPage.id, scheduleId: aSchedule.id };
     const { user: userB } = await createTestUser({ name: 'User B' });
     const page = await prisma.facebookPage.create({
       data: { userId: userB.id, pageId: 'ISO_B_PAGE', pageName: `${B_MARK} Page`, pageAccessToken: 'EAAisolationfaketokenxxxxxxxxxxxx' },
@@ -200,6 +209,23 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       if (res.text.includes(B_MARK) || res.text.includes(b.postId) || res.text.includes(b.pageId)) leaks.push(route);
     }
     expect(leaks).toEqual([]);
+  });
+
+  it("user A cannot attach user B's Page or template to A's own posts and schedules (ids in the body)", async () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    const attempts: Array<[string, string, unknown]> = [
+      ['PUT', `/api/schedules/${aOwn.scheduleId}`, { pageId: b.pageId }],
+      ['PUT', `/api/schedules/${aOwn.scheduleId}`, { templateId: b.templateId }],
+      ['POST', '/api/schedules', { pageId: aOwn.pageId, templateId: b.templateId, name: 'x', frequency: 'DAILY', startDate: future }],
+      ['POST', '/api/posts', { pageIds: [aOwn.pageId], templateId: b.templateId, inputData: { basicInfo: 'x' } }],
+    ];
+    const failures: string[] = [];
+    for (const [method, path, body] of attempts) {
+      const res = await api(server.baseUrl, method, path, { cookie: aCookie, body });
+      if (res.status !== 404) failures.push(`${method} ${path} ${JSON.stringify(body)} → ${res.status} ${res.text.slice(0, 100)}`);
+    }
+    expect(failures).toEqual([]);
+    expect(await prisma.postSchedule.findUnique({ where: { id: aOwn.scheduleId } })).toMatchObject({ pageId: aOwn.pageId, templateId: null });
   });
 
   it("user B's data is intact after all of A's attempts", async () => {

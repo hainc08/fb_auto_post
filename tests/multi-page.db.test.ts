@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, beforeAll, beforeEach, afterEach, vi } 
 import '../src/config'; // loads .env (DATABASE_URL)
 import prisma from '../src/utils/prisma';
 import { enqueuePost, startWorkers } from '../src/services/scheduler.service';
+import { upsertKeyedJob } from '../src/lib/job-queue';
 
 /**
  * End-to-end publish to several Pages on the real MariaDB, with Facebook mocked.
@@ -169,8 +170,59 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
       expect(done.status).toBe('FAILED');
       expect(done.errorMessage).toMatch(/Tài khoản đã bị khoá/);
       expect(publishCalls).not.toContain('TEST_MP_DISABLED');
+      // Each Page shows why it was not published (not left waiting)
+      const targets = await prisma.postTarget.findMany({ where: { postId: post.id } });
+      expect(targets.map((t) => t.status)).toEqual(['FAILED']);
     } finally {
       await prisma.user.delete({ where: { id: disabled.id } });
+    }
+  });
+
+  it("a disabled account's schedule creates no posts and waits for the account to come back", async () => {
+    const disabled = await prisma.user.create({ data: { email: `disabled-sch-${Date.now()}@autopost.test`, name: 'Disabled', isActive: false } });
+    const page = await prisma.facebookPage.create({
+      data: { userId: disabled.id, pageId: 'TEST_MP_DISABLED_SCH', pageName: 'Trang khoá', pageAccessToken: 'EAAfaketokendisabledxxxxxxxxxxxxxx' },
+    });
+    const schedule = await prisma.postSchedule.create({
+      data: { userId: disabled.id, pageId: page.id, name: 'Lịch bị khoá', frequency: 'DAILY', startDate: new Date(Date.now() - 86_400_000) },
+    });
+    const key = `schedule:${schedule.id}`;
+    try {
+      const startedAt = new Date();
+      await upsertKeyedJob(key, 'run_schedule', { scheduleId: schedule.id }, startedAt);
+      // Processed = rebooked for a later run
+      const until = Date.now() + 15_000;
+      let job = await prisma.job.findUnique({ where: { key } });
+      while (Date.now() < until && job && job.runAt <= startedAt) {
+        await new Promise((r) => setTimeout(r, 150));
+        job = await prisma.job.findUnique({ where: { key } });
+      }
+      expect(job?.runAt.getTime()).toBeGreaterThan(startedAt.getTime());
+      expect(await prisma.post.count({ where: { userId: disabled.id } })).toBe(0);
+      expect(await prisma.postSchedule.findUnique({ where: { id: schedule.id } })).toMatchObject({ isActive: true });
+    } finally {
+      await prisma.job.deleteMany({ where: { key } });
+      await prisma.user.delete({ where: { id: disabled.id } });
+    }
+  });
+
+  it("never publishes to a Page owned by another account, even if a target points at it", async () => {
+    const other = await prisma.user.create({ data: { email: `other-${Date.now()}@autopost.test`, name: 'Other' } });
+    const foreignPage = await prisma.facebookPage.create({
+      data: { userId: other.id, pageId: 'TEST_MP_FOREIGN', pageName: 'Page người khác', pageAccessToken: 'EAAfaketokenforeignxxxxxxxxxxxxxxx' },
+    });
+    const post = await prisma.post.create({
+      data: { userId, pageId: pages[0].id, caption: 'Không được đăng', status: 'GENERATING', targets: { create: [{ pageId: foreignPage.id }] } },
+      include: { targets: true },
+    });
+    try {
+      await enqueuePost(post.id, userId, { skipAi: true, targetIds: post.targets.map((t) => t.id), intervalMs: 0 });
+      const done = await waitForStatus(post.id, ['PUBLISHED', 'FAILED']);
+      expect(done.status).toBe('FAILED');
+      expect(publishCalls).not.toContain('TEST_MP_FOREIGN');
+    } finally {
+      await prisma.post.delete({ where: { id: post.id } });
+      await prisma.user.delete({ where: { id: other.id } });
     }
   });
 

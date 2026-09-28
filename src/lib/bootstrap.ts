@@ -4,10 +4,13 @@ import { config, DEFAULT_JWT_SECRET } from '../config';
 import { logger } from '../utils/logger';
 import { hashPassword, normalizeEmail, passwordSchema } from './passwords';
 
+/** Values published in this public repo (old .env.example): anyone could sign sessions with them. */
+const KNOWN_SECRETS = new Set([DEFAULT_JWT_SECRET, 'your-super-secret-jwt-key-change-in-production']);
+
 /** Sessions are only as safe as the signing key. */
 export function assertJwtSecret(env: string = config.env, secret: string = config.jwt.secret): void {
   if (env !== 'production') return;
-  if (!secret || secret === DEFAULT_JWT_SECRET || secret.length < 32) {
+  if (!secret || KNOWN_SECRETS.has(secret) || secret.length < 32) {
     throw new Error('JWT_SECRET phải là chuỗi ngẫu nhiên từ 32 ký tự trở lên trong production.');
   }
 }

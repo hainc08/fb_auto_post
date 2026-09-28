@@ -4,6 +4,7 @@ import prisma from '../utils/prisma';
 import { AuthRequest, authenticate, requirePlan } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
 import { removeScheduleJob, syncScheduleJob } from '../services/scheduler.service';
+import { assertOwnTemplate } from '../lib/ownership';
 
 const router = Router();
 router.use(authenticate);
@@ -54,6 +55,7 @@ router.post(
       where: { id: data.pageId, userId, isActive: true },
     });
     if (!page) throw createError(404, 'Page not found');
+    await assertOwnTemplate(userId, data.templateId);
 
     const startDate = new Date(data.startDate);
     const endDate = data.endDate ? new Date(data.endDate) : undefined;
@@ -98,6 +100,12 @@ router.put(
     });
 
     if (!schedule) throw createError(404, 'Schedule not found');
+
+    // Ids in the body must belong to the caller too
+    if (data.pageId && !(await prisma.facebookPage.findFirst({ where: { id: data.pageId, userId: req.user!.id, isActive: true } }))) {
+      throw createError(404, 'Page not found');
+    }
+    await assertOwnTemplate(req.user!.id, data.templateId);
 
     const updated = await prisma.postSchedule.update({
       where: { id: req.params.id },
