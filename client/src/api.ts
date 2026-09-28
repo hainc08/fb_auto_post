@@ -12,72 +12,92 @@ export function assetUrl(path?: string | null): string | null {
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const UPLOAD_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
-// ─── Auth Token Management ──────────────────────
-
-function getToken(): string | null {
-  return localStorage.getItem('autopost_token');
-}
-
-export function setToken(token: string): void {
-  localStorage.setItem('autopost_token', token);
-}
-
-export function clearToken(): void {
-  localStorage.removeItem('autopost_token');
-  localStorage.removeItem('autopost_user');
-}
-
-export function getStoredUser(): any {
-  return { id: 'dummy-user', name: 'Admin', plan: 'PRO', email: 'admin@example.com' };
-}
-
-export function setStoredUser(user: any): void {
-  localStorage.setItem('autopost_user', JSON.stringify(user));
-}
-
 // ─── Fetch Wrapper ──────────────────────────────
+// Session = httpOnly cookie set by the API (JS never sees it). Every call sends it
+// (credentials) and the CSRF header the API requires on non-GET requests.
+
+export const AUTH_EVENT = 'autopost:auth';
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
 
 async function apiFetch<T = any>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<{ success: boolean; data: T; error?: string; pagination?: any; meta?: any }> {
-  const token = getToken();
-
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    'X-Requested-With': 'autopost',
+    ...(!(options.body instanceof FormData) && { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
-
-  const data = await response.json();
+  const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers, credentials: 'include' });
+  const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error || 'Request failed');
+    const code: string | undefined = data.code;
+    if (code === 'UNAUTHENTICATED') window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: { code } }));
+    throw new ApiError(data.error || 'Request failed', response.status, code);
   }
-
   return data;
 }
 
 // ─── Auth API ───────────────────────────────────
 
+export interface PublicUser {
+  id: string;
+  email: string;
+  name: string;
+  role: 'ADMIN' | 'USER';
+}
+
 export const authApi = {
-  register: (body: { email: string; password: string; name: string }) =>
-    apiFetch('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+  login: (email: string, password: string) =>
+    apiFetch<PublicUser>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  logout: () => apiFetch('/auth/logout', { method: 'POST' }),
+  me: () => apiFetch<PublicUser>('/auth/me'),
+};
 
-  login: (body: { email: string; password: string }) =>
-    apiFetch('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+// ─── Admin API (member management) ──────────────
 
-  me: () => apiFetch('/auth/me'),
+export interface AdminUserRow {
+  id: string;
+  email: string;
+  name: string;
+  role: 'ADMIN' | 'USER';
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  pages: number;
+  posts30d: number;
+}
 
-  getFacebookLoginUrl: () => apiFetch('/auth/facebook'),
+export interface MemberInput {
+  name: string;
+  email: string;
+  password?: string;
+  role: 'ADMIN' | 'USER';
+}
+
+type MemberRow = Omit<AdminUserRow, 'pages' | 'posts30d'>;
+
+export const adminApi = {
+  listUsers: () => apiFetch<AdminUserRow[]>('/admin/users'),
+  createUser: (input: MemberInput & { password: string }) =>
+    apiFetch<MemberRow>('/admin/users', { method: 'POST', body: JSON.stringify(input) }),
+  updateUser: (id: string, patch: Partial<MemberInput> & { isActive?: boolean }) =>
+    apiFetch<MemberRow>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteUser: (id: string, confirmEmail: string) =>
+    apiFetch(`/admin/users/${id}`, { method: 'DELETE', body: JSON.stringify({ confirmEmail }) }),
 };
 
 // ─── Pages API ──────────────────────────────────
@@ -209,7 +229,12 @@ export const postsApi = {
   uploadImage: async (id: string, file: File) => {
     const body = new FormData();
     body.append('image', file);
-    const response = await fetch(`${API_BASE}/posts/${id}/image/upload`, { method: 'POST', body });
+    const response = await fetch(`${API_BASE}/posts/${id}/image/upload`, {
+      method: 'POST',
+      body,
+      credentials: 'include',
+      headers: { 'X-Requested-With': 'autopost' },
+    });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Tải ảnh lên thất bại');
     return data as { success: boolean; data: { imageUrl: string } };

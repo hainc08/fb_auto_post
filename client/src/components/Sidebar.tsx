@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown } from 'lucide-react';
-import { pagesApi, postsApi, settingsApi, getStoredUser, type PublicSettings } from '../api';
+import { pagesApi, postsApi, settingsApi, type PublicSettings } from '../api';
+import { useAuth } from '../auth';
 
 type Health = 'ok' | 'warn' | 'bad';
 
@@ -41,7 +42,7 @@ const initials = (name: string) =>
 
 export default function Sidebar() {
   const location = useLocation();
-  const user = getStoredUser();
+  const { user } = useAuth();
   const [pages, setPages] = useState<any[]>([]);
   const [pending, setPending] = useState(0);
   const [settings, setSettings] = useState<PublicSettings | null>(null);
