@@ -3,6 +3,9 @@ import path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
+/** Placeholder used when JWT_SECRET is missing — refused in production (lib/bootstrap). */
+export const DEFAULT_JWT_SECRET = 'dev-secret-change-me';
+
 export const config = {
   // Server
   env: process.env.NODE_ENV || 'development',
@@ -12,7 +15,7 @@ export const config = {
 
   // JWT
   jwt: {
-    secret: process.env.JWT_SECRET || 'dev-secret-change-me',
+    secret: process.env.JWT_SECRET || DEFAULT_JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
 

@@ -3,9 +3,11 @@ import { logger } from './utils/logger';
 import { createApp } from './app';
 import { startWorkers } from './services/scheduler.service';
 import { checkUncheckedPages } from './lib/page-health';
+import { runBootstrap } from './lib/bootstrap';
 
 async function start() {
   try {
+    await runBootstrap();
     const app = createApp();
 
     // Background jobs (MariaDB queue) run in this same process
