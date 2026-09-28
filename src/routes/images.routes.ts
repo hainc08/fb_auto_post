@@ -1,20 +1,21 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import prisma from '../utils/prisma';
+import { AuthRequest, authenticate } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
 import { readImage } from '../lib/image-store';
 
 /**
- * Serves post images from storage/images (not a public folder).
- * <img> tags cannot send auth headers; when auth is re-enabled this should move
- * to signed URLs. URLs carry ?v=<version>, so they can be cached for long.
+ * Post images from storage/images (not public): the session cookie travels with
+ * <img> requests, so only the post's owner can load it. URLs carry ?v=<version>.
  */
 const router = Router();
+router.use(authenticate);
 
 router.get(
   '/:postId',
-  asyncHandler(async (req: Request, res: Response) => {
-    const post = await prisma.post.findUnique({
-      where: { id: req.params.postId },
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const post = await prisma.post.findFirst({
+      where: { id: req.params.postId, userId: req.user!.id },
       select: { imagePath: true },
     });
     if (!post?.imagePath) throw createError(404, 'Image not found');

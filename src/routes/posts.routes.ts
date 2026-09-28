@@ -445,7 +445,8 @@ router.post(
     // With `caption` (editor draft): rewrite the draft and return it without saving.
     // Without it: rewrite the stored caption and save (original behaviour).
     const source = draftCaption ?? post?.caption;
-    if (!post || !source) throw createError(400, 'Post has no caption to improve');
+    if (!post) throw createError(404, 'Post not found');
+    if (!source) throw createError(400, 'Post has no caption to improve');
 
     const settings = await getSettings(req.user!.id);
     const improved = await improveCaption(

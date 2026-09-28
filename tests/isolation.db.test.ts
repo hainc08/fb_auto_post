@@ -1,0 +1,211 @@
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import '../src/config';
+import prisma from '../src/utils/prisma';
+import { createApp, API_ROUTERS } from '../src/app';
+import { removeImage, saveImage } from '../src/lib/image-store';
+import { startTestServer, api } from './helpers/http';
+import { cleanupTestUsers, createTestUser } from './helpers/users';
+
+/**
+ * User A must never read or change user B's data through any API route.
+ * Stop dev servers first (their worker would take jobs queued here).
+ */
+
+/** Every route as "METHOD /api/mount/path" (array paths expanded). */
+function listApiRoutes(): string[] {
+  const out: string[] = [];
+  for (const [mount, router] of API_ROUTERS) {
+    type Layer = { route?: { path: string | string[]; methods: Record<string, boolean> } };
+    for (const layer of (router as unknown as { stack: Layer[] }).stack) {
+      if (!layer.route) continue;
+      const paths = Array.isArray(layer.route.path) ? layer.route.path : [layer.route.path];
+      for (const method of Object.keys(layer.route.methods)) {
+        for (const p of paths) out.push(`${method.toUpperCase()} ${mount}${p === '/' ? '' : p}`);
+      }
+    }
+  }
+  return out.sort();
+}
+
+type Ids = { postId: string; pageId: string; targetId: string; scheduleId: string; templateId: string };
+type Case =
+  | { kind: 'foreign-id'; path: (b: Ids) => string; body?: unknown } // must 404
+  | { kind: 'list'; path: string } // must not contain B's markers
+  | { kind: 'own-scope'; path: string; body?: unknown; why: string } // takes no foreign id; must not touch B
+  | { kind: 'admin-only' } // covered by admin.db.test.ts
+  | { kind: 'public'; why: string };
+
+const ROUTE_CASES: Record<string, Case> = {
+  'POST /api/auth/login': { kind: 'public', why: 'đăng nhập' },
+  'POST /api/auth/logout': { kind: 'public', why: 'chỉ xoá cookie' },
+  'GET /api/auth/me': { kind: 'list', path: '/api/auth/me' },
+  'POST /api/auth/api-keys': { kind: 'own-scope', path: '/api/auth/api-keys', body: { name: 'iso' }, why: 'gắn req.user.id' },
+  'GET /api/admin/users': { kind: 'admin-only' },
+  'POST /api/admin/users': { kind: 'admin-only' },
+  'PATCH /api/admin/users/:id': { kind: 'admin-only' },
+  'DELETE /api/admin/users/:id': { kind: 'admin-only' },
+  'GET /api/pages': { kind: 'list', path: '/api/pages' },
+  'POST /api/pages/sync/preview': {
+    kind: 'own-scope',
+    path: '/api/pages/sync/preview',
+    body: { userToken: 'EAAinvalidinvalidinvalidinvalid' },
+    why: 'token của chính user; không nhận id',
+  },
+  'POST /api/pages/sync/apply': {
+    kind: 'own-scope',
+    path: '/api/pages/sync/apply',
+    body: { refs: [], disconnect: [] },
+    why: 'ref gắn userId; disconnect lọc userId',
+  },
+  'POST /api/pages/check': { kind: 'own-scope', path: '/api/pages/check', why: 'chỉ Page của user' },
+  'POST /api/pages/:id/check': { kind: 'foreign-id', path: (b) => `/api/pages/${b.pageId}/check` },
+  'POST /api/pages/connect': { kind: 'own-scope', path: '/api/pages/connect', body: { pages: [] }, why: 'upsert theo (userId, pageId)' },
+  'DELETE /api/pages/:id': { kind: 'foreign-id', path: (b) => `/api/pages/${b.pageId}` },
+  'POST /api/pages/:id/refresh-token': {
+    kind: 'foreign-id',
+    path: (b) => `/api/pages/${b.pageId}/refresh-token`,
+    body: { accessToken: 'EAAx' },
+  },
+  'GET /api/templates': { kind: 'list', path: '/api/templates' },
+  'GET /api/templates/:id': { kind: 'foreign-id', path: (b) => `/api/templates/${b.templateId}` },
+  'POST /api/templates': {
+    kind: 'own-scope',
+    path: '/api/templates',
+    body: { name: 'iso', promptTemplate: 'viết một bài ngắn' },
+    why: 'gắn req.user.id',
+  },
+  'PUT /api/templates/:id': { kind: 'foreign-id', path: (b) => `/api/templates/${b.templateId}`, body: { name: 'hack' } },
+  'DELETE /api/templates/:id': { kind: 'foreign-id', path: (b) => `/api/templates/${b.templateId}` },
+  'GET /api/posts': { kind: 'list', path: '/api/posts' },
+  'GET /api/posts/:id': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}` },
+  'POST /api/posts': { kind: 'foreign-id', path: () => '/api/posts' }, // body = B's pageIds (below)
+  'PATCH /api/posts/:id': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}`, body: { caption: 'hack' } },
+  'POST /api/posts/:id/generate': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/generate`, body: {} },
+  'POST /api/posts/:id/preview-image': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/preview-image`, body: {} },
+  'POST /api/posts/:id/image/generate': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/image/generate`, body: {} },
+  'POST /api/posts/:id/image/upload': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/image/upload`, body: {} },
+  'DELETE /api/posts/:id/image': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/image` },
+  'POST /api/posts/:id/improve': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/improve`, body: { instruction: 'ngắn hơn' } },
+  'POST /api/posts/:id/publish': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/publish`, body: {} },
+  'POST /api/posts/:id/targets/:targetId/retry': {
+    kind: 'foreign-id',
+    path: (b) => `/api/posts/${b.postId}/targets/${b.targetId}/retry`,
+  },
+  'DELETE /api/posts/:id': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}` },
+  'GET /api/schedules': { kind: 'list', path: '/api/schedules' },
+  'POST /api/schedules': { kind: 'foreign-id', path: () => '/api/schedules' }, // body = B's pageId (below)
+  'PUT /api/schedules/:id': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}`, body: {} },
+  'PATCH /api/schedules/:id/toggle': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/toggle` },
+  'DELETE /api/schedules/:id': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}` },
+  'GET /api/analytics/overview': { kind: 'list', path: '/api/analytics/overview' },
+  'GET /api/analytics/posts-timeline': { kind: 'list', path: '/api/analytics/posts-timeline' },
+  'GET /api/analytics/pages-performance': { kind: 'list', path: '/api/analytics/pages-performance' },
+  'GET /api/settings': { kind: 'list', path: '/api/settings' },
+  'POST /api/settings': { kind: 'own-scope', path: '/api/settings', body: { geminiModel: 'gemini-2.5-flash' }, why: 'ghi settings của req.user' },
+  'POST /api/settings/test/:group': { kind: 'foreign-id', path: () => '/api/settings/test/facebook' }, // body = B's pageId (below)
+  'POST /api/settings/facebook/exchange-token': {
+    kind: 'own-scope',
+    path: '/api/settings/facebook/exchange-token',
+    body: { shortToken: 'EAAinvalidinvalidinvalidinvalid' },
+    why: 'token của chính user',
+  },
+  'POST /api/settings/facebook/pages': { kind: 'own-scope', path: '/api/settings/facebook/pages', body: { refs: ['bad'] }, why: 'ref do server mã hoá' },
+  'POST /api/settings/facebook/pages/manual': {
+    kind: 'own-scope',
+    path: '/api/settings/facebook/pages/manual',
+    body: { pageId: '1', pageAccessToken: 'EAAinvalidinvalidinvalid' },
+    why: 'upsert theo (userId, pageId)',
+  },
+  'GET /api/images/:postId': { kind: 'foreign-id', path: (b) => `/api/images/${b.postId}` },
+};
+
+const B_MARK = 'ISO_B_SECRET_MARK';
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('img')]);
+let server: Awaited<ReturnType<typeof startTestServer>>;
+let aCookie: string;
+let b: Ids;
+let bImagePath: string;
+
+describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { timeout: 120_000 }, () => {
+  // The server runs in this process: never let a route reach the real Graph API with fake tokens
+  const realFetch = globalThis.fetch;
+  beforeEach(() => {
+    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) =>
+      String(input instanceof Request ? input.url : input).includes('graph.facebook.com')
+        ? Promise.resolve(new Response(JSON.stringify({ error: { message: 'blocked in test', code: 190 } }), { status: 400 }))
+        : realFetch(input, init)
+    );
+  });
+
+  beforeAll(async () => {
+    server = await startTestServer(createApp());
+    aCookie = (await createTestUser({ name: 'User A' })).cookie;
+    const { user: userB } = await createTestUser({ name: 'User B' });
+    const page = await prisma.facebookPage.create({
+      data: { userId: userB.id, pageId: 'ISO_B_PAGE', pageName: `${B_MARK} Page`, pageAccessToken: 'EAAisolationfaketokenxxxxxxxxxxxx' },
+    });
+    const post = await prisma.post.create({
+      data: {
+        userId: userB.id,
+        pageId: page.id,
+        caption: `${B_MARK} caption`,
+        status: 'FAILED',
+        targets: { create: [{ pageId: page.id, status: 'FAILED' }] },
+      },
+      include: { targets: true },
+    });
+    // A real image file, so the image route would serve it if ownership were not checked
+    bImagePath = (await saveImage(post.id, PNG)).imagePath;
+    await prisma.post.update({ where: { id: post.id }, data: { imagePath: bImagePath } });
+    const schedule = await prisma.postSchedule.create({
+      data: { userId: userB.id, pageId: page.id, name: `${B_MARK} lịch`, frequency: 'DAILY', startDate: new Date(Date.now() + 86_400_000) },
+    });
+    const template = await prisma.contentTemplate.create({ data: { userId: userB.id, name: `${B_MARK} mẫu`, promptTemplate: 'mẫu của B' } });
+    b = { postId: post.id, pageId: page.id, targetId: post.targets[0].id, scheduleId: schedule.id, templateId: template.id };
+  });
+
+  afterAll(async () => {
+    await server.close();
+    await removeImage(bImagePath);
+    await cleanupTestUsers();
+    await prisma.$disconnect();
+  });
+
+  it('every API route is declared in ROUTE_CASES (new routes must be added)', () => {
+    expect(listApiRoutes()).toEqual(Object.keys(ROUTE_CASES).sort());
+  });
+
+  it("user A gets 404 on every route that takes user B's ids", async () => {
+    const bodies: Record<string, unknown> = {
+      'POST /api/posts': { pageIds: [b.pageId], inputData: { basicInfo: 'x' } },
+      'POST /api/schedules': { pageId: b.pageId, name: 'x', frequency: 'DAILY', startDate: new Date(Date.now() + 86_400_000).toISOString() },
+      'POST /api/settings/test/:group': { pageId: b.pageId },
+    };
+    const failures: string[] = [];
+    for (const [route, c] of Object.entries(ROUTE_CASES)) {
+      if (c.kind !== 'foreign-id') continue;
+      const method = route.split(' ')[0];
+      const res = await api(server.baseUrl, method, c.path(b), { cookie: aCookie, body: bodies[route] ?? c.body });
+      if (res.status !== 404) failures.push(`${route} → ${res.status} ${res.text.slice(0, 120)}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("lists and own-scope routes never show user B's data", async () => {
+    const leaks: string[] = [];
+    for (const [route, c] of Object.entries(ROUTE_CASES)) {
+      if (c.kind !== 'list' && c.kind !== 'own-scope') continue;
+      const method = route.split(' ')[0];
+      const res = await api(server.baseUrl, method, c.path, { cookie: aCookie, body: c.kind === 'own-scope' ? c.body : undefined });
+      if (res.text.includes(B_MARK) || res.text.includes(b.postId) || res.text.includes(b.pageId)) leaks.push(route);
+    }
+    expect(leaks).toEqual([]);
+  });
+
+  it("user B's data is intact after all of A's attempts", async () => {
+    expect(await prisma.post.findUnique({ where: { id: b.postId } })).toMatchObject({ caption: `${B_MARK} caption` });
+    expect(await prisma.facebookPage.findUnique({ where: { id: b.pageId } })).toMatchObject({ isActive: true });
+    expect(await prisma.postSchedule.findUnique({ where: { id: b.scheduleId } })).not.toBeNull();
+    expect(await prisma.contentTemplate.findUnique({ where: { id: b.templateId } })).toMatchObject({ name: `${B_MARK} mẫu` });
+  });
+});
