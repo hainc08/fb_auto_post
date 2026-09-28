@@ -1,14 +1,14 @@
-# M1 — Đăng nhập nhiều người dùng & tách dữ liệu · Implementation Plan
+# M1 — Đăng nhập nhiều người dùng, quản lý member & tách dữ liệu · Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bật đăng nhập thật (cookie phiên), vai trò ADMIN/USER, trang quản lý người dùng, và bảo đảm mỗi user chỉ thấy dữ liệu của mình — AI vẫn viết bằng system prompt cũ (lĩnh vực/định dạng thuộc kế hoạch M2–M4, viết sau khi M1 xong).
+**Goal:** Bật đăng nhập thật (cookie phiên), vai trò ADMIN/USER; admin tạo member bằng email + mật khẩu do admin đặt, member đăng nhập ngay; admin thêm/sửa/xoá/vô hiệu hoá member; mỗi user chỉ thấy dữ liệu của mình — AI vẫn viết bằng system prompt cũ (lĩnh vực/định dạng thuộc kế hoạch M2–M4, viết sau khi M1 xong).
 
-**Architecture:** Một database chung, mọi truy vấn lọc `userId`. Phiên = JWT `{ sub, tv }` trong cookie `httpOnly` `ap_session`; `tokenVersion` trong DB huỷ mọi phiên khi khoá/đặt lại mật khẩu. App Express được tách thành `createApp()` để test gọi HTTP thật; một bộ test tách dữ liệu duyệt **mọi** route và tự fail khi có route chưa khai báo.
+**Architecture:** Một database chung, mọi truy vấn lọc `userId`. Phiên = JWT `{ sub, tv }` trong cookie `httpOnly` `ap_session`; `tokenVersion` trong DB huỷ mọi phiên khi vô hiệu hoá hoặc admin đổi mật khẩu/email/vai trò. App Express được tách thành `createApp()` để test gọi HTTP thật; một bộ test tách dữ liệu duyệt **mọi** route và tự fail khi có route chưa khai báo.
 
 **Tech Stack:** Node.js + Express 4 + TypeScript, Prisma 6 + MariaDB, `bcryptjs`, `jsonwebtoken`, Vitest 5, React 19 + Vite 8 + React Router 6, CSS thuần.
 
-**Spec:** `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md` (§3, §4, §6 phần đăng nhập/người dùng, §7 bước 1–2, §9, §10 hàng M1).
+**Spec:** `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md` (§3, §4, §6 phần đăng nhập/quản lý member, §7 bước 1–2, §9, §10 hàng M1).
 
 ## Global Constraints
 
@@ -18,23 +18,24 @@
 - Lỗi API: dùng `asyncHandler` + `createError(status, message, details?)`; body lỗi `{ success: false, error, code? }`; thông báo tiếng Việt.
 - Cookie phiên: tên `ap_session`, `httpOnly`, `SameSite=Lax`, `Secure` khi `NODE_ENV=production`, `Path=/`, 7 ngày; JWT payload `{ sub: userId, tv: tokenVersion }`.
 - Mọi request `/api/*` không phải GET/HEAD/OPTIONS phải có header `X-Requested-With: autopost`, thiếu ⇒ 403 `code: 'CSRF'`.
-- Mật khẩu mới ≥ 10 ký tự; mật khẩu tạm = 12 ký tự `base64url`; bcrypt cost 12.
-- Sai đăng nhập 5 lần / 15 phút cho cùng `email|IP` ⇒ 429 + `Retry-After`. Lỗi đăng nhập luôn: "Email hoặc mật khẩu không đúng."
-- `mustChangePassword=true` ⇒ mọi API trừ `/api/auth/me`, `/api/auth/change-password`, `/api/auth/logout` trả 403 `code: 'MUST_CHANGE_PASSWORD'`.
+- **Admin đặt mật khẩu cho member** (≥ 8 ký tự, bcrypt cost 12). Member **không** có màn hình đổi mật khẩu, **không** bị bắt đổi mật khẩu.
+- Sai đăng nhập 5 lần / 15 phút cho cùng `email|IP` ⇒ 429 + `Retry-After`. Lỗi đăng nhập luôn: "Email hoặc mật khẩu không đúng." (kể cả tài khoản bị vô hiệu hoá).
 - Bản ghi không thuộc user ⇒ **404** (không 403).
 - Admin **không** có API đọc nội dung user khác; chỉ quản lý tài khoản + số đếm.
-- Email luôn chuẩn hoá `trim().toLowerCase()` khi tạo và khi đăng nhập.
+- Xoá member = xoá hẳn member **và toàn bộ dữ liệu của họ** (cascade) + file ảnh; bắt buộc `confirmEmail` trùng email.
+- Không ai tự xoá / tự vô hiệu hoá / tự bỏ quyền admin; luôn còn ≥ 1 admin đang hoạt động.
+- Email luôn chuẩn hoá `trim().toLowerCase()` khi tạo, sửa và đăng nhập.
 - Test: `npx vitest run` (unit) và `RUN_DB_TESTS=1 npx vitest run` (cần MariaDB local). **Tắt mọi dev server trước khi chạy test DB** (worker của server sẽ lấy job của test). `vitest.config.mts` có `unstubGlobals: true` ⇒ mock `fetch` trong `beforeEach`.
 - Client build cần Node 22: `cd client && npx -y -p node@22 -- node node_modules/typescript/bin/tsc -b && npx -y -p node@22 -- node node_modules/vite/bin/vite.js build`.
 - UI: tiếng Việt, token CSS có sẵn trong `client/src/index.css`, micro-animation nhẹ, tôn trọng `prefers-reduced-motion`.
 
 ## Review Focus
 
-- **Email khác hoa/thường hoặc có khoảng trắng** (`" Admin@Example.com "`): đăng nhập vẫn thành công, tạo trùng bị chặn 409 → test ở Task 6 và Task 8.
-- **Admin tự khoá mình / gỡ quyền admin cuối cùng** → bị chặn 409, không ai bị khoá ngoài hệ thống → test ở Task 8.
-- **Phiên cũ sau khi khoá / đặt lại / đổi mật khẩu** → trả 401 ngay request kế tiếp → test ở Task 5, 6, 8.
-- **Dev: client Vite (5173) gọi API (3000) bằng cookie** → CORS trả `Access-Control-Allow-Credentials: true` cho origin 5173 → test ở Task 1.
-- **User bị khoá còn bài hẹn giờ trong hàng đợi** → worker không đăng, target FAILED "Tài khoản đã bị khoá" → test ở Task 8.
+- **Email khác hoa/thường hoặc có khoảng trắng** (`" Lan@Example.com "`): đăng nhập vẫn thành công; tạo/sửa trùng email bị chặn 409 → test ở Task 6 và Task 8.
+- **Admin đổi mật khẩu hoặc email của member** → phiên cũ của member hết hiệu lực ngay, đăng nhập bằng thông tin mới được, thông tin cũ không → test ở Task 8.
+- **Xoá member** → chỉ dữ liệu (Page, bài, file ảnh) của member đó biến mất, member khác không bị ảnh hưởng; gõ sai email xác nhận ⇒ không xoá → test ở Task 8.
+- **Admin tự xoá / tự vô hiệu hoá / hạ quyền admin cuối cùng** → bị chặn 409 → test ở Task 8.
+- **Member bị vô hiệu hoá còn bài hẹn giờ** → worker không đăng, bài FAILED "Tài khoản đã bị khoá" → test ở Task 8. (Dev: client 5173 gọi API 3000 bằng cookie — CORS credentials — test ở Task 1.)
 
 ---
 
@@ -45,26 +46,26 @@
 | `src/app.ts` (mới) | `createApp()` + `API_ROUTERS` — dựng Express app (middleware, route, static, lỗi) |
 | `src/server.ts` (sửa) | Chỉ khởi động: `runBootstrap()` → worker → `listen` |
 | `src/lib/session.ts` (mới) | Ký/đọc JWT phiên, đọc cookie, set/clear cookie |
-| `src/lib/passwords.ts` (mới) | Chuẩn hoá email, hash/verify, mật khẩu tạm, schema mật khẩu mới |
+| `src/lib/passwords.ts` (mới) | Chuẩn hoá email, hash/verify, schema mật khẩu |
 | `src/lib/login-limiter.ts` (mới) | Đếm đăng nhập sai theo `email\|IP` |
 | `src/lib/bootstrap.ts` (mới) | `assertJwtSecret`, `ensureAdmin`, `runBootstrap` |
-| `src/lib/admin-guards.ts` (mới) | Hàm thuần kiểm tra "tự khoá / admin cuối" |
+| `src/lib/admin-guards.ts` (mới) | Hàm thuần kiểm tra "tự thao tác / admin cuối" |
 | `src/middleware/auth.middleware.ts` (sửa) | `authenticate` thật, `requireAdmin`, `csrfGuard` |
 | `src/middleware/error.middleware.ts` (sửa) | Trả thêm `code` |
-| `src/routes/auth.routes.ts` (viết lại) | login / logout / me / change-password / api-keys |
-| `src/routes/admin.routes.ts` (mới) | Quản lý người dùng |
+| `src/routes/auth.routes.ts` (viết lại) | login / logout / me / api-keys |
+| `src/routes/admin.routes.ts` (mới) | Quản lý member: danh sách, thêm, sửa, xoá |
 | `src/routes/images.routes.ts`, `posts.routes.ts`, `settings.routes.ts` (sửa) | Bịt lỗ tách dữ liệu |
 | `src/lib/settings.ts` (sửa) | Chỉ ADMIN được fallback `.env` |
-| `src/services/scheduler.service.ts` (sửa) | Không đăng bài của user bị khoá |
+| `src/services/scheduler.service.ts` (sửa) | Không đăng bài của tài khoản bị vô hiệu hoá |
 | `src/config/index.ts` (sửa) | `DEFAULT_JWT_SECRET` |
 | `tests/helpers/http.ts`, `tests/helpers/users.ts` (mới) | Server test + tạo user/cookie |
 | `tests/*.test.ts` | Xem từng task |
 | `client/src/api.ts` (sửa) | Cookie + header CSRF, `authApi`, `adminApi`, sự kiện 401 |
-| `client/src/auth.tsx` (mới) | `AuthProvider`, `useAuth` |
-| `client/src/App.tsx`, `main.tsx` (sửa) | `ProtectedRoute` thật, route mới |
-| `client/src/pages/LoginPage.tsx` (viết lại), `ChangePasswordPage.tsx`, `UsersPage.tsx` (mới) | Giao diện |
+| `client/src/auth.tsx` (mới) | `AuthProvider`, `useAuth`, `ProtectedRoute` |
+| `client/src/App.tsx`, `main.tsx` (sửa) | Route bảo vệ, route `/admin/users` |
+| `client/src/pages/LoginPage.tsx` (viết lại), `UsersPage.tsx` (mới), `client/src/components/MemberDialog.tsx` (mới) | Giao diện |
 | `client/src/components/Sidebar.tsx` (sửa) | Khối user + Đăng xuất + mục Người dùng |
-| `client/src/index.css` (sửa) | Style trang đăng nhập / người dùng |
+| `client/src/index.css` (sửa) | Style trang đăng nhập / quản lý member |
 
 ---
 
@@ -75,7 +76,7 @@
 - Modify: `src/server.ts` (toàn bộ file)
 
 **Interfaces:**
-- Produces: `createApp(): express.Express`; `API_ROUTERS: ReadonlyArray<readonly [string, express.Router]>`; `startTestServer(app) → Promise<{ baseUrl: string; close(): Promise<void> }>`; `api(baseUrl, method, path, opts?) → Promise<{ status: number; json: any; headers: Headers }>` với `opts = { cookie?: string; body?: unknown; headers?: Record<string, string> }` (mặc định gửi `X-Requested-With: autopost`).
+- Produces: `createApp(): express.Express`; `API_ROUTERS: ReadonlyArray<readonly [string, express.Router]>`; `startTestServer(app) → Promise<{ baseUrl: string; close(): Promise<void> }>`; `api(baseUrl, method, path, opts?) → Promise<{ status: number; json: any; headers: Headers; text: string }>` với `opts = { cookie?: string; body?: unknown; headers?: Record<string, string> }` (mặc định gửi `X-Requested-With: autopost`).
 
 - [ ] **Step 1: Viết test (fail vì chưa có `src/app.ts`)** — `tests/app.test.ts`
 
@@ -155,7 +156,7 @@ export async function api(baseUrl: string, method: string, path: string, opts: A
 Run: `npx vitest run tests/app.test.ts`
 Expected: FAIL — `Cannot find module '../src/app'`.
 
-- [ ] **Step 3: Tạo `src/app.ts`** — chuyển nguyên phần dựng app từ `src/server.ts` (dòng 1–171 hiện tại) vào hàm, thêm `API_ROUTERS`:
+- [ ] **Step 3: Tạo `src/app.ts`** — chuyển phần dựng app từ `src/server.ts` (dòng 1–171 hiện tại) vào hàm, thêm `API_ROUTERS`:
 
 ```ts
 import express, { Router } from 'express';
@@ -239,11 +240,7 @@ export function createApp() {
   for (const [mount, router] of API_ROUTERS) app.use(mount, router);
 
   app.get('/api', (_req, res) => {
-    res.json({
-      name: 'Auto Post Facebook API',
-      version: '1.0.0',
-      routes: API_ROUTERS.map(([mount]) => mount),
-    });
+    res.json({ name: 'Auto Post Facebook API', version: '1.0.0', routes: API_ROUTERS.map(([mount]) => mount) });
   });
 
   const clientDist = path.resolve(process.cwd(), 'client', 'dist');
@@ -272,10 +269,6 @@ import { checkUncheckedPages } from './lib/page-health';
 async function start() {
   try {
     const app = createApp();
-
-    if (config.env === 'production' && !process.env.BASIC_AUTH_USER) {
-      logger.info('Basic Auth tắt — truy cập được bảo vệ bằng đăng nhập của ứng dụng.');
-    }
 
     // Background jobs (MariaDB queue) run in this same process
     if (config.env !== 'test') {
@@ -310,13 +303,13 @@ git commit -m "refactor: build the Express app in createApp() for HTTP tests"
 
 ---
 
-### Task 2: Schema — vai trò, bắt đổi mật khẩu, tokenVersion
+### Task 2: Schema — vai trò & tokenVersion
 
 **Files:**
 - Modify: `prisma/schema.prisma` (model `User`, thêm enum)
 
 **Interfaces:**
-- Produces: `User.role: 'ADMIN' | 'USER'` (mặc định `USER`), `User.mustChangePassword: boolean`, `User.tokenVersion: number`; enum Prisma `UserRole`.
+- Produces: `User.role: 'ADMIN' | 'USER'` (mặc định `USER`), `User.tokenVersion: number`; enum Prisma `UserRole`.
 
 - [ ] **Step 1: Sửa schema** — thêm sau `enum SubscriptionPlan { … }`:
 
@@ -331,10 +324,9 @@ Trong `model User`, sau dòng `emailVerified Boolean @default(false)`:
 
 ```prisma
   // Access
-  role               UserRole @default(USER)
-  mustChangePassword Boolean  @default(false)
-  /// Bumped on lock / password reset / password change ⇒ every existing session becomes invalid
-  tokenVersion       Int      @default(0)
+  role         UserRole @default(USER)
+  /// Bumped when the account is disabled or an admin changes its password / email / role ⇒ every session ends
+  tokenVersion Int      @default(0)
 ```
 
 - [ ] **Step 2: Áp dụng và kiểm tra**
@@ -351,7 +343,7 @@ Expected: `Your database is now in sync`; 2 cột hiện ra; tsc sạch.
 
 ```bash
 git add prisma/schema.prisma
-git commit -m "feat(db): user role, mustChangePassword and tokenVersion"
+git commit -m "feat(db): user role and tokenVersion"
 ```
 
 ---
@@ -362,7 +354,7 @@ git commit -m "feat(db): user role, mustChangePassword and tokenVersion"
 - Create: `src/lib/session.ts`, `tests/session.test.ts`
 
 **Interfaces:**
-- Produces: `SESSION_COOKIE = 'ap_session'`; `SESSION_MAX_AGE_MS`; `signSession(user: { id: string; tokenVersion: number }): string`; `verifySession(token: string): { sub: string; tv: number } | null`; `readCookie(header: string | undefined, name: string): string | null`; `readSessionToken(req: Request): string | null`; `setSessionCookie(res: Response, user: { id: string; tokenVersion: number }): void`; `clearSessionCookie(res: Response): void`; `sessionCookie(user) : string` (chuỗi `ap_session=<jwt>` dùng cho test).
+- Produces: `SESSION_COOKIE = 'ap_session'`; `SESSION_MAX_AGE_MS`; `signSession(user: { id: string; tokenVersion: number }): string`; `verifySession(token: string): { sub: string; tv: number } | null`; `readCookie(header: string | undefined, name: string): string | null`; `readSessionToken(req: Request): string | null`; `setSessionCookie(res: Response, user: { id: string; tokenVersion: number }): void`; `clearSessionCookie(res: Response): void`; `sessionCookie(user): string` (chuỗi `ap_session=<jwt>` dùng cho test).
 
 - [ ] **Step 1: Viết test** — `tests/session.test.ts`
 
@@ -420,7 +412,7 @@ import { config } from '../config';
 
 /**
  * Login session: a JWT `{ sub: userId, tv: tokenVersion }` in an httpOnly cookie.
- * Bumping User.tokenVersion (lock, password reset/change) invalidates every session.
+ * Bumping User.tokenVersion (disable, admin changes password/email/role) ends every session.
  */
 
 export const SESSION_COOKIE = 'ap_session';
@@ -505,7 +497,7 @@ git commit -m "feat(auth): signed session cookie helpers"
 - Create: `src/lib/passwords.ts`, `src/lib/login-limiter.ts`, `tests/passwords.test.ts`, `tests/login-limiter.test.ts`
 
 **Interfaces:**
-- Produces: `normalizeEmail(email: string): string`; `newPasswordSchema: z.ZodString`; `generateTempPassword(): string`; `hashPassword(p: string): Promise<string>`; `verifyPassword(p: string, hash: string | null | undefined): Promise<boolean>`; `class LoginLimiter { constructor(max?, windowMs?, now?); retryAfterSeconds(key): number; fail(key): void; reset(key): void }`; `loginLimiter: LoginLimiter`; `limiterKey(email: string, ip: string | undefined): string`.
+- Produces: `normalizeEmail(email: string): string`; `passwordSchema: z.ZodString` (≥ 8, ≤ 200); `hashPassword(p: string): Promise<string>`; `verifyPassword(p: string, hash: string | null | undefined): Promise<boolean>`; `class LoginLimiter { constructor(max?, windowMs?, now?); retryAfterSeconds(key): number; fail(key): void; reset(key): void }`; `loginLimiter: LoginLimiter`; `limiterKey(email: string, ip: string | undefined): string`.
 
 - [ ] **Step 1: Viết test**
 
@@ -513,22 +505,16 @@ git commit -m "feat(auth): signed session cookie helpers"
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { generateTempPassword, hashPassword, newPasswordSchema, normalizeEmail, verifyPassword } from '../src/lib/passwords';
+import { hashPassword, normalizeEmail, passwordSchema, verifyPassword } from '../src/lib/passwords';
 
 describe('passwords', () => {
   it('normalizes emails', () => {
-    expect(normalizeEmail('  Admin@Example.COM ')).toBe('admin@example.com');
+    expect(normalizeEmail('  Lan@Example.COM ')).toBe('lan@example.com');
   });
 
-  it('temporary passwords are 12 url-safe characters and unique', () => {
-    const a = generateTempPassword();
-    expect(a).toMatch(/^[A-Za-z0-9_-]{12}$/);
-    expect(generateTempPassword()).not.toBe(a);
-  });
-
-  it('new passwords need at least 10 characters', () => {
-    expect(newPasswordSchema.safeParse('short').success).toBe(false);
-    expect(newPasswordSchema.safeParse('long-enough-1').success).toBe(true);
+  it('passwords need at least 8 characters', () => {
+    expect(passwordSchema.safeParse('short').success).toBe(false);
+    expect(passwordSchema.safeParse('8chars!!').success).toBe(true);
   });
 
   it('verifies bcrypt hashes and refuses placeholder hashes', async () => {
@@ -584,17 +570,14 @@ Expected: FAIL — module không tồn tại.
 
 ```ts
 import bcrypt from 'bcryptjs';
-import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 
 export const BCRYPT_COST = 12;
 
 export const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
-export const newPasswordSchema = z.string().min(10, 'Mật khẩu mới cần ít nhất 10 ký tự.').max(200);
-
-/** 12 url-safe characters, shown once to the admin. */
-export const generateTempPassword = () => randomBytes(9).toString('base64url');
+/** Passwords are set by the admin (create / edit member). */
+export const passwordSchema = z.string().min(8, 'Mật khẩu cần ít nhất 8 ký tự.').max(200);
 
 export const hashPassword = (password: string) => bcrypt.hash(password, BCRYPT_COST);
 
@@ -654,7 +637,7 @@ export const limiterKey = (email: string, ip: string | undefined) => `${email}|$
 - [ ] **Step 4: Chạy test**
 
 Run: `npx vitest run tests/passwords.test.ts tests/login-limiter.test.ts`
-Expected: PASS (6 tests).
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -672,8 +655,8 @@ git commit -m "feat(auth): password helpers and failed-login limiter"
 - Create: `tests/helpers/users.ts`, `tests/auth-middleware.db.test.ts`
 
 **Interfaces:**
-- Consumes: `readSessionToken`, `verifySession` (Task 3).
-- Produces: `interface AuthUser { id; email; name; plan; role: 'ADMIN' | 'USER'; mustChangePassword: boolean }`; `AuthRequest.user?: AuthUser`; `authenticate`; `requireAdmin`; `csrfGuard`; body lỗi có `code` khi `createError(..., { code })`. Test helper: `createTestUser(opts?) → Promise<{ user: User; cookie: string; password: string }>`, `cleanupTestUsers()`, `TEST_EMAIL_DOMAIN = '@autopost.test'`.
+- Consumes: `readSessionToken`, `verifySession`, `sessionCookie` (Task 3); `hashPassword` (Task 4).
+- Produces: `interface AuthUser { id; email; name; plan; role: 'ADMIN' | 'USER' }`; `AuthRequest.user?: AuthUser`; `authenticate`; `requireAdmin`; `csrfGuard`; body lỗi có `code` khi `createError(..., { code })`. Test helper: `createTestUser(opts?) → Promise<{ user: User; cookie: string; password: string }>`, `cleanupTestUsers()`, `TEST_EMAIL_DOMAIN = '@autopost.test'`.
 
 - [ ] **Step 1: Viết helper + test**
 
@@ -689,7 +672,7 @@ import { sessionCookie } from '../../src/lib/session';
 export const TEST_EMAIL_DOMAIN = '@autopost.test';
 
 export async function createTestUser(
-  opts: Partial<Pick<User, 'role' | 'isActive' | 'mustChangePassword' | 'name'>> & { password?: string } = {}
+  opts: Partial<Pick<User, 'role' | 'isActive' | 'name'>> & { password?: string } = {}
 ): Promise<{ user: User; cookie: string; password: string }> {
   const password = opts.password ?? 'test-password-123';
   const user = await prisma.user.create({
@@ -699,7 +682,6 @@ export async function createTestUser(
       passwordHash: await hashPassword(password),
       role: opts.role ?? 'USER',
       isActive: opts.isActive ?? true,
-      mustChangePassword: opts.mustChangePassword ?? false,
       plan: 'ENTERPRISE',
     },
   });
@@ -745,7 +727,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('authenticate middleware', { timeout:
     expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie: cookie.slice(0, -3) + 'abc' })).status).toBe(401);
   });
 
-  it('a bumped tokenVersion or a locked account kills existing sessions', async () => {
+  it('a bumped tokenVersion or a disabled account kills existing sessions', async () => {
     const a = await createTestUser();
     await prisma.user.update({ where: { id: a.user.id }, data: { tokenVersion: { increment: 1 } } });
     expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie: a.cookie })).status).toBe(401);
@@ -753,14 +735,6 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('authenticate middleware', { timeout:
     const b = await createTestUser();
     await prisma.user.update({ where: { id: b.user.id }, data: { isActive: false } });
     expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie: b.cookie })).status).toBe(401);
-  });
-
-  it('mustChangePassword only allows me / change-password / logout', async () => {
-    const { cookie } = await createTestUser({ mustChangePassword: true });
-    const blocked = await api(server.baseUrl, 'GET', '/api/pages', { cookie });
-    expect(blocked.status).toBe(403);
-    expect(blocked.json.code).toBe('MUST_CHANGE_PASSWORD');
-    expect((await api(server.baseUrl, 'GET', '/api/auth/me', { cookie })).status).toBe(200);
   });
 
   it('state-changing API calls need the X-Requested-With header', async () => {
@@ -809,17 +783,13 @@ export interface AuthUser {
   name: string;
   plan: string;
   role: 'ADMIN' | 'USER';
-  mustChangePassword: boolean;
 }
 
 export interface AuthRequest extends Request {
   user?: AuthUser;
 }
 
-/** Reachable while the user still has to replace a temporary password. */
-const PASSWORD_CHANGE_ALLOWED = new Set(['/api/auth/me', '/api/auth/change-password', '/api/auth/logout']);
-
-/** Session cookie ⇒ req.user. Every /api route except login uses this. */
+/** Session cookie ⇒ req.user. Every /api route except login/logout uses this. */
 export const authenticate = async (req: AuthRequest, _res: Response, next: NextFunction): Promise<void> => {
   try {
     const token = readSessionToken(req);
@@ -828,18 +798,13 @@ export const authenticate = async (req: AuthRequest, _res: Response, next: NextF
 
     const user = await prisma.user.findUnique({
       where: { id: claims.sub },
-      select: { id: true, email: true, name: true, plan: true, role: true, isActive: true, mustChangePassword: true, tokenVersion: true },
+      select: { id: true, email: true, name: true, plan: true, role: true, isActive: true, tokenVersion: true },
     });
     if (!user || !user.isActive || user.tokenVersion !== claims.tv) {
       return next(createError(401, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', { code: 'UNAUTHENTICATED' }));
     }
 
-    req.user = { id: user.id, email: user.email, name: user.name, plan: user.plan, role: user.role, mustChangePassword: user.mustChangePassword };
-
-    const path = req.originalUrl.split('?')[0];
-    if (user.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.has(path)) {
-      return next(createError(403, 'Bạn cần đổi mật khẩu trước khi tiếp tục.', { code: 'MUST_CHANGE_PASSWORD' }));
-    }
+    req.user = { id: user.id, email: user.email, name: user.name, plan: user.plan, role: user.role };
     next();
   } catch (error) {
     next(error);
@@ -861,7 +826,7 @@ export const csrfGuard = (req: Request, _res: Response, next: NextFunction): voi
 };
 ```
 
-Trong `authenticateApiKey` (giữ nguyên phần còn lại): đổi `include: { user: { select: { id, email, name, plan, isActive } } }` thành thêm `role: true`, và khối gán `req.user` thành:
+Trong `authenticateApiKey` (giữ nguyên phần còn lại): thêm `role: true` vào `select` của `user`, và khối gán `req.user` thành:
 
 ```ts
     req.user = {
@@ -870,21 +835,15 @@ Trong `authenticateApiKey` (giữ nguyên phần còn lại): đổi `include: {
       name: key.user.name,
       plan: key.user.plan,
       role: key.user.role,
-      mustChangePassword: false,
     };
 ```
 
-`src/app.ts` — ngay trước vòng `for (const [mount, router] of API_ROUTERS)`:
-
-```ts
-  app.use('/api', csrfGuard);
-```
-và import `import { csrfGuard } from './middleware/auth.middleware';`.
+`src/app.ts` — ngay trước vòng `for (const [mount, router] of API_ROUTERS)` thêm `app.use('/api', csrfGuard);` và import `import { csrfGuard } from './middleware/auth.middleware';`.
 
 - [ ] **Step 4: Chạy test**
 
 Run: `npx tsc --noEmit && RUN_DB_TESTS=1 npx vitest run tests/auth-middleware.db.test.ts tests/app.test.ts`
-Expected: PASS (7 tests).
+Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -895,15 +854,15 @@ git commit -m "feat(auth): real session middleware, admin guard, CSRF header che
 
 ---
 
-### Task 6: Route đăng nhập / đăng xuất / đổi mật khẩu
+### Task 6: Route đăng nhập / đăng xuất / me
 
 **Files:**
 - Modify: `src/routes/auth.routes.ts` (viết lại toàn bộ)
 - Create: `tests/auth-routes.db.test.ts`
 
 **Interfaces:**
-- Consumes: `normalizeEmail`, `verifyPassword`, `hashPassword`, `newPasswordSchema`, `loginLimiter`, `limiterKey` (Task 4); `setSessionCookie`, `clearSessionCookie` (Task 3); `authenticate` (Task 5).
-- Produces: `POST /api/auth/login` ⇒ `{ data: PublicUser }` + cookie; `POST /api/auth/logout`; `GET /api/auth/me` ⇒ `PublicUser`; `POST /api/auth/change-password`; `POST /api/auth/api-keys` (giữ). `PublicUser = { id, email, name, role, mustChangePassword }`. Gỡ `register`, `facebook`, `facebook/callback`.
+- Consumes: `normalizeEmail`, `verifyPassword`, `loginLimiter`, `limiterKey` (Task 4); `setSessionCookie`, `clearSessionCookie` (Task 3); `authenticate` (Task 5).
+- Produces: `POST /api/auth/login` ⇒ `{ data: PublicUser }` + cookie; `POST /api/auth/logout`; `GET /api/auth/me` ⇒ `PublicUser`; `POST /api/auth/api-keys` (giữ). `PublicUser = { id, email, name, role }`. Gỡ `register`, `facebook`, `facebook/callback`.
 
 - [ ] **Step 1: Viết test** — `tests/auth-routes.db.test.ts`
 
@@ -933,7 +892,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('auth routes', { timeout: 60_000 }, (
     const { user, password } = await createTestUser();
     const res = await api(server.baseUrl, 'POST', '/api/auth/login', { body: { email: `  ${user.email.toUpperCase()} `, password } });
     expect(res.status).toBe(200);
-    expect(res.json.data).toMatchObject({ id: user.id, role: 'USER', mustChangePassword: false });
+    expect(res.json.data).toEqual({ id: user.id, email: user.email, name: user.name, role: 'USER' });
     const setCookie = res.headers.get('set-cookie') ?? '';
     expect(setCookie).toMatch(/^ap_session=/);
     expect(setCookie).toMatch(/HttpOnly/i);
@@ -943,15 +902,15 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('auth routes', { timeout: 60_000 }, (
     expect(me.json.data.email).toBe(user.email);
   });
 
-  it('answers the same generic error for a wrong password and a locked account', async () => {
+  it('answers the same generic error for a wrong password and a disabled account', async () => {
     const a = await createTestUser();
     const wrong = await api(server.baseUrl, 'POST', '/api/auth/login', { body: { email: a.user.email, password: 'nope-nope-nope' } });
     const b = await createTestUser({ isActive: false });
-    const locked = await api(server.baseUrl, 'POST', '/api/auth/login', { body: { email: b.user.email, password: b.password } });
+    const disabled = await api(server.baseUrl, 'POST', '/api/auth/login', { body: { email: b.user.email, password: b.password } });
     expect(wrong.status).toBe(401);
-    expect(locked.status).toBe(401);
+    expect(disabled.status).toBe(401);
     expect(wrong.json.error).toBe('Email hoặc mật khẩu không đúng.');
-    expect(locked.json.error).toBe(wrong.json.error);
+    expect(disabled.json.error).toBe(wrong.json.error);
   });
 
   it('locks the email after 5 failures (429 with Retry-After)', async () => {
@@ -964,29 +923,15 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('auth routes', { timeout: 60_000 }, (
     expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0);
   });
 
-  it('change-password replaces a temporary password and invalidates the old session', async () => {
-    const { user, cookie, password } = await createTestUser({ mustChangePassword: true });
-    const bad = await api(server.baseUrl, 'POST', '/api/auth/change-password', { cookie, body: { currentPassword: 'wrong', newPassword: 'brand-new-pass-1' } });
-    expect(bad.status).toBe(400);
-    const short = await api(server.baseUrl, 'POST', '/api/auth/change-password', { cookie, body: { currentPassword: password, newPassword: 'short' } });
-    expect(short.status).toBe(400);
-
-    const ok = await api(server.baseUrl, 'POST', '/api/auth/change-password', { cookie, body: { currentPassword: password, newPassword: 'brand-new-pass-1' } });
-    expect(ok.status).toBe(200);
-    expect(ok.json.data.mustChangePassword).toBe(false);
-    expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie })).status).toBe(401);
-    expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie: cookieFrom(ok.headers) })).status).toBe(200);
-
-    const relogin = await api(server.baseUrl, 'POST', '/api/auth/login', { body: { email: user.email, password: 'brand-new-pass-1' } });
-    expect(relogin.status).toBe(200);
-  });
-
-  it('logout clears the cookie; self sign-up is gone', async () => {
+  it('logout clears the cookie; self sign-up and self password change do not exist', async () => {
     const out = await api(server.baseUrl, 'POST', '/api/auth/logout');
     expect(out.status).toBe(200);
     expect(out.headers.get('set-cookie')).toMatch(/ap_session=;/);
     const reg = await api(server.baseUrl, 'POST', '/api/auth/register', { body: { email: 'x@y.z', password: 'whatever-123', name: 'X' } });
     expect(reg.status).toBe(404);
+    const { cookie } = await createTestUser();
+    const change = await api(server.baseUrl, 'POST', '/api/auth/change-password', { cookie, body: { currentPassword: 'a', newPassword: 'b' } });
+    expect(change.status).toBe(404);
   });
 });
 ```
@@ -1006,15 +951,14 @@ import prisma from '../utils/prisma';
 import { AuthRequest, authenticate } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
 import { clearSessionCookie, setSessionCookie } from '../lib/session';
-import { hashPassword, newPasswordSchema, normalizeEmail, verifyPassword } from '../lib/passwords';
+import { normalizeEmail, verifyPassword } from '../lib/passwords';
 import { limiterKey, loginLimiter } from '../lib/login-limiter';
 import { logger } from '../utils/logger';
 
+/** Accounts are created and edited by the admin (routes/admin.routes.ts); users only log in. */
 const router = Router();
 
-const publicUserSelect = { id: true, email: true, name: true, role: true, mustChangePassword: true } as const;
-
-// ─── Login ──────────────────────────────────────
+const publicUserSelect = { id: true, email: true, name: true, role: true } as const;
 
 router.post(
   '/login',
@@ -1039,18 +983,15 @@ router.post(
     const updated = await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     setSessionCookie(res, updated);
     logger.info('User logged in', { userId: user.id });
-    res.json({ success: true, data: { id: updated.id, email: updated.email, name: updated.name, role: updated.role, mustChangePassword: updated.mustChangePassword } });
+    res.json({ success: true, data: { id: updated.id, email: updated.email, name: updated.name, role: updated.role } });
   })
 );
 
-// ─── Logout (works with an expired session too) ─
-
+// Works with an expired session too
 router.post('/logout', (_req, res) => {
   clearSessionCookie(res);
   res.json({ success: true });
 });
-
-// ─── Current user ───────────────────────────────
 
 router.get(
   '/me',
@@ -1061,33 +1002,7 @@ router.get(
   })
 );
 
-// ─── Change password ────────────────────────────
-
-router.post(
-  '/change-password',
-  authenticate,
-  asyncHandler(async (req: AuthRequest, res: Response) => {
-    const { currentPassword, newPassword } = z
-      .object({ currentPassword: z.string().min(1), newPassword: newPasswordSchema })
-      .parse(req.body);
-
-    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
-    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
-      throw createError(400, 'Mật khẩu hiện tại không đúng.', { code: 'BAD_CURRENT_PASSWORD' });
-    }
-    if (currentPassword === newPassword) throw createError(400, 'Mật khẩu mới phải khác mật khẩu hiện tại.');
-
-    const updated = await prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash: await hashPassword(newPassword), mustChangePassword: false, tokenVersion: { increment: 1 } },
-    });
-    setSessionCookie(res, updated); // old sessions die, this one continues
-    res.json({ success: true, data: { id: updated.id, email: updated.email, name: updated.name, role: updated.role, mustChangePassword: false } });
-  })
-);
-
-// ─── API keys (external integrations) ───────────
-
+// API keys for external integrations
 router.post(
   '/api-keys',
   authenticate,
@@ -1112,13 +1027,13 @@ export default router;
 - [ ] **Step 4: Chạy test**
 
 Run: `npx tsc --noEmit && RUN_DB_TESTS=1 npx vitest run tests/auth-routes.db.test.ts tests/auth-middleware.db.test.ts`
-Expected: PASS (10 tests). Nếu tsc báo `sendWelcomeEmail`/`facebookService.getLoginUrl` không còn dùng: không sao (chỉ còn định nghĩa trong service).
+Expected: PASS (8 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/routes/auth.routes.ts tests/auth-routes.db.test.ts
-git commit -m "feat(auth): cookie login, logout, change-password; remove self sign-up"
+git commit -m "feat(auth): cookie login and logout; remove self sign-up"
 ```
 
 ---
@@ -1130,7 +1045,7 @@ git commit -m "feat(auth): cookie login, logout, change-password; remove self si
 - Modify: `src/config/index.ts:14-17`, `src/server.ts`
 
 **Interfaces:**
-- Consumes: `hashPassword`, `normalizeEmail`, `newPasswordSchema` (Task 4).
+- Consumes: `hashPassword`, `normalizeEmail`, `passwordSchema` (Task 4).
 - Produces: `DEFAULT_JWT_SECRET` (config); `assertJwtSecret(env?: string, secret?: string): void`; `ensureAdmin(env?: NodeJS.ProcessEnv, db?: Prisma.TransactionClient): Promise<void>`; `runBootstrap(): Promise<void>`.
 
 - [ ] **Step 1: Viết test** — `tests/bootstrap.db.test.ts` (chạy trong transaction rồi rollback để không đụng dữ liệu local)
@@ -1147,12 +1062,17 @@ import type { Prisma } from '@prisma/client';
 const ROLLBACK = new Error('rollback');
 async function inRollback(fn: (tx: Prisma.TransactionClient) => Promise<void>) {
   // bcrypt (cost 12) runs inside: allow more than Prisma's 5 s default
-  await prisma.$transaction(async (tx) => {
-    await fn(tx);
-    throw ROLLBACK;
-  }, { timeout: 30_000, maxWait: 10_000 }).catch((e) => {
-    if (e !== ROLLBACK) throw e;
-  });
+  await prisma
+    .$transaction(
+      async (tx) => {
+        await fn(tx);
+        throw ROLLBACK;
+      },
+      { timeout: 30_000, maxWait: 10_000 }
+    )
+    .catch((e) => {
+      if (e !== ROLLBACK) throw e;
+    });
 }
 
 describe('assertJwtSecret', () => {
@@ -1221,7 +1141,7 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { config, DEFAULT_JWT_SECRET } from '../config';
 import { logger } from '../utils/logger';
-import { hashPassword, newPasswordSchema, normalizeEmail } from './passwords';
+import { hashPassword, normalizeEmail, passwordSchema } from './passwords';
 
 /** Sessions are only as safe as the signing key. */
 export function assertJwtSecret(env: string = config.env, secret: string = config.jwt.secret): void {
@@ -1232,8 +1152,8 @@ export function assertJwtSecret(env: string = config.env, secret: string = confi
 }
 
 /**
- * Exactly one guaranteed way in: an ADMIN always exists, and on the first deploy
- * the old bypass user ("dummy" password) gets ADMIN_EMAIL / ADMIN_PASSWORD.
+ * One guaranteed way in: an ADMIN always exists, and on the first deploy the old
+ * bypass user ("dummy" password) gets ADMIN_EMAIL / ADMIN_PASSWORD.
  * Idempotent; never overwrites a real password.
  */
 export async function ensureAdmin(env: NodeJS.ProcessEnv = process.env, db: Prisma.TransactionClient = prisma): Promise<void> {
@@ -1256,27 +1176,25 @@ export async function ensureAdmin(env: NodeJS.ProcessEnv = process.env, db: Pris
     }
   }
 
-  const hasRealPassword = !!admin.passwordHash?.startsWith('$2');
-  if (hasRealPassword) return;
+  if (admin.passwordHash?.startsWith('$2')) return;
 
   if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD) {
     logger.warn('[Bootstrap] Admin chưa có mật khẩu: đặt ADMIN_EMAIL + ADMIN_PASSWORD rồi khởi động lại.');
     return;
   }
-  const password = newPasswordSchema.safeParse(env.ADMIN_PASSWORD);
+  const password = passwordSchema.safeParse(env.ADMIN_PASSWORD);
   if (!password.success) {
-    logger.error('[Bootstrap] ADMIN_PASSWORD cần ít nhất 10 ký tự — bỏ qua.');
+    logger.error('[Bootstrap] ADMIN_PASSWORD cần ít nhất 8 ký tự — bỏ qua.');
     return;
   }
   const email = normalizeEmail(env.ADMIN_EMAIL);
-  const clash = await db.user.findFirst({ where: { email, NOT: { id: admin.id } } });
-  if (clash) {
+  if (await db.user.findFirst({ where: { email, NOT: { id: admin.id } } })) {
     logger.error('[Bootstrap] ADMIN_EMAIL đã thuộc tài khoản khác — bỏ qua.', { email });
     return;
   }
   await db.user.update({
     where: { id: admin.id },
-    data: { email, passwordHash: await hashPassword(password.data), mustChangePassword: false, tokenVersion: { increment: 1 } },
+    data: { email, passwordHash: await hashPassword(password.data), tokenVersion: { increment: 1 } },
   });
   logger.info('[Bootstrap] Admin credentials set from ADMIN_EMAIL / ADMIN_PASSWORD', { email });
 }
@@ -1303,15 +1221,15 @@ git commit -m "feat(auth): bootstrap the admin account and require a strong JWT 
 
 ---
 
-### Task 8: API quản lý người dùng + không đăng bài của tài khoản bị khoá
+### Task 8: API quản lý member (thêm, sửa, xoá, vô hiệu hoá) + không đăng bài của tài khoản bị vô hiệu hoá
 
 **Files:**
 - Create: `src/lib/admin-guards.ts`, `src/routes/admin.routes.ts`, `tests/admin-guards.test.ts`, `tests/admin.db.test.ts`
 - Modify: `src/app.ts` (`API_ROUTERS` thêm `['/api/admin', adminRoutes]`), `src/services/scheduler.service.ts` (`runPublishJob`, `runTargetJob`), `tests/multi-page.db.test.ts`
 
 **Interfaces:**
-- Consumes: `authenticate`, `requireAdmin` (Task 5); `generateTempPassword`, `hashPassword`, `normalizeEmail` (Task 4).
-- Produces: `accountChangeBlock(input: { actorId: string; target: { id: string; role: 'ADMIN'|'USER'; isActive: boolean }; change: { isActive?: boolean; role?: 'ADMIN'|'USER' }; otherActiveAdmins: number }): string | null`; routes `GET/POST /api/admin/users`, `PATCH /api/admin/users/:id`, `POST /api/admin/users/:id/reset-password`; `AdminUserRow = { id, email, name, role, isActive, mustChangePassword, lastLoginAt, createdAt, pages: number, posts30d: number }`.
+- Consumes: `authenticate`, `requireAdmin` (Task 5); `hashPassword`, `normalizeEmail`, `passwordSchema` (Task 4); `saveImage`, `removeImage`, `readImage` (`src/lib/image-store.ts`, có sẵn).
+- Produces: `accountChangeBlock(input: { actorId: string; target: { id: string; role: 'ADMIN'|'USER'; isActive: boolean }; change: { isActive?: boolean; role?: 'ADMIN'|'USER'; remove?: boolean }; otherActiveAdmins: number }): string | null`; routes `GET /api/admin/users`, `POST /api/admin/users` `{ email, name, password, role }`, `PATCH /api/admin/users/:id` `{ name?, email?, password?, role?, isActive? }`, `DELETE /api/admin/users/:id` `{ confirmEmail }`; `AdminUserRow = { id, email, name, role, isActive, lastLoginAt, createdAt, pages: number, posts30d: number }`.
 
 - [ ] **Step 1: Viết test**
 
@@ -1325,18 +1243,21 @@ const admin = { id: 'a1', role: 'ADMIN' as const, isActive: true };
 const user = { id: 'u1', role: 'USER' as const, isActive: true };
 
 describe('accountChangeBlock', () => {
-  it('stops admins from locking or demoting themselves', () => {
-    expect(accountChangeBlock({ actorId: 'a1', target: admin, change: { isActive: false }, otherActiveAdmins: 3 })).toMatch(/chính mình/);
-    expect(accountChangeBlock({ actorId: 'a1', target: admin, change: { role: 'USER' }, otherActiveAdmins: 3 })).toMatch(/chính mình/);
+  it('stops admins from deleting, disabling or demoting themselves', () => {
+    for (const change of [{ remove: true }, { isActive: false }, { role: 'USER' as const }]) {
+      expect(accountChangeBlock({ actorId: 'a1', target: admin, change, otherActiveAdmins: 3 })).toMatch(/chính mình/);
+    }
   });
 
   it('keeps at least one active admin', () => {
-    expect(accountChangeBlock({ actorId: 'x', target: admin, change: { isActive: false }, otherActiveAdmins: 0 })).toMatch(/ít nhất một/);
-    expect(accountChangeBlock({ actorId: 'x', target: admin, change: { role: 'USER' }, otherActiveAdmins: 0 })).toMatch(/ít nhất một/);
-    expect(accountChangeBlock({ actorId: 'x', target: admin, change: { isActive: false }, otherActiveAdmins: 1 })).toBeNull();
+    for (const change of [{ remove: true }, { isActive: false }, { role: 'USER' as const }]) {
+      expect(accountChangeBlock({ actorId: 'x', target: admin, change, otherActiveAdmins: 0 })).toMatch(/ít nhất một/);
+      expect(accountChangeBlock({ actorId: 'x', target: admin, change, otherActiveAdmins: 1 })).toBeNull();
+    }
   });
 
-  it('allows ordinary changes', () => {
+  it('allows ordinary changes to members', () => {
+    expect(accountChangeBlock({ actorId: 'a1', target: user, change: { remove: true }, otherActiveAdmins: 0 })).toBeNull();
     expect(accountChangeBlock({ actorId: 'a1', target: user, change: { isActive: false }, otherActiveAdmins: 0 })).toBeNull();
     expect(accountChangeBlock({ actorId: 'a1', target: user, change: { role: 'ADMIN' }, otherActiveAdmins: 0 })).toBeNull();
   });
@@ -1350,14 +1271,18 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import '../src/config';
 import prisma from '../src/utils/prisma';
 import { createApp } from '../src/app';
+import { readImage, saveImage } from '../src/lib/image-store';
 import { startTestServer, api } from './helpers/http';
 import { cleanupTestUsers, createTestUser, TEST_EMAIL_DOMAIN } from './helpers/users';
 
 let server: Awaited<ReturnType<typeof startTestServer>>;
 let adminCookie: string;
 let adminId: string;
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('img')]);
 
-describe.skipIf(!process.env.RUN_DB_TESTS)('admin users API', { timeout: 60_000 }, () => {
+const login = (email: string, password: string) => api(server.baseUrl, 'POST', '/api/auth/login', { body: { email, password } });
+
+describe.skipIf(!process.env.RUN_DB_TESTS)('admin: member management', { timeout: 90_000 }, () => {
   beforeAll(async () => {
     await cleanupTestUsers();
     server = await startTestServer(createApp());
@@ -1373,25 +1298,28 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('admin users API', { timeout: 60_000 
 
   it('is forbidden to regular users', async () => {
     const { cookie } = await createTestUser();
-    const res = await api(server.baseUrl, 'GET', '/api/admin/users', { cookie });
-    expect(res.status).toBe(403);
+    expect((await api(server.baseUrl, 'GET', '/api/admin/users', { cookie })).status).toBe(403);
   });
 
-  it('creates a user with a one-time temporary password that must be changed', async () => {
-    const email = `New.Person${TEST_EMAIL_DOMAIN}`.toUpperCase();
-    const created = await api(server.baseUrl, 'POST', '/api/admin/users', { cookie: adminCookie, body: { email, name: 'Người mới', role: 'USER' } });
+  it('creates a member with the password the admin chose; the member logs in right away', async () => {
+    const email = `Lan.Nguyen${TEST_EMAIL_DOMAIN}`.toUpperCase();
+    const created = await api(server.baseUrl, 'POST', '/api/admin/users', {
+      cookie: adminCookie,
+      body: { email: ` ${email} `, name: 'Lan', password: 'lan-pass-2026', role: 'USER' },
+    });
     expect(created.status).toBe(201);
-    expect(created.json.data.tempPassword).toMatch(/^[A-Za-z0-9_-]{12}$/);
-    expect(created.json.data.user.email).toBe(email.toLowerCase());
+    expect(created.json.data).toMatchObject({ email: email.toLowerCase(), name: 'Lan', role: 'USER', isActive: true });
+    expect(created.json.data).not.toHaveProperty('passwordHash');
 
-    const dup = await api(server.baseUrl, 'POST', '/api/admin/users', { cookie: adminCookie, body: { email: email.toLowerCase(), name: 'X', role: 'USER' } });
+    expect((await login(email.toLowerCase(), 'lan-pass-2026')).status).toBe(200);
+
+    const dup = await api(server.baseUrl, 'POST', '/api/admin/users', { cookie: adminCookie, body: { email: email.toLowerCase(), name: 'X', password: 'whatever-1', role: 'USER' } });
     expect(dup.status).toBe(409);
-
-    const login = await api(server.baseUrl, 'POST', '/api/auth/login', { body: { email, password: created.json.data.tempPassword } });
-    expect(login.json.data.mustChangePassword).toBe(true);
+    const short = await api(server.baseUrl, 'POST', '/api/admin/users', { cookie: adminCookie, body: { email: `s${TEST_EMAIL_DOMAIN}`, name: 'S', password: '123', role: 'USER' } });
+    expect(short.status).toBe(400);
   });
 
-  it('lists users with counts but no content', async () => {
+  it('lists members with counts but no content', async () => {
     const res = await api(server.baseUrl, 'GET', '/api/admin/users', { cookie: adminCookie });
     expect(res.status).toBe(200);
     const row = res.json.data.find((u: { id: string }) => u.id === adminId);
@@ -1399,23 +1327,68 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('admin users API', { timeout: 60_000 
     expect(row).not.toHaveProperty('passwordHash');
   });
 
-  it('locking a user ends their sessions; reset gives a new temporary password', async () => {
-    const target = await createTestUser();
-    const lock = await api(server.baseUrl, 'PATCH', `/api/admin/users/${target.user.id}`, { cookie: adminCookie, body: { isActive: false } });
-    expect(lock.status).toBe(200);
-    expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie: target.cookie })).status).toBe(401);
+  it('editing password or email ends the member session; new credentials work, old ones do not', async () => {
+    const m = await createTestUser();
+    const newEmail = `renamed-${Date.now()}${TEST_EMAIL_DOMAIN}`;
+    const edit = await api(server.baseUrl, 'PATCH', `/api/admin/users/${m.user.id}`, {
+      cookie: adminCookie,
+      body: { name: 'Đổi tên', email: newEmail, password: 'new-pass-2026' },
+    });
+    expect(edit.status).toBe(200);
+    expect(edit.json.data).toMatchObject({ name: 'Đổi tên', email: newEmail });
+    expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie: m.cookie })).status).toBe(401);
+    expect((await login(m.user.email, m.password)).status).toBe(401);
+    expect((await login(newEmail, 'new-pass-2026')).status).toBe(200);
 
-    const other = await createTestUser();
-    const reset = await api(server.baseUrl, 'POST', `/api/admin/users/${other.user.id}/reset-password`, { cookie: adminCookie });
-    expect(reset.status).toBe(200);
-    expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie: other.cookie })).status).toBe(401);
-    const login = await api(server.baseUrl, 'POST', '/api/auth/login', { body: { email: other.user.email, password: reset.json.data.tempPassword } });
-    expect(login.json.data.mustChangePassword).toBe(true);
+    const nameOnly = await createTestUser();
+    await api(server.baseUrl, 'PATCH', `/api/admin/users/${nameOnly.user.id}`, { cookie: adminCookie, body: { name: 'Chỉ đổi tên' } });
+    expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie: nameOnly.cookie })).status).toBe(200);
+
+    const taken = await api(server.baseUrl, 'PATCH', `/api/admin/users/${nameOnly.user.id}`, { cookie: adminCookie, body: { email: newEmail } });
+    expect(taken.status).toBe(409);
   });
 
-  it('refuses to lock yourself (409) and 404s unknown users', async () => {
-    const self = await api(server.baseUrl, 'PATCH', `/api/admin/users/${adminId}`, { cookie: adminCookie, body: { isActive: false } });
-    expect(self.status).toBe(409);
+  it('disabling blocks login and ends sessions; enabling restores login', async () => {
+    const m = await createTestUser();
+    expect((await api(server.baseUrl, 'PATCH', `/api/admin/users/${m.user.id}`, { cookie: adminCookie, body: { isActive: false } })).status).toBe(200);
+    expect((await api(server.baseUrl, 'GET', '/api/pages', { cookie: m.cookie })).status).toBe(401);
+    expect((await login(m.user.email, m.password)).status).toBe(401);
+    await api(server.baseUrl, 'PATCH', `/api/admin/users/${m.user.id}`, { cookie: adminCookie, body: { isActive: true } });
+    expect((await login(m.user.email, m.password)).status).toBe(200);
+  });
+
+  it("deleting needs the exact email and removes only that member's data and image files", async () => {
+    const victim = await createTestUser();
+    const bystander = await createTestUser();
+    const makeData = async (userId: string, tag: string) => {
+      const page = await prisma.facebookPage.create({ data: { userId, pageId: `DEL_${tag}`, pageName: tag, pageAccessToken: 'EAAfaketokendeletexxxxxxxxxxxxxxxx' } });
+      const post = await prisma.post.create({ data: { userId, pageId: page.id, caption: tag } });
+      const stored = await saveImage(post.id, PNG);
+      await prisma.post.update({ where: { id: post.id }, data: { imagePath: stored.imagePath } });
+      return { page, post, imagePath: stored.imagePath };
+    };
+    const v = await makeData(victim.user.id, 'victim');
+    const b = await makeData(bystander.user.id, 'bystander');
+
+    const wrong = await api(server.baseUrl, 'DELETE', `/api/admin/users/${victim.user.id}`, { cookie: adminCookie, body: { confirmEmail: 'nope@x.y' } });
+    expect(wrong.status).toBe(400);
+    expect(await prisma.user.findUnique({ where: { id: victim.user.id } })).not.toBeNull();
+
+    const del = await api(server.baseUrl, 'DELETE', `/api/admin/users/${victim.user.id}`, { cookie: adminCookie, body: { confirmEmail: victim.user.email.toUpperCase() } });
+    expect(del.status).toBe(200);
+    expect(await prisma.user.findUnique({ where: { id: victim.user.id } })).toBeNull();
+    expect(await prisma.post.findUnique({ where: { id: v.post.id } })).toBeNull();
+    expect(await prisma.facebookPage.findUnique({ where: { id: v.page.id } })).toBeNull();
+    expect(await readImage(v.imagePath)).toBeNull();
+
+    expect(await prisma.post.findUnique({ where: { id: b.post.id } })).not.toBeNull();
+    expect(await readImage(b.imagePath)).not.toBeNull();
+  });
+
+  it('refuses to delete or disable yourself (409) and 404s unknown members', async () => {
+    const me = await prisma.user.findUniqueOrThrow({ where: { id: adminId } });
+    expect((await api(server.baseUrl, 'DELETE', `/api/admin/users/${adminId}`, { cookie: adminCookie, body: { confirmEmail: me.email } })).status).toBe(409);
+    expect((await api(server.baseUrl, 'PATCH', `/api/admin/users/${adminId}`, { cookie: adminCookie, body: { isActive: false } })).status).toBe(409);
     const missing = await api(server.baseUrl, 'PATCH', '/api/admin/users/00000000-0000-0000-0000-000000000000', { cookie: adminCookie, body: { isActive: false } });
     expect(missing.status).toBe(404);
   });
@@ -1425,21 +1398,21 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('admin users API', { timeout: 60_000 
 Trong `tests/multi-page.db.test.ts`, thêm test trước `it('a double click never publishes the same Page twice'…`:
 
 ```ts
-  it('does not publish for a locked account', async () => {
-    const locked = await prisma.user.create({ data: { email: `locked-${Date.now()}@autopost.test`, name: 'Locked', isActive: false } });
-    const page = await prisma.facebookPage.create({ data: { userId: locked.id, pageId: 'TEST_MP_LOCKED', pageName: 'Trang khoá', pageAccessToken: 'EAAfaketokenlockedxxxxxxxxxxxxxxxx' } });
+  it('does not publish for a disabled account', async () => {
+    const disabled = await prisma.user.create({ data: { email: `disabled-${Date.now()}@autopost.test`, name: 'Disabled', isActive: false } });
+    const page = await prisma.facebookPage.create({ data: { userId: disabled.id, pageId: 'TEST_MP_DISABLED', pageName: 'Trang khoá', pageAccessToken: 'EAAfaketokendisabledxxxxxxxxxxxxxx' } });
     const post = await prisma.post.create({
-      data: { userId: locked.id, pageId: page.id, caption: 'Không được đăng', status: 'GENERATING', targets: { create: [{ pageId: page.id }] } },
+      data: { userId: disabled.id, pageId: page.id, caption: 'Không được đăng', status: 'GENERATING', targets: { create: [{ pageId: page.id }] } },
       include: { targets: true },
     });
     try {
-      await enqueuePost(post.id, locked.id, { skipAi: true, targetIds: post.targets.map((t) => t.id), intervalMs: 0 });
+      await enqueuePost(post.id, disabled.id, { skipAi: true, targetIds: post.targets.map((t) => t.id), intervalMs: 0 });
       const done = await waitForStatus(post.id, ['PUBLISHED', 'FAILED']);
       expect(done.status).toBe('FAILED');
       expect(done.errorMessage).toMatch(/Tài khoản đã bị khoá/);
-      expect(publishCalls).not.toContain('TEST_MP_LOCKED');
+      expect(publishCalls).not.toContain('TEST_MP_DISABLED');
     } finally {
-      await prisma.user.delete({ where: { id: locked.id } });
+      await prisma.user.delete({ where: { id: disabled.id } });
     }
   });
 ```
@@ -1447,7 +1420,7 @@ Trong `tests/multi-page.db.test.ts`, thêm test trước `it('a double click nev
 - [ ] **Step 2: Chạy để thấy fail**
 
 Run: `npx vitest run tests/admin-guards.test.ts; RUN_DB_TESTS=1 npx vitest run tests/admin.db.test.ts tests/multi-page.db.test.ts`
-Expected: FAIL — module `admin-guards` không có; `/api/admin/users` 404; bài của tài khoản khoá vẫn được đăng.
+Expected: FAIL — `admin-guards` chưa có; `/api/admin/users` 404; bài của tài khoản bị vô hiệu hoá vẫn được đăng.
 
 - [ ] **Step 3: Viết code**
 
@@ -1457,19 +1430,21 @@ Expected: FAIL — module `admin-guards` không có; `/api/admin/users` 404; bà
 type Role = 'ADMIN' | 'USER';
 
 /**
- * Why an account change must be refused (null = allowed): nobody locks or demotes
- * themselves, and at least one active ADMIN always remains.
+ * Why an account change must be refused (null = allowed): nobody deletes,
+ * disables or demotes themselves, and at least one active ADMIN always remains.
  */
 export function accountChangeBlock(input: {
   actorId: string;
   target: { id: string; role: Role; isActive: boolean };
-  change: { isActive?: boolean; role?: Role };
+  change: { isActive?: boolean; role?: Role; remove?: boolean };
   otherActiveAdmins: number;
 }): string | null {
   const { actorId, target, change, otherActiveAdmins } = input;
-  const removesAdmin = target.role === 'ADMIN' && target.isActive && (change.isActive === false || change.role === 'USER');
-  if (target.id === actorId && removesAdmin) return 'Không thể tự khoá hoặc tự bỏ quyền quản trị của chính mình.';
-  if (removesAdmin && otherActiveAdmins === 0) return 'Phải còn ít nhất một quản trị viên đang hoạt động.';
+  const takesAway = change.remove === true || change.isActive === false || change.role === 'USER';
+  if (target.id === actorId && takesAway) return 'Không thể tự xoá, tự vô hiệu hoá hoặc tự bỏ quyền quản trị của chính mình.';
+  if (target.role === 'ADMIN' && target.isActive && takesAway && otherActiveAdmins === 0) {
+    return 'Phải còn ít nhất một quản trị viên đang hoạt động.';
+  }
   return null;
 }
 ```
@@ -1482,15 +1457,23 @@ import { z } from 'zod';
 import prisma from '../utils/prisma';
 import { AuthRequest, authenticate, requireAdmin } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
-import { generateTempPassword, hashPassword, normalizeEmail } from '../lib/passwords';
+import { hashPassword, normalizeEmail, passwordSchema } from '../lib/passwords';
 import { accountChangeBlock } from '../lib/admin-guards';
+import { removeImage } from '../lib/image-store';
 import { logger } from '../utils/logger';
 
-/** Account management only: admins never read other users' content here. */
+/** Member management. Admins never read other users' content here — only counts. */
 const router = Router();
 router.use(authenticate, requireAdmin);
 
 const DAY = 24 * 60 * 60 * 1000;
+const memberSelect = { id: true, email: true, name: true, role: true, isActive: true, lastLoginAt: true, createdAt: true } as const;
+const emailField = z.string().transform(normalizeEmail).pipe(z.string().email('Email không hợp lệ.'));
+const roleField = z.enum(['ADMIN', 'USER']);
+
+async function otherActiveAdmins(targetId: string) {
+  return prisma.user.count({ where: { role: 'ADMIN', isActive: true, NOT: { id: targetId } } });
+}
 
 router.get(
   '/users',
@@ -1498,18 +1481,12 @@ router.get(
     const [users, posts] = await Promise.all([
       prisma.user.findMany({
         orderBy: { createdAt: 'asc' },
-        select: {
-          id: true, email: true, name: true, role: true, isActive: true, mustChangePassword: true, lastLoginAt: true, createdAt: true,
-          _count: { select: { pages: { where: { isActive: true } } } },
-        },
+        select: { ...memberSelect, _count: { select: { pages: { where: { isActive: true } } } } },
       }),
       prisma.post.groupBy({ by: ['userId'], where: { createdAt: { gte: new Date(Date.now() - 30 * DAY) } }, _count: { _all: true } }),
     ]);
     const posts30d = new Map(posts.map((p) => [p.userId, p._count._all]));
-    res.json({
-      success: true,
-      data: users.map(({ _count, ...u }) => ({ ...u, pages: _count.pages, posts30d: posts30d.get(u.id) ?? 0 })),
-    });
+    res.json({ success: true, data: users.map(({ _count, ...u }) => ({ ...u, pages: _count.pages, posts30d: posts30d.get(u.id) ?? 0 })) });
   })
 );
 
@@ -1517,55 +1494,94 @@ router.post(
   '/users',
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const body = z
-      .object({ email: z.string().email('Email không hợp lệ.'), name: z.string().trim().min(1).max(100), role: z.enum(['ADMIN', 'USER']).default('USER') })
-      .parse({ ...req.body, email: typeof req.body?.email === 'string' ? normalizeEmail(req.body.email) : req.body?.email });
-
+      .object({ email: emailField, name: z.string().trim().min(1, 'Nhập tên.').max(100), password: passwordSchema, role: roleField.default('USER') })
+      .parse(req.body);
     if (await prisma.user.findUnique({ where: { email: body.email } })) throw createError(409, 'Email này đã có tài khoản.');
 
-    const tempPassword = generateTempPassword();
     const user = await prisma.user.create({
-      data: { email: body.email, name: body.name, role: body.role, plan: 'ENTERPRISE', mustChangePassword: true, passwordHash: await hashPassword(tempPassword) },
-      select: { id: true, email: true, name: true, role: true, isActive: true, mustChangePassword: true, createdAt: true },
+      data: { email: body.email, name: body.name, role: body.role, plan: 'ENTERPRISE', passwordHash: await hashPassword(body.password) },
+      select: memberSelect,
     });
-    logger.info('User created by admin', { adminId: req.user!.id, userId: user.id });
-    res.status(201).json({ success: true, data: { user, tempPassword } });
+    logger.info('Member created', { adminId: req.user!.id, userId: user.id });
+    res.status(201).json({ success: true, data: user });
   })
 );
 
 router.patch(
   '/users/:id',
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const change = z.object({ isActive: z.boolean().optional(), role: z.enum(['ADMIN', 'USER']).optional() }).parse(req.body);
+    const change = z
+      .object({
+        name: z.string().trim().min(1).max(100).optional(),
+        email: emailField.optional(),
+        password: passwordSchema.optional(),
+        role: roleField.optional(),
+        isActive: z.boolean().optional(),
+      })
+      .parse(req.body);
+
     const target = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!target) throw createError(404, 'Không tìm thấy người dùng.');
 
-    const otherActiveAdmins = await prisma.user.count({ where: { role: 'ADMIN', isActive: true, NOT: { id: target.id } } });
-    const blocked = accountChangeBlock({ actorId: req.user!.id, target, change, otherActiveAdmins });
+    const blocked = accountChangeBlock({ actorId: req.user!.id, target, change, otherActiveAdmins: await otherActiveAdmins(target.id) });
     if (blocked) throw createError(409, blocked);
 
-    const endsSessions = change.isActive === false || (change.role !== undefined && change.role !== target.role);
+    const emailChanged = change.email !== undefined && change.email !== target.email;
+    if (emailChanged && (await prisma.user.findUnique({ where: { email: change.email! } }))) {
+      throw createError(409, 'Email này đã có tài khoản.');
+    }
+
+    // New credentials, a new role or disabling ⇒ the member must log in again
+    const endsSessions =
+      change.password !== undefined || emailChanged || (change.role !== undefined && change.role !== target.role) || change.isActive === false;
+
     const updated = await prisma.user.update({
       where: { id: target.id },
-      data: { ...change, ...(endsSessions && { tokenVersion: { increment: 1 } }) },
-      select: { id: true, email: true, name: true, role: true, isActive: true, mustChangePassword: true },
+      data: {
+        ...(change.name !== undefined && { name: change.name }),
+        ...(emailChanged && { email: change.email }),
+        ...(change.role !== undefined && { role: change.role }),
+        ...(change.isActive !== undefined && { isActive: change.isActive }),
+        ...(change.password !== undefined && { passwordHash: await hashPassword(change.password) }),
+        ...(endsSessions && { tokenVersion: { increment: 1 } }),
+      },
+      select: memberSelect,
     });
-    logger.info('User updated by admin', { adminId: req.user!.id, userId: target.id, change });
+    logger.info('Member updated', { adminId: req.user!.id, userId: target.id, fields: Object.keys(change) });
     res.json({ success: true, data: updated });
   })
 );
 
-router.post(
-  '/users/:id/reset-password',
+router.delete(
+  '/users/:id',
   asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { confirmEmail } = z.object({ confirmEmail: z.string().min(1, 'Gõ lại email để xác nhận.') }).parse(req.body ?? {});
     const target = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!target) throw createError(404, 'Không tìm thấy người dùng.');
-    const tempPassword = generateTempPassword();
-    await prisma.user.update({
-      where: { id: target.id },
-      data: { passwordHash: await hashPassword(tempPassword), mustChangePassword: true, tokenVersion: { increment: 1 } },
+    if (normalizeEmail(confirmEmail) !== target.email) throw createError(400, 'Email xác nhận không khớp.');
+
+    const blocked = accountChangeBlock({ actorId: req.user!.id, target, change: { remove: true }, otherActiveAdmins: await otherActiveAdmins(target.id) });
+    if (blocked) throw createError(409, blocked);
+
+    const [images, schedules] = await Promise.all([
+      prisma.post.findMany({ where: { userId: target.id, imagePath: { not: null } }, select: { imagePath: true } }),
+      prisma.postSchedule.findMany({ where: { userId: target.id }, select: { id: true } }),
+    ]);
+
+    // Cascades Pages, posts, targets, schedules, templates, settings, API keys
+    await prisma.user.delete({ where: { id: target.id } });
+    await prisma.job.deleteMany({
+      where: {
+        OR: [
+          { payload: { path: '$.userId', equals: target.id } },
+          { key: { in: schedules.map((s) => `schedule:${s.id}`) } },
+        ],
+      },
     });
-    logger.info('Password reset by admin', { adminId: req.user!.id, userId: target.id });
-    res.json({ success: true, data: { tempPassword } });
+    await Promise.all(images.map((i) => removeImage(i.imagePath)));
+
+    logger.info('Member deleted', { adminId: req.user!.id, userId: target.id, images: images.length });
+    res.json({ success: true });
   })
 );
 
@@ -1580,8 +1596,8 @@ export default router;
 ```ts
     if (!(await isAccountActive(userId))) throw new UnrecoverableJobError('Tài khoản đã bị khoá, không đăng bài.');
 ```
-- Trong `runTargetJob`, trong `try {` ngay trước dòng `const current = await getSettings(userId);` thêm cùng dòng trên.
-- Thêm hàm (cạnh `logStep` ở cuối file):
+- Trong `runTargetJob`, trong `try {`, ngay trước dòng `const current = await getSettings(userId);` thêm cùng dòng trên.
+- Thêm hàm cạnh `logStep` ở cuối file:
 
 ```ts
 async function isAccountActive(userId: string): Promise<boolean> {
@@ -1593,13 +1609,13 @@ async function isAccountActive(userId: string): Promise<boolean> {
 - [ ] **Step 4: Chạy test**
 
 Run: `npx tsc --noEmit && npx vitest run tests/admin-guards.test.ts && RUN_DB_TESTS=1 npx vitest run tests/admin.db.test.ts tests/multi-page.db.test.ts`
-Expected: PASS (admin-guards 3, admin 5, multi-page 6).
+Expected: PASS (admin-guards 3, admin 7, multi-page 6).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/lib/admin-guards.ts src/routes/admin.routes.ts src/app.ts src/services/scheduler.service.ts tests/admin-guards.test.ts tests/admin.db.test.ts tests/multi-page.db.test.ts
-git commit -m "feat(admin): user management API; locked accounts never publish"
+git commit -m "feat(admin): add, edit, disable and delete members; disabled accounts never publish"
 ```
 
 ---
@@ -1611,7 +1627,7 @@ git commit -m "feat(admin): user management API; locked accounts never publish"
 - Create: `tests/settings-fallback.db.test.ts`
 
 **Interfaces:**
-- Produces: `getSettings(userId)` — với user không phải ADMIN, `geminiApiKey`, `cfAccountId`, `cfApiToken`, `fbAppId`, `fbAppSecret` chưa lưu ⇒ `''`; các giá trị mặc định không lấy từ env (`geminiModel`, `systemPrompt`, `cfImageModel`, `cfSteps`, `fbGraphVersion`) vẫn áp dụng cho mọi user. `getPublicSettings` tự hưởng thay đổi (nguồn `'env'` chỉ còn ở ADMIN).
+- Produces: `getSettings(userId)` — với user không phải ADMIN, `geminiApiKey`, `cfAccountId`, `cfApiToken`, `fbAppId`, `fbAppSecret` chưa lưu ⇒ `''`; mặc định không đến từ env (`geminiModel`, `systemPrompt`, `cfImageModel`, `cfSteps`, `fbGraphVersion`) vẫn áp dụng cho mọi user. `getPublicSettings` tự hưởng thay đổi (nguồn `'env'` chỉ còn ở ADMIN).
 
 - [ ] **Step 1: Viết test** — `tests/settings-fallback.db.test.ts`
 
@@ -1637,7 +1653,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('settings env fallback', () => {
     await prisma.$disconnect();
   });
 
-  it('regular users never borrow the server .env keys', async () => {
+  it('members never borrow the server .env keys', async () => {
     const { user } = await createTestUser();
     const s = await getSettings(user.id);
     expect(s.geminiApiKey).toBe('');
@@ -1663,7 +1679,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('settings env fallback', () => {
 - [ ] **Step 2: Chạy để thấy fail**
 
 Run: `RUN_DB_TESTS=1 npx vitest run tests/settings-fallback.db.test.ts`
-Expected: FAIL — user thường nhận key `.env`.
+Expected: FAIL — member nhận key `.env`.
 
 - [ ] **Step 3: Sửa `src/lib/settings.ts`**
 
@@ -1674,7 +1690,7 @@ Ngay dưới `const SETTING_KEYS = …` thêm:
 const ENV_BACKED: ReadonlySet<SettingKey> = new Set(['geminiApiKey', 'cfAccountId', 'cfApiToken', 'fbAppId', 'fbAppSecret']);
 ```
 
-Thay phần đầu `getSettings`:
+Thay phần đầu `getSettings` (tới hết hàm `value`):
 
 ```ts
 export async function getSettings(userId: string): Promise<AppSettings> {
@@ -1694,7 +1710,7 @@ export async function getSettings(userId: string): Promise<AppSettings> {
 - [ ] **Step 4: Chạy test**
 
 Run: `npx tsc --noEmit && RUN_DB_TESTS=1 npx vitest run tests/settings-fallback.db.test.ts tests/page-sync.db.test.ts`
-Expected: PASS. (Nếu `page-sync.db.test.ts` dùng `prisma.user.findFirst()` là admin local ⇒ vẫn có fallback, không đổi.)
+Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -1744,7 +1760,7 @@ type Ids = { postId: string; pageId: string; targetId: string; scheduleId: strin
 type Case =
   | { kind: 'foreign-id'; path: (b: Ids) => string; body?: unknown } // must 404
   | { kind: 'list'; path: string } // must not contain B's markers
-  | { kind: 'own-scope'; path: string; body?: unknown; why: string } // no foreign id possible; must not touch B
+  | { kind: 'own-scope'; path: string; body?: unknown; why: string } // takes no foreign id; must not touch B
   | { kind: 'admin-only' } // covered by admin.db.test.ts
   | { kind: 'public'; why: string };
 
@@ -1752,15 +1768,14 @@ const ROUTE_CASES: Record<string, Case> = {
   'POST /api/auth/login': { kind: 'public', why: 'đăng nhập' },
   'POST /api/auth/logout': { kind: 'public', why: 'chỉ xoá cookie' },
   'GET /api/auth/me': { kind: 'list', path: '/api/auth/me' },
-  'POST /api/auth/change-password': { kind: 'own-scope', path: '/api/auth/change-password', body: { currentPassword: 'x', newPassword: 'y' }, why: 'chỉ tài khoản đang đăng nhập' },
   'POST /api/auth/api-keys': { kind: 'own-scope', path: '/api/auth/api-keys', body: { name: 'iso' }, why: 'gắn req.user.id' },
   'GET /api/admin/users': { kind: 'admin-only' },
   'POST /api/admin/users': { kind: 'admin-only' },
   'PATCH /api/admin/users/:id': { kind: 'admin-only' },
-  'POST /api/admin/users/:id/reset-password': { kind: 'admin-only' },
+  'DELETE /api/admin/users/:id': { kind: 'admin-only' },
   'GET /api/pages': { kind: 'list', path: '/api/pages' },
   'POST /api/pages/sync/preview': { kind: 'own-scope', path: '/api/pages/sync/preview', body: { userToken: 'EAAinvalidinvalidinvalidinvalid' }, why: 'token của chính user; không nhận id' },
-  'POST /api/pages/sync/apply': { kind: 'own-scope', path: '/api/pages/sync/apply', body: { refs: [], disconnect: [] }, why: 'ref gắn userId; disconnect lọc userId (kiểm tra B còn active)' },
+  'POST /api/pages/sync/apply': { kind: 'own-scope', path: '/api/pages/sync/apply', body: { refs: [], disconnect: [] }, why: 'ref gắn userId; disconnect lọc userId' },
   'POST /api/pages/check': { kind: 'own-scope', path: '/api/pages/check', why: 'chỉ Page của user' },
   'POST /api/pages/:id/check': { kind: 'foreign-id', path: (b) => `/api/pages/${b.pageId}/check` },
   'POST /api/pages/connect': { kind: 'own-scope', path: '/api/pages/connect', body: { pages: [] }, why: 'upsert theo (userId, pageId)' },
@@ -1773,7 +1788,7 @@ const ROUTE_CASES: Record<string, Case> = {
   'DELETE /api/templates/:id': { kind: 'foreign-id', path: (b) => `/api/templates/${b.templateId}` },
   'GET /api/posts': { kind: 'list', path: '/api/posts' },
   'GET /api/posts/:id': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}` },
-  'POST /api/posts': { kind: 'foreign-id', path: () => '/api/posts', body: undefined }, // body set in test (B's pageIds)
+  'POST /api/posts': { kind: 'foreign-id', path: () => '/api/posts' }, // body = B's pageIds (below)
   'PATCH /api/posts/:id': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}`, body: { caption: 'hack' } },
   'POST /api/posts/:id/generate': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/generate`, body: {} },
   'POST /api/posts/:id/preview-image': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/preview-image`, body: {} },
@@ -1785,7 +1800,7 @@ const ROUTE_CASES: Record<string, Case> = {
   'POST /api/posts/:id/targets/:targetId/retry': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/targets/${b.targetId}/retry` },
   'DELETE /api/posts/:id': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}` },
   'GET /api/schedules': { kind: 'list', path: '/api/schedules' },
-  'POST /api/schedules': { kind: 'foreign-id', path: () => '/api/schedules', body: undefined }, // body set in test (B's pageId)
+  'POST /api/schedules': { kind: 'foreign-id', path: () => '/api/schedules' }, // body = B's pageId (below)
   'PUT /api/schedules/:id': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}`, body: {} },
   'PATCH /api/schedules/:id/toggle': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/toggle` },
   'DELETE /api/schedules/:id': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}` },
@@ -1794,7 +1809,7 @@ const ROUTE_CASES: Record<string, Case> = {
   'GET /api/analytics/pages-performance': { kind: 'list', path: '/api/analytics/pages-performance' },
   'GET /api/settings': { kind: 'list', path: '/api/settings' },
   'POST /api/settings': { kind: 'own-scope', path: '/api/settings', body: { geminiModel: 'gemini-2.5-flash' }, why: 'ghi settings của req.user' },
-  'POST /api/settings/test/:group': { kind: 'foreign-id', path: () => '/api/settings/test/facebook', body: undefined }, // body set in test (B's pageId)
+  'POST /api/settings/test/:group': { kind: 'foreign-id', path: () => '/api/settings/test/facebook' }, // body = B's pageId (below)
   'POST /api/settings/facebook/exchange-token': { kind: 'own-scope', path: '/api/settings/facebook/exchange-token', body: { shortToken: 'EAAinvalidinvalidinvalidinvalid' }, why: 'token của chính user' },
   'POST /api/settings/facebook/pages': { kind: 'own-scope', path: '/api/settings/facebook/pages', body: { refs: ['bad'] }, why: 'ref do server mã hoá' },
   'POST /api/settings/facebook/pages/manual': { kind: 'own-scope', path: '/api/settings/facebook/pages/manual', body: { pageId: '1', pageAccessToken: 'EAAinvalidinvalidinvalid' }, why: 'upsert theo (userId, pageId)' },
@@ -1858,7 +1873,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
     expect(failures).toEqual([]);
   });
 
-  it("lists and own-scope routes never show or change user B's data", async () => {
+  it("lists and own-scope routes never show user B's data", async () => {
     const leaks: string[] = [];
     for (const [route, c] of Object.entries(ROUTE_CASES)) {
       if (c.kind !== 'list' && c.kind !== 'own-scope') continue;
@@ -1881,11 +1896,11 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
 - [ ] **Step 2: Chạy để thấy fail**
 
 Run: `RUN_DB_TESTS=1 npx vitest run tests/isolation.db.test.ts`
-Expected: FAIL ở test 404 — ít nhất: `GET /api/images/:postId` (chưa đăng nhập vẫn qua, trả ảnh/404 khác lý do tuỳ file — cần **yêu cầu đăng nhập + chủ bài**), `POST /api/posts/:id/improve → 400`, `POST /api/settings/test/:group → 200`. Ghi lại danh sách thực tế trong output và sửa đúng những route đó ở Step 3.
+Expected: FAIL ở test 404 — gồm `GET /api/images/:postId` (chưa yêu cầu đăng nhập/chủ bài), `POST /api/posts/:id/improve → 400`, `POST /api/settings/test/:group → 200`. Đọc danh sách `failures` trong output.
 
 - [ ] **Step 3: Sửa các route**
 
-`src/routes/images.routes.ts` — thay phần router:
+`src/routes/images.routes.ts` — thay toàn bộ file:
 
 ```ts
 import { Router, Response } from 'express';
@@ -1927,7 +1942,7 @@ export default router;
     if (!source) throw createError(400, 'Post has no caption to improve');
 ```
 
-`src/routes/settings.routes.ts` — trong handler `'/test/:group'`, dòng đầu tiên của `asyncHandler(async (req, res) => {` thêm:
+`src/routes/settings.routes.ts` — trong handler `'/test/:group'`, dòng đầu tiên của thân `asyncHandler(async (req: AuthRequest, res: Response) => {` thêm:
 
 ```ts
     const pageId = typeof req.body?.pageId === 'string' ? req.body.pageId : undefined;
@@ -1936,7 +1951,7 @@ export default router;
     }
 ```
 
-Chạy lại test; nếu còn route nào ≠ 404, sửa theo cùng mẫu (thêm `userId: req.user!.id` vào `findFirst` và `throw createError(404, …)` trước mọi xử lý khác) cho đến khi danh sách `failures` rỗng.
+Chạy lại test. Với mỗi route còn nằm trong `failures`: mở handler, đặt `findFirst({ where: { id: <param>, userId: req.user!.id } })` + `if (!x) throw createError(404, …)` **trước** mọi xử lý khác (gọi AI, Facebook, ghi DB) — cho tới khi `failures` rỗng.
 
 - [ ] **Step 4: Chạy test**
 
@@ -1955,11 +1970,11 @@ git commit -m "fix(security): 404 on other users' ids everywhere; images need th
 ### Task 11: Client — API bằng cookie, `AuthProvider`, `ProtectedRoute`
 
 **Files:**
-- Modify: `client/src/api.ts:15-80` (phần token + `apiFetch` + `authApi`), `client/src/api.ts` (`postsApi.uploadImage`), `client/src/App.tsx`, `client/src/main.tsx`
+- Modify: `client/src/api.ts` (phần token + `apiFetch` + `authApi`, `postsApi.uploadImage`), `client/src/App.tsx`, `client/src/main.tsx`
 - Create: `client/src/auth.tsx`
 
 **Interfaces:**
-- Produces: `AUTH_EVENT = 'autopost:auth'` (window `CustomEvent<{ code: string }>`); `ApiError extends Error { status: number; code?: string }`; `authApi.login(email, password)`, `authApi.logout()`, `authApi.me()`, `authApi.changePassword(currentPassword, newPassword)` ⇒ `PublicUser = { id; email; name; role: 'ADMIN' | 'USER'; mustChangePassword: boolean }`; `adminApi.listUsers()`, `adminApi.createUser({ email, name, role })`, `adminApi.updateUser(id, { isActive?, role? })`, `adminApi.resetPassword(id)`; `AuthProvider`; `useAuth(): { user: PublicUser | null; loading: boolean; setUser(u): void; refresh(): Promise<void>; logout(): Promise<void> }`; `ProtectedRoute({ children, adminOnly? })`.
+- Produces: `AUTH_EVENT = 'autopost:auth'` (window `CustomEvent<{ code: string }>`); `ApiError extends Error { status: number; code?: string }`; `PublicUser = { id; email; name; role: 'ADMIN' | 'USER' }`; `authApi.login(email, password)`, `authApi.logout()`, `authApi.me()`; `AdminUserRow`; `MemberInput = { name: string; email: string; password?: string; role: 'ADMIN' | 'USER' }`; `adminApi.listUsers()`, `adminApi.createUser(input: MemberInput & { password: string })`, `adminApi.updateUser(id, patch: Partial<MemberInput> & { isActive?: boolean })`, `adminApi.deleteUser(id, confirmEmail)`; `AuthProvider`; `useAuth(): { user: PublicUser | null; loading: boolean; setUser(u): void; refresh(): Promise<void>; logout(): Promise<void> }`; `ProtectedRoute({ children, adminOnly? })`.
 
 - [ ] **Step 1: Sửa `client/src/api.ts`** — thay từ `// ─── Auth Token Management` tới hết `export const authApi = { … };` bằng:
 
@@ -1992,9 +2007,7 @@ async function apiFetch<T = any>(
 
   if (!response.ok) {
     const code: string | undefined = data.code;
-    if (code === 'UNAUTHENTICATED' || code === 'MUST_CHANGE_PASSWORD') {
-      window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: { code } }));
-    }
+    if (code === 'UNAUTHENTICATED') window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: { code } }));
     throw new ApiError(data.error || 'Request failed', response.status, code);
   }
   return data;
@@ -2007,7 +2020,6 @@ export interface PublicUser {
   email: string;
   name: string;
   role: 'ADMIN' | 'USER';
-  mustChangePassword: boolean;
 }
 
 export const authApi = {
@@ -2015,11 +2027,9 @@ export const authApi = {
     apiFetch<PublicUser>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => apiFetch('/auth/logout', { method: 'POST' }),
   me: () => apiFetch<PublicUser>('/auth/me'),
-  changePassword: (currentPassword: string, newPassword: string) =>
-    apiFetch<PublicUser>('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
 };
 
-// ─── Admin API ──────────────────────────────────
+// ─── Admin API (member management) ──────────────
 
 export interface AdminUserRow {
   id: string;
@@ -2027,23 +2037,29 @@ export interface AdminUserRow {
   name: string;
   role: 'ADMIN' | 'USER';
   isActive: boolean;
-  mustChangePassword: boolean;
   lastLoginAt: string | null;
   createdAt: string;
   pages: number;
   posts30d: number;
 }
 
+export interface MemberInput {
+  name: string;
+  email: string;
+  password?: string;
+  role: 'ADMIN' | 'USER';
+}
+
+type MemberRow = Omit<AdminUserRow, 'pages' | 'posts30d'>;
+
 export const adminApi = {
   listUsers: () => apiFetch<AdminUserRow[]>('/admin/users'),
-  createUser: (body: { email: string; name: string; role: 'ADMIN' | 'USER' }) =>
-    apiFetch<{ user: Pick<AdminUserRow, 'id' | 'email' | 'name' | 'role' | 'isActive' | 'mustChangePassword' | 'createdAt'>; tempPassword: string }>('/admin/users', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  updateUser: (id: string, body: { isActive?: boolean; role?: 'ADMIN' | 'USER' }) =>
-    apiFetch<Pick<AdminUserRow, 'id' | 'email' | 'name' | 'role' | 'isActive' | 'mustChangePassword'>>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  resetPassword: (id: string) => apiFetch<{ tempPassword: string }>(`/admin/users/${id}/reset-password`, { method: 'POST' }),
+  createUser: (input: MemberInput & { password: string }) =>
+    apiFetch<MemberRow>('/admin/users', { method: 'POST', body: JSON.stringify(input) }),
+  updateUser: (id: string, patch: Partial<MemberInput> & { isActive?: boolean }) =>
+    apiFetch<MemberRow>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteUser: (id: string, confirmEmail: string) =>
+    apiFetch(`/admin/users/${id}`, { method: 'DELETE', body: JSON.stringify({ confirmEmail }) }),
 };
 ```
 
@@ -2100,12 +2116,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refresh();
-    // Any API call that finds the session gone (or a password to change) updates the state
-    const onAuth = (e: Event) => {
-      const code = (e as CustomEvent<{ code: string }>).detail?.code;
-      if (code === 'UNAUTHENTICATED') setUser(null);
-      else void refresh();
-    };
+    // Any API call that finds the session gone sends the user back to /login
+    const onAuth = () => setUser(null);
     window.addEventListener(AUTH_EVENT, onAuth);
     return () => window.removeEventListener(AUTH_EVENT, onAuth);
   }, [refresh]);
@@ -2125,7 +2137,6 @@ export function ProtectedRoute({ children, adminOnly = false }: { children: Reac
 
   if (loading) return <div className="loading-page"><div className="spinner spinner-lg" /></div>;
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
-  if (user.mustChangePassword && location.pathname !== '/change-password') return <Navigate to="/change-password" replace />;
   if (adminOnly && user.role !== 'ADMIN') return <Navigate to="/" replace />;
   return <>{children}</>;
 }
@@ -2133,17 +2144,9 @@ export function ProtectedRoute({ children, adminOnly = false }: { children: Reac
 
 - [ ] **Step 3: Sửa `client/src/App.tsx` và `client/src/main.tsx`**
 
-`App.tsx`: xoá hàm `ProtectedRoute` cục bộ; thêm `import { ProtectedRoute } from './auth';`, `import ChangePasswordPage from './pages/ChangePasswordPage';`, `import UsersPage from './pages/UsersPage';`. Thêm hai route (trước `path="*"`):
+`App.tsx`: xoá hàm `ProtectedRoute` cục bộ; thêm `import { ProtectedRoute } from './auth';` và `import UsersPage from './pages/UsersPage';`. Thêm route (trước `path="*"`):
 
 ```tsx
-        <Route
-          path="/change-password"
-          element={
-            <ProtectedRoute>
-              <ChangePasswordPage />
-            </ProtectedRoute>
-          }
-        />
         <Route
           path="/admin/users"
           element={
@@ -2156,38 +2159,38 @@ export function ProtectedRoute({ children, adminOnly = false }: { children: Reac
         />
 ```
 
-`main.tsx`: bọc `<App />` trong `<AuthProvider>` (import từ `./auth`), bên trong `ToastProvider`. Vì `ProtectedRoute` dùng `useLocation`, `AuthProvider` không cần nằm trong Router; `BrowserRouter` vẫn ở `App.tsx`.
+`main.tsx`: bọc `<App />` trong `<AuthProvider>` (import `{ AuthProvider } from './auth'`), bên trong `ToastProvider`.
 
-Tạo tạm `client/src/pages/ChangePasswordPage.tsx` và `client/src/pages/UsersPage.tsx` với `export default function X() { return null; }` để build được (nội dung thật ở Task 12–13).
+Tạo tạm `client/src/pages/UsersPage.tsx` = `export default function UsersPage() { return null; }` (viết thật ở Task 13). `Sidebar.tsx`: thay `const user = getStoredUser();` bằng `const { user } = useAuth();` (import `useAuth` từ `../auth`, bỏ `getStoredUser` khỏi import). `LoginPage.tsx`: tạm `export default function LoginPage() { return null; }` (viết thật ở Task 12).
 
 - [ ] **Step 4: Kiểm tra build**
 
 Run: `cd client && npx -y -p node@22 -- node node_modules/typescript/bin/tsc -b`
-Expected: không lỗi. Nếu báo `getStoredUser`/`setToken`/`setStoredUser` không tồn tại (LoginPage, Sidebar): tạm đổi `Sidebar` dùng `const { user } = useAuth();` (import `useAuth` từ `../auth`) và để `LoginPage.tsx` = `export default function LoginPage() { return null; }` — viết thật ở Task 12–13.
+Expected: không lỗi.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add client/src/api.ts client/src/auth.tsx client/src/App.tsx client/src/main.tsx client/src/pages/ChangePasswordPage.tsx client/src/pages/UsersPage.tsx client/src/pages/LoginPage.tsx client/src/components/Sidebar.tsx
+git add client/src/api.ts client/src/auth.tsx client/src/App.tsx client/src/main.tsx client/src/pages/UsersPage.tsx client/src/pages/LoginPage.tsx client/src/components/Sidebar.tsx
 git commit -m "feat(client): cookie session, AuthProvider and protected routes"
 ```
 
 ---
 
-### Task 12: Trang Đăng nhập & Đổi mật khẩu
+### Task 12: Trang Đăng nhập
 
 **Files:**
-- Modify: `client/src/pages/LoginPage.tsx` (viết lại), `client/src/pages/ChangePasswordPage.tsx` (viết thật), `client/src/index.css` (thêm cuối file)
+- Modify: `client/src/pages/LoginPage.tsx` (viết lại), `client/src/index.css` (thêm cuối file)
 
 **Interfaces:**
-- Consumes: `authApi`, `ApiError` (Task 11); `useAuth` (Task 11); `useToast` (`client/src/components/Toast`).
+- Consumes: `authApi`, `ApiError` (Task 11); `useAuth` (Task 11).
 
 - [ ] **Step 1: Viết `LoginPage.tsx`**
 
 ```tsx
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { LogIn } from 'lucide-react';
+import { LogIn, Eye, EyeOff } from 'lucide-react';
 import { authApi, ApiError } from '../api';
 import { useAuth } from '../auth';
 
@@ -2200,10 +2203,11 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [show, setShow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (!loading && user) return <Navigate to={user.mustChangePassword ? '/change-password' : safeNext(params.get('next'))} replace />;
+  if (!loading && user) return <Navigate to={safeNext(params.get('next'))} replace />;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -2212,7 +2216,7 @@ export default function LoginPage() {
     try {
       const res = await authApi.login(email, password);
       setUser(res.data);
-      navigate(res.data.mustChangePassword ? '/change-password' : safeNext(params.get('next')), { replace: true });
+      navigate(safeNext(params.get('next')), { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Không kết nối được máy chủ. Thử lại sau.');
       setPassword('');
@@ -2228,13 +2232,18 @@ export default function LoginPage() {
           <div className="logo-mark" aria-hidden="true" />
           <div>
             <h1 id="login-title">Đăng nhập Auto Post</h1>
-            <p>Tài khoản do quản trị viên cấp.</p>
+            <p>Dùng email và mật khẩu quản trị viên đã cấp.</p>
           </div>
         </div>
         <label className="form-label" htmlFor="login-email">Email</label>
         <input id="login-email" className="form-input" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
         <label className="form-label" htmlFor="login-password">Mật khẩu</label>
-        <input id="login-password" className="form-input" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+        <div className="password-field">
+          <input id="login-password" className="form-input" type={show ? 'text' : 'password'} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          <button type="button" className="icon-btn" onClick={() => setShow((v) => !v)} aria-label={show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>
+            {show ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+          </button>
+        </div>
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={busy}>
           {busy ? <div className="spinner" /> : <LogIn size={16} aria-hidden="true" />} Đăng nhập
@@ -2246,74 +2255,10 @@ export default function LoginPage() {
 }
 ```
 
-- [ ] **Step 2: Viết `ChangePasswordPage.tsx`**
-
-```tsx
-import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { KeyRound } from 'lucide-react';
-import { authApi, ApiError } from '../api';
-import { useAuth } from '../auth';
-
-export default function ChangePasswordPage() {
-  const { user, setUser, logout } = useAuth();
-  const navigate = useNavigate();
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const mismatch = confirm.length > 0 && confirm !== next;
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (next.length < 10) return setError('Mật khẩu mới cần ít nhất 10 ký tự.');
-    if (next !== confirm) return setError('Hai lần nhập mật khẩu mới chưa khớp.');
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await authApi.changePassword(current, next);
-      setUser(res.data);
-      navigate('/', { replace: true });
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Không kết nối được máy chủ. Thử lại sau.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <main className="auth-screen">
-      <form className="auth-card" onSubmit={submit} aria-labelledby="cp-title">
-        <div className="auth-brand">
-          <div className="logo-mark" aria-hidden="true" />
-          <div>
-            <h1 id="cp-title">Đổi mật khẩu</h1>
-            <p>{user?.mustChangePassword ? 'Bạn đang dùng mật khẩu tạm. Đặt mật khẩu riêng để tiếp tục.' : user?.email}</p>
-          </div>
-        </div>
-        <label className="form-label" htmlFor="cp-current">{user?.mustChangePassword ? 'Mật khẩu tạm' : 'Mật khẩu hiện tại'}</label>
-        <input id="cp-current" className="form-input" type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
-        <label className="form-label" htmlFor="cp-new">Mật khẩu mới (ít nhất 10 ký tự)</label>
-        <input id="cp-new" className="form-input" type="password" autoComplete="new-password" required minLength={10} value={next} onChange={(e) => setNext(e.target.value)} />
-        <label className="form-label" htmlFor="cp-confirm">Nhập lại mật khẩu mới</label>
-        <input id="cp-confirm" className={`form-input ${mismatch ? 'input-warn' : ''}`} type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-        {error && <p className="auth-error" role="alert">{error}</p>}
-        <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={busy || mismatch}>
-          {busy ? <div className="spinner" /> : <KeyRound size={16} aria-hidden="true" />} Lưu mật khẩu mới
-        </button>
-        <button type="button" className="link-btn" style={{ alignSelf: 'center' }} onClick={() => void logout()}>Đăng xuất</button>
-      </form>
-    </main>
-  );
-}
-```
-
-- [ ] **Step 3: CSS** — thêm cuối `client/src/index.css`:
+- [ ] **Step 2: CSS** — thêm cuối `client/src/index.css`:
 
 ```css
-/* ─── Auth screens ─────────────────────────── */
+/* ─── Auth screen ──────────────────────────── */
 .auth-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background:
   radial-gradient(1200px 500px at 15% -10%, var(--primary-100), transparent 60%), var(--bg-primary); }
 .auth-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 10px; padding: 28px; background: var(--bg-card);
@@ -2324,39 +2269,47 @@ export default function ChangePasswordPage() {
 .auth-card .form-label { margin: 6px 0 0; }
 .auth-card .btn-block { margin-top: 10px; }
 .auth-error { margin: 4px 0 0; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--error-bg); color: var(--error-500); font-size: 13px; }
+.password-field { position: relative; }
+.password-field .form-input { padding-right: 44px; width: 100%; }
+.password-field .icon-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
+.icon-btn { width: 32px; height: 32px; display: grid; place-items: center; border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-tertiary); cursor: pointer; transition: background var(--transition-fast), color var(--transition-fast); }
+.icon-btn:hover { background: var(--bg-glass-hover); color: var(--text-primary); }
+.icon-btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 @keyframes auth-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .auth-card { animation: none; } }
 ```
 
-- [ ] **Step 4: Build + xem thực tế**
+- [ ] **Step 3: Build + xem thực tế**
 
 Run: `cd client && npx -y -p node@22 -- node node_modules/typescript/bin/tsc -b`
-Rồi chạy thử (ghi PID để tắt hẳn sau đó):
+Rồi chạy thử:
 ```bash
 cd .. && (npx tsx src/server.ts > /tmp/api-m1.log 2>&1 &) ; (cd client && npx -y -p node@22 -- node node_modules/vite/bin/vite.js --port 5173 --strictPort > /tmp/vite-m1.log 2>&1 &) ; sleep 14
 ```
-Mở `http://localhost:5173/` bằng Playwright: phải chuyển tới `/login?next=%2F`; chụp màn hình `.playwright-mcp/m1-login.png`. Đăng nhập bằng một tài khoản test tạo qua `prisma` với `mustChangePassword=true` ⇒ phải tới `/change-password`; chụp `.playwright-mcp/m1-change-password.png`. Tắt server: `for p in $(netstat -ano | grep -E ":(3000|5173) .*LISTENING" | awk '{print $NF}' | sort -u); do taskkill //PID $p //T //F; done`.
-Expected: 2 màn hình hiển thị đúng, không lỗi console.
+Mở `http://localhost:5173/` bằng Playwright: phải chuyển tới `/login?next=%2F`; chụp `.playwright-mcp/m1-login.png`. Đăng nhập sai ⇒ hiện "Email hoặc mật khẩu không đúng."; đăng nhập đúng (tạo user test qua `prisma` với `hashPassword`) ⇒ vào Dashboard. Tắt server hẳn: `for p in $(netstat -ano | grep -E ":(3000|5173) .*LISTENING" | awk '{print $NF}' | sort -u); do taskkill //PID $p //T //F; done`.
+Expected: đúng như mô tả, không lỗi console.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add client/src/pages/LoginPage.tsx client/src/pages/ChangePasswordPage.tsx client/src/index.css
-git commit -m "feat(client): login and change-password screens"
+git add client/src/pages/LoginPage.tsx client/src/index.css
+git commit -m "feat(client): login screen"
 ```
 
 ---
 
-### Task 13: Sidebar (người dùng, đăng xuất) & trang Người dùng
+### Task 13: Sidebar (đăng xuất) & trang Quản lý member
 
 **Files:**
-- Modify: `client/src/components/Sidebar.tsx` (khối `user-profile`, nhóm "Hệ thống"), `client/src/index.css`
-- Modify: `client/src/pages/UsersPage.tsx` (viết thật)
+- Modify: `client/src/components/Sidebar.tsx`, `client/src/pages/UsersPage.tsx` (viết thật), `client/src/index.css`
+- Create: `client/src/components/MemberDialog.tsx`
 
 **Interfaces:**
-- Consumes: `useAuth` (Task 11); `adminApi`, `AdminUserRow` (Task 11); `useToast`; `formatWhen` từ `client/src/components/PostBits`.
+- Consumes: `useAuth` (Task 11); `adminApi`, `AdminUserRow`, `ApiError` (Task 11); `useToast`; `formatWhen` (`client/src/components/PostBits`).
+- Produces: `MemberDialog({ member?: AdminUserRow; onClose(): void; onSaved(): void })`.
 
-- [ ] **Step 1: Sidebar** — import `LogOut, Users` từ `lucide-react`, `useAuth` từ `../auth`, `useNavigate`; xoá `getStoredUser`. Trong component: `const { user, logout } = useAuth(); const navigate = useNavigate();`. Sau `NavLink` "Cài đặt" thêm:
+- [ ] **Step 1: Sidebar** — import `LogOut, Users` từ `lucide-react`, `useNavigate` từ `react-router-dom`, `useAuth` từ `../auth`. Trong component: `const { user, logout } = useAuth(); const navigate = useNavigate();`. Sau `NavLink` "Cài đặt" thêm:
 
 ```tsx
           {user?.role === 'ADMIN' && (
@@ -2378,7 +2331,7 @@ Thay khối `<div className="user-profile">…</div>` bằng:
           </div>
           <button
             type="button"
-            className="icon-btn"
+            className="icon-btn logout-btn"
             aria-label="Đăng xuất"
             title="Đăng xuất"
             onClick={async () => {
@@ -2391,203 +2344,352 @@ Thay khối `<div className="user-profile">…</div>` bằng:
         </div>
 ```
 
-CSS thêm cuối `index.css`:
-
-```css
-.user-profile .icon-btn { margin-left: auto; width: 32px; height: 32px; display: grid; place-items: center; border: none; border-radius: var(--radius-sm);
-  background: transparent; color: var(--text-tertiary); cursor: pointer; transition: background var(--transition-fast), color var(--transition-fast); }
-.user-profile .icon-btn:hover { background: var(--bg-glass-hover); color: var(--error-500); }
-.user-profile .icon-btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
-.user-profile .user-plan { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
-```
-
-- [ ] **Step 2: `UsersPage.tsx`**
+- [ ] **Step 2: `MemberDialog.tsx`** (thêm & sửa member)
 
 ```tsx
-import { useEffect, useState, type FormEvent } from 'react';
-import { UserPlus, KeyRound, Lock, Unlock, Copy } from 'lucide-react';
-import { adminApi, type AdminUserRow } from '../api';
+import { useState, type FormEvent } from 'react';
+import { X, Eye, EyeOff, Shuffle, Copy } from 'lucide-react';
+import { adminApi, ApiError, type AdminUserRow } from '../api';
+import { useToast } from './Toast';
+
+/** 12 readable characters, generated in the browser. */
+function randomPassword(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+}
+
+interface Props {
+  member?: AdminUserRow;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+export default function MemberDialog({ member, onClose, onSaved }: Props) {
+  const toast = useToast();
+  const editing = !!member;
+  const [name, setName] = useState(member?.name ?? '');
+  const [email, setEmail] = useState(member?.email ?? '');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'ADMIN' | 'USER'>(member?.role ?? 'USER');
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!editing && password.length < 8) return setError('Mật khẩu cần ít nhất 8 ký tự.');
+    if (editing && password && password.length < 8) return setError('Mật khẩu mới cần ít nhất 8 ký tự.');
+    setBusy(true);
+    setError(null);
+    try {
+      if (editing) {
+        await adminApi.updateUser(member!.id, {
+          ...(name !== member!.name && { name }),
+          ...(email.trim().toLowerCase() !== member!.email && { email }),
+          ...(role !== member!.role && { role }),
+          ...(password && { password }),
+        });
+        toast.success(`Đã lưu ${name}.`);
+      } else {
+        await adminApi.createUser({ name, email, password, role });
+        toast.success(`Đã tạo tài khoản ${email}. Gửi email + mật khẩu cho member.`);
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Không lưu được. Thử lại sau.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyPassword() {
+    try {
+      await navigator.clipboard.writeText(password);
+      toast.success('Đã copy mật khẩu.');
+    } catch {
+      toast.info('Không copy được — hãy bấm hiện mật khẩu rồi copy thủ công.');
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <form className="modal-panel member-dialog" role="dialog" aria-modal="true" aria-labelledby="member-title" onSubmit={submit}>
+        <header className="modal-head">
+          <div>
+            <h2 id="member-title">{editing ? `Sửa ${member!.name}` : 'Thêm member'}</h2>
+            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+              {editing ? 'Đổi mật khẩu, email hoặc vai trò sẽ đăng xuất member.' : 'Member đăng nhập ngay bằng email và mật khẩu này.'}
+            </p>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Đóng"><X size={18} aria-hidden="true" /></button>
+        </header>
+
+        <div className="member-body">
+          <label className="form-label" htmlFor="m-name">Tên</label>
+          <input id="m-name" className="form-input" required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
+
+          <label className="form-label" htmlFor="m-email">Email đăng nhập</label>
+          <input id="m-email" className="form-input" type="email" required autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
+
+          <label className="form-label" htmlFor="m-password">{editing ? 'Mật khẩu mới (để trống = giữ nguyên)' : 'Mật khẩu (ít nhất 8 ký tự)'}</label>
+          <div className="password-row">
+            <div className="password-field">
+              <input id="m-password" className="form-input" type={show ? 'text' : 'password'} autoComplete="new-password" required={!editing} value={password} onChange={(e) => setPassword(e.target.value)} />
+              <button type="button" className="icon-btn" onClick={() => setShow((v) => !v)} aria-label={show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>
+                {show ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+              </button>
+            </div>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setPassword(randomPassword()); setShow(true); }}>
+              <Shuffle size={14} aria-hidden="true" /> Tạo ngẫu nhiên
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={copyPassword} disabled={!password} aria-label="Copy mật khẩu">
+              <Copy size={14} aria-hidden="true" />
+            </button>
+          </div>
+
+          <label className="form-label" htmlFor="m-role">Vai trò</label>
+          <select id="m-role" className="form-select" value={role} onChange={(e) => setRole(e.target.value as 'ADMIN' | 'USER')}>
+            <option value="USER">Member</option>
+            <option value="ADMIN">Quản trị viên</option>
+          </select>
+
+          {error && <p className="auth-error" role="alert">{error}</p>}
+        </div>
+
+        <footer className="modal-foot">
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>Huỷ</button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? <div className="spinner" /> : null} {editing ? 'Lưu thay đổi' : 'Tạo tài khoản'}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: `UsersPage.tsx`**
+
+```tsx
+import { useEffect, useMemo, useState } from 'react';
+import { UserPlus, PenLine, Trash2, Search } from 'lucide-react';
+import { adminApi, ApiError, type AdminUserRow } from '../api';
 import { useAuth } from '../auth';
 import { useToast } from '../components/Toast';
 import { formatWhen } from '../components/PostBits';
-
-const statusOf = (u: AdminUserRow) =>
-  !u.isActive ? { label: 'Bị khoá', cls: 'badge-failed' } : u.mustChangePassword ? { label: 'Chờ đổi mật khẩu', cls: 'badge-warn' } : { label: 'Hoạt động', cls: 'badge-published' };
+import MemberDialog from '../components/MemberDialog';
 
 export default function UsersPage() {
   const toast = useToast();
   const { user: me } = useAuth();
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
+  const [dialog, setDialog] = useState<{ member?: AdminUserRow } | null>(null);
+  const [deleting, setDeleting] = useState<AdminUserRow | null>(null);
+  const [confirmEmail, setConfirmEmail] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
-  const [form, setForm] = useState({ email: '', name: '', role: 'USER' as 'ADMIN' | 'USER' });
-  const [secret, setSecret] = useState<{ email: string; password: string } | null>(null);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   async function load() {
     try {
       setUsers((await adminApi.listUsers()).data);
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Không tải được danh sách.');
     } finally {
       setLoading(false);
     }
   }
   useEffect(() => { void load(); }, []);
 
-  async function create(e: FormEvent) {
-    e.preventDefault();
-    setBusy('create');
-    try {
-      const res = await adminApi.createUser(form);
-      setSecret({ email: res.data.user.email, password: res.data.tempPassword });
-      setForm({ email: '', name: '', role: 'USER' });
-      await load();
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setBusy(null);
-    }
-  }
+  const visible = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return needle ? users.filter((u) => u.name.toLowerCase().includes(needle) || u.email.includes(needle)) : users;
+  }, [users, q]);
 
   async function toggleActive(u: AdminUserRow) {
-    if (u.isActive && confirmId !== u.id) return setConfirmId(u.id);
-    setBusy(`lock:${u.id}`);
+    setBusy(`active:${u.id}`);
     try {
       await adminApi.updateUser(u.id, { isActive: !u.isActive });
-      toast.success(u.isActive ? `Đã khoá ${u.email}. Mọi phiên của người này đã bị đăng xuất.` : `Đã mở khoá ${u.email}.`);
-      setConfirmId(null);
+      toast.success(u.isActive ? `Đã vô hiệu hoá ${u.email} — member bị đăng xuất.` : `Đã kích hoạt lại ${u.email}.`);
       await load();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Không cập nhật được.');
     } finally {
       setBusy(null);
     }
   }
 
-  async function reset(u: AdminUserRow) {
-    setBusy(`reset:${u.id}`);
+  async function remove() {
+    if (!deleting) return;
+    setBusy('delete');
     try {
-      const res = await adminApi.resetPassword(u.id);
-      setSecret({ email: u.email, password: res.data.tempPassword });
+      await adminApi.deleteUser(deleting.id, confirmEmail);
+      toast.success(`Đã xoá ${deleting.email} và toàn bộ dữ liệu của họ.`);
+      setDeleting(null);
+      setConfirmEmail('');
       await load();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Không xoá được.');
     } finally {
       setBusy(null);
-    }
-  }
-
-  async function copySecret() {
-    if (!secret) return;
-    try {
-      await navigator.clipboard.writeText(secret.password);
-      toast.success('Đã copy mật khẩu tạm.');
-    } catch {
-      toast.info('Không copy được — hãy chọn và copy thủ công.');
     }
   }
 
   return (
     <div className="stack" style={{ gap: 20 }}>
-      <div className="page-header" style={{ marginBottom: 0 }}>
-        <h1>Người dùng</h1>
-        <p>Tạo tài khoản, khoá/mở và đặt lại mật khẩu. Quản trị viên không xem được nội dung của người dùng khác.</p>
+      <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+        <div className="page-header" style={{ marginBottom: 0, flex: 1, minWidth: 260 }}>
+          <h1>Người dùng</h1>
+          <p>Thêm, sửa, vô hiệu hoá hoặc xoá member. Quản trị viên không xem được nội dung của member.</p>
+        </div>
+        <label className="topbar-search" style={{ width: 240, height: 38 }}>
+          <Search size={15} aria-hidden="true" />
+          <input type="search" placeholder="Tìm tên hoặc email" aria-label="Tìm member" value={q} onChange={(e) => setQ(e.target.value)} />
+        </label>
+        <button type="button" className="btn btn-primary" onClick={() => setDialog({})}>
+          <UserPlus size={16} aria-hidden="true" /> Thêm member
+        </button>
       </div>
 
-      <form className="card users-create" onSubmit={create} aria-label="Tạo người dùng">
-        <div className="field"><label className="form-label" htmlFor="nu-email">Email</label>
-          <input id="nu-email" className="form-input" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-        <div className="field"><label className="form-label" htmlFor="nu-name">Tên</label>
-          <input id="nu-name" className="form-input" required maxLength={100} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-        <div className="field"><label className="form-label" htmlFor="nu-role">Vai trò</label>
-          <select id="nu-role" className="form-select" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'ADMIN' | 'USER' })}>
-            <option value="USER">Người dùng</option><option value="ADMIN">Quản trị viên</option>
-          </select></div>
-        <button type="submit" className="btn btn-primary" disabled={busy === 'create'}>
-          {busy === 'create' ? <div className="spinner" /> : <UserPlus size={16} aria-hidden="true" />} Tạo tài khoản
-        </button>
-      </form>
-
-      {secret && (
-        <div className="secret-once" role="status">
-          <div>
-            <strong>Mật khẩu tạm cho {secret.email}</strong>
-            <p className="field-hint" style={{ margin: 0 }}>Chỉ hiện một lần. Gửi cho người dùng; họ phải đổi mật khẩu khi đăng nhập lần đầu.</p>
-          </div>
-          <code className="secret-value">{secret.password}</code>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={copySecret}><Copy size={14} aria-hidden="true" /> Copy</button>
-          <button type="button" className="link-btn" onClick={() => setSecret(null)}>Đã gửi, ẩn đi</button>
-        </div>
-      )}
-
-      <section className="card flush" aria-label="Danh sách người dùng">
+      <section className="card flush" aria-label="Danh sách member">
         <div className="table-wrap">
           <table className="page-table">
-            <thead><tr><th scope="col">Người dùng</th><th scope="col">Vai trò</th><th scope="col">Trạng thái</th><th scope="col">Page</th><th scope="col">Bài 30 ngày</th><th scope="col">Đăng nhập cuối</th><th scope="col"><span className="sr-only">Thao tác</span></th></tr></thead>
+            <thead>
+              <tr>
+                <th scope="col">Member</th><th scope="col">Vai trò</th><th scope="col">Đăng nhập</th>
+                <th scope="col">Page</th><th scope="col">Bài 30 ngày</th><th scope="col">Lần cuối</th>
+                <th scope="col"><span className="sr-only">Thao tác</span></th>
+              </tr>
+            </thead>
             <tbody>
               {loading ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24 }}><div className="spinner" /></td></tr>
-              ) : users.map((u) => {
-                const st = statusOf(u);
-                const self = u.id === me?.id;
-                return (
-                  <tr key={u.id} className={u.isActive ? '' : 'blocked'}>
-                    <td><div className="name">{u.name}{self && <span className="muted"> (bạn)</span>}</div><div className="muted" style={{ fontSize: 12 }}>{u.email}</div></td>
-                    <td>{u.role === 'ADMIN' ? 'Quản trị viên' : 'Người dùng'}</td>
-                    <td><span className={`badge ${st.cls}`}>{st.label}</span></td>
-                    <td className="mono">{u.pages}</td>
-                    <td className="mono">{u.posts30d}</td>
-                    <td className="muted">{u.lastLoginAt ? formatWhen(u.lastLoginAt) : 'Chưa'}</td>
-                    <td>
-                      <div className="row-actions">
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => reset(u)} disabled={!!busy} title="Đặt lại mật khẩu">
-                          {busy === `reset:${u.id}` ? <div className="spinner" /> : <KeyRound size={14} aria-hidden="true" />} Đặt lại
-                        </button>
-                        {!self && (
-                          <button type="button" className={`btn btn-sm ${confirmId === u.id ? 'btn-danger' : 'btn-secondary'}`} onClick={() => toggleActive(u)} disabled={!!busy && confirmId !== u.id}>
-                            {busy === `lock:${u.id}` ? <div className="spinner" /> : u.isActive ? <Lock size={14} aria-hidden="true" /> : <Unlock size={14} aria-hidden="true" />}
-                            {u.isActive ? (confirmId === u.id ? 'Bấm lần nữa để khoá' : 'Khoá') : 'Mở khoá'}
-                          </button>
+              ) : visible.length === 0 ? (
+                <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}>Không có member nào khớp.</td></tr>
+              ) : (
+                visible.map((u) => {
+                  const self = u.id === me?.id;
+                  return (
+                    <tr key={u.id} className={u.isActive ? '' : 'blocked'}>
+                      <td>
+                        <div className="name">{u.name}{self && <span className="muted"> (bạn)</span>}</div>
+                        <div className="muted" style={{ fontSize: 12 }}>{u.email}</div>
+                      </td>
+                      <td>{u.role === 'ADMIN' ? 'Quản trị viên' : 'Member'}</td>
+                      <td>
+                        {self ? (
+                          <span className="badge badge-published">Hoạt động</span>
+                        ) : (
+                          <label className="switch" title={u.isActive ? 'Bấm để vô hiệu hoá đăng nhập' : 'Bấm để cho phép đăng nhập'}>
+                            <input type="checkbox" checked={u.isActive} disabled={busy === `active:${u.id}`} onChange={() => toggleActive(u)} aria-label={`Cho phép ${u.email} đăng nhập`} />
+                            <span className="switch-track" aria-hidden="true" />
+                            <span className="switch-label">{u.isActive ? 'Hoạt động' : 'Vô hiệu hoá'}</span>
+                          </label>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="mono">{u.pages}</td>
+                      <td className="mono">{u.posts30d}</td>
+                      <td className="muted">{u.lastLoginAt ? formatWhen(u.lastLoginAt) : 'Chưa'}</td>
+                      <td>
+                        <div className="row-actions">
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDialog({ member: u })} aria-label={`Sửa ${u.email}`}>
+                            <PenLine size={14} aria-hidden="true" /> Sửa
+                          </button>
+                          {!self && (
+                            <button type="button" className="btn btn-secondary btn-sm danger-hover" onClick={() => { setDeleting(u); setConfirmEmail(''); }} aria-label={`Xoá ${u.email}`}>
+                              <Trash2 size={14} aria-hidden="true" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </section>
+
+      {dialog && (
+        <MemberDialog
+          member={dialog.member}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null);
+            void load();
+          }}
+        />
+      )}
+
+      {deleting && (
+        <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && busy !== 'delete' && setDeleting(null)}>
+          <div className="modal-panel member-dialog" role="alertdialog" aria-modal="true" aria-labelledby="del-title">
+            <header className="modal-head"><h2 id="del-title">Xoá {deleting.name}?</h2></header>
+            <div className="member-body">
+              <p style={{ margin: 0 }}>
+                Xoá vĩnh viễn tài khoản <strong>{deleting.email}</strong> cùng <strong>{deleting.pages} Page</strong>, toàn bộ bài viết, lịch đăng và cấu hình của họ. Không hoàn tác được.
+              </p>
+              <p className="field-hint" style={{ margin: 0 }}>Muốn giữ dữ liệu? Dùng công tắc <em>Vô hiệu hoá</em> thay vì xoá.</p>
+              <label className="form-label" htmlFor="del-confirm">Gõ lại email để xác nhận</label>
+              <input id="del-confirm" className="form-input" autoComplete="off" value={confirmEmail} onChange={(e) => setConfirmEmail(e.target.value)} placeholder={deleting.email} />
+            </div>
+            <footer className="modal-foot">
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleting(null)} disabled={busy === 'delete'}>Huỷ</button>
+              <button type="button" className="btn btn-danger" onClick={remove} disabled={busy === 'delete' || confirmEmail.trim().toLowerCase() !== deleting.email}>
+                {busy === 'delete' ? <div className="spinner" /> : <Trash2 size={15} aria-hidden="true" />} Xoá vĩnh viễn
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 ```
 
-CSS thêm cuối `index.css`:
+- [ ] **Step 4: CSS** — thêm cuối `client/src/index.css`:
 
 ```css
-/* ─── Users (admin) ────────────────────────── */
-.users-create { display: grid; grid-template-columns: 2fr 1.5fr 1fr auto; gap: 12px; align-items: end; padding: 16px 18px; }
-@media (max-width: 860px) { .users-create { grid-template-columns: 1fr; } }
-.users-create .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.users-create .form-label { margin: 0; }
-.secret-once { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border-radius: var(--radius-md);
-  background: var(--success-bg); border: 1px solid color-mix(in srgb, var(--success-500) 30%, transparent); animation: banner-in var(--transition-slow) both; }
-.secret-once > div { flex: 1; min-width: 220px; }
-.secret-value { font-family: var(--font-mono); font-size: 15px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--bg-card); border: 1px solid var(--border-default); user-select: all; }
+/* ─── Members (admin) ──────────────────────── */
+.logout-btn { margin-left: auto; }
+.logout-btn:hover { color: var(--error-500); }
+.user-profile .user-plan { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+.member-dialog { max-width: 480px; }
+.member-body { display: flex; flex-direction: column; gap: 8px; padding: 18px 24px; overflow-y: auto; }
+.member-body .form-label { margin: 6px 0 0; }
+.password-row { display: flex; gap: 8px; align-items: center; }
+.password-row .password-field { flex: 1; min-width: 0; }
+.danger-hover:hover { color: var(--error-500); border-color: color-mix(in srgb, var(--error-500) 40%, var(--border-default)); }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track { width: 34px; height: 20px; border-radius: var(--radius-full); background: var(--border-strong); position: relative; transition: background var(--transition-fast); flex-shrink: 0; }
+.switch-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg-card);
+  box-shadow: var(--shadow-sm); transition: transform var(--transition-base); }
+.switch input:checked + .switch-track { background: var(--success-500); }
+.switch input:checked + .switch-track::after { transform: translateX(14px); }
+.switch input:focus-visible + .switch-track { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.switch input:disabled + .switch-track { opacity: 0.5; }
+@media (prefers-reduced-motion: reduce) { .switch-track, .switch-track::after { transition: none; } }
 ```
 
-- [ ] **Step 3: Build + xem thực tế**
+- [ ] **Step 5: Build + xem thực tế**
 
-Run: `cd client && npx -y -p node@22 -- node node_modules/typescript/bin/tsc -b`, rồi chạy server + Vite như Task 12 Step 4. Đăng nhập bằng tài khoản ADMIN test ⇒ sidebar có "Người dùng"; mở `/admin/users`, tạo 1 user ⇒ hộp mật khẩu tạm hiện; chụp `.playwright-mcp/m1-users.png`. Đăng nhập bằng user thường ⇒ không có mục "Người dùng", truy cập `/admin/users` bị chuyển về `/`. Tắt hẳn server (lệnh `taskkill` ở Task 12). Xoá tài khoản test: `docker exec autopost_mariadb mariadb -uautopost -pautopost_secret autopost_db -e "DELETE FROM users WHERE email LIKE '%@autopost.test'"`.
-Expected: đúng như mô tả, không lỗi console.
+Run: `cd client && npx -y -p node@22 -- node node_modules/typescript/bin/tsc -b`, rồi chạy server + Vite như Task 12 Step 3. Đăng nhập bằng tài khoản ADMIN test:
+1. Sidebar có "Người dùng" và nút đăng xuất.
+2. `/admin/users` → **Thêm member** (bấm Tạo ngẫu nhiên) ⇒ member mới hiện trong bảng; đăng xuất và đăng nhập bằng member đó ⇒ vào được ngay, không có mục "Người dùng", mở `/admin/users` bị chuyển về `/`.
+3. Quay lại admin: **Sửa** đổi mật khẩu member ⇒ đăng nhập bằng mật khẩu cũ báo sai.
+4. Tắt công tắc ⇒ member không đăng nhập được.
+5. **Xoá** ⇒ nút Xoá chỉ bật khi gõ đúng email.
 
-- [ ] **Step 4: Commit**
+Chụp `.playwright-mcp/m1-users.png` và `.playwright-mcp/m1-member-dialog.png`. Tắt hẳn server (lệnh `taskkill` ở Task 12). Xoá tài khoản test: `docker exec autopost_mariadb mariadb -uautopost -pautopost_secret autopost_db -e "DELETE FROM users WHERE email LIKE '%@autopost.test'"`.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add client/src/components/Sidebar.tsx client/src/pages/UsersPage.tsx client/src/index.css
-git commit -m "feat(client): sidebar sign-out and admin users page"
+git add client/src/components/Sidebar.tsx client/src/components/MemberDialog.tsx client/src/pages/UsersPage.tsx client/src/index.css
+git commit -m "feat(client): member management page and sign-out"
 ```
 
 ---
@@ -2611,9 +2713,9 @@ Expected: cột `role` có trong DB thử.
 - [ ] **Step 2: `.env.example`** — sau khối `# Production only` thêm:
 
 ```
-# First deploy with login (see docs): sets the admin account while it has no real password
+# First deploy with login: sets the admin account while it has no real password
 # ADMIN_EMAIL=you@example.com
-# ADMIN_PASSWORD=                  # ≥ 10 characters; remove from the host after the first login
+# ADMIN_PASSWORD=                  # ≥ 8 characters; remove from the host after the first login
 ```
 và đổi dòng `JWT_SECRET=your-super-secret-jwt-key-change-in-production` thành `JWT_SECRET=                        # ≥ 32 random characters (required in production)`.
 
@@ -2622,7 +2724,7 @@ và đổi dòng `JWT_SECRET=your-super-secret-jwt-key-change-in-production` th�
 ```markdown
 ## Phase 1d — Nhiều người dùng & Lĩnh vực nội dung 🔄 (spec 2026-09-28)
 Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `feature/multi-user-domains`.
-- ✅ M1 Đăng nhập (cookie), vai trò, quản lý người dùng, tách dữ liệu (test mọi route), key `.env` chỉ cho admin — plan `docs/superpowers/plans/2026-09-28-m1-multi-user-auth.md`
+- ✅ M1 Đăng nhập (cookie), vai trò, quản lý member (thêm/sửa/xoá/vô hiệu hoá, admin đặt mật khẩu), tách dữ liệu (test mọi route), key `.env` chỉ cho admin — plan `docs/superpowers/plans/2026-09-28-m1-multi-user-auth.md`
 - ⬜ M2 Lĩnh vực & Định dạng (backend) · ⬜ M3 Giao diện Lĩnh vực/Tạo bài · ⬜ M4 Tài liệu & deploy
 ```
 
@@ -2646,7 +2748,7 @@ git add prisma/hostinger-schema.sql .env.example ROADMAP.md
 git diff --cached | grep -E "^\+" | grep -cE "AIza[0-9A-Za-z_-]{20}|EAA[A-Za-z0-9]{25,}|P2026|u774510961_u_" || true
 git commit -m "chore(m1): schema SQL, env example and roadmap for multi-user login"
 ```
-Báo người dùng: M1 xong trên `feature/multi-user-domains` (chưa merge/deploy); cách thử local (tạo user bằng trang Người dùng); việc tiếp theo là viết plan M2–M4.
+Báo người dùng: M1 xong trên `feature/multi-user-domains` (chưa merge/deploy); cách thử local; việc tiếp theo là viết plan M2–M4.
 
 ---
 
