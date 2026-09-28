@@ -5,6 +5,7 @@ import { AuthRequest, authenticate, requirePlan } from '../middleware/auth.middl
 import { asyncHandler, createError } from '../middleware/error.middleware';
 import { removeScheduleJob, syncScheduleJob } from '../services/scheduler.service';
 import { assertOwnTemplate } from '../lib/ownership';
+import { resolveDomainFormat } from '../lib/domains';
 
 const router = Router();
 router.use(authenticate);
@@ -20,6 +21,8 @@ const createScheduleSchema = z.object({
   startDate: z.string().datetime(),
   endDate: z.string().datetime().optional(),
   templateId: z.string().uuid().optional(),
+  domainId: z.string().uuid().optional(),
+  formatId: z.string().uuid().optional(),
   inputData: z.record(z.string()).optional(),
   autoGenImage: z.boolean().optional().default(true),
 });
@@ -56,6 +59,8 @@ router.post(
     });
     if (!page) throw createError(404, 'Page not found');
     await assertOwnTemplate(userId, data.templateId);
+    const picked =
+      data.domainId || data.formatId ? await resolveDomainFormat(userId, { domainId: data.domainId, formatId: data.formatId, pageId: data.pageId }) : null;
 
     const startDate = new Date(data.startDate);
     const endDate = data.endDate ? new Date(data.endDate) : undefined;
@@ -74,6 +79,8 @@ router.post(
         startDate,
         endDate,
         templateId: data.templateId,
+        domainId: picked?.domain.id,
+        formatId: picked?.format.id,
         inputData: data.inputData || undefined,
         autoGenImage: data.autoGenImage!,
       },
@@ -106,6 +113,10 @@ router.put(
       throw createError(404, 'Page not found');
     }
     await assertOwnTemplate(req.user!.id, data.templateId);
+    const picked =
+      data.domainId || data.formatId
+        ? await resolveDomainFormat(req.user!.id, { domainId: data.domainId, formatId: data.formatId, pageId: data.pageId ?? schedule.pageId })
+        : null;
 
     const updated = await prisma.postSchedule.update({
       where: { id: req.params.id },
@@ -113,6 +124,7 @@ router.put(
         ...data,
         startDate: data.startDate ? new Date(data.startDate) : undefined,
         endDate: data.endDate ? new Date(data.endDate) : undefined,
+        ...(picked && { domainId: picked.domain.id, formatId: picked.format.id }),
       },
     });
 

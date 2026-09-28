@@ -63,7 +63,8 @@ Nguồn: `prompt_creator_video.md`. Review + plan chi tiết: `docs/STORY_VIDEO_
 Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `feature/multi-user-domains`.
 - ✅ M1 (2026-09-28) Đăng nhập bằng cookie, vai trò ADMIN/USER, admin quản lý member (thêm/sửa/xoá/vô hiệu hoá, admin đặt mật khẩu), tách dữ liệu theo user (test phủ mọi route), key `.env` chỉ dành cho admin — plan `docs/superpowers/plans/2026-09-28-m1-multi-user-auth.md`
   - Deploy cần thêm biến: `JWT_SECRET` (≥ 32 ký tự, thiếu thì server không khởi động), `ADMIN_EMAIL` + `ADMIN_PASSWORD` (lần đầu)
-- ⬜ M2 Lĩnh vực & Định dạng (backend) · ⬜ M3 Giao diện Lĩnh vực/Tạo bài · ⬜ M4 Tài liệu & deploy
+- ✅ M2 (2026-09-28) Lĩnh vực & Định dạng (backend): bảng `content_domains`/`content_formats`, ghép prompt, chuyển prompt cũ thành "Mặc định / Bài chuẩn" (viết y hệt trước), bộ khởi đầu cho member mới, API + xem trước prompt, lĩnh vực mặc định của Page, lịch theo lĩnh vực — plan `docs/superpowers/plans/2026-09-28-m2-m4-content-domains.md`
+- ⬜ M3 Giao diện Lĩnh vực/Tạo bài · ⬜ M4 Tài liệu & deploy
 
 ## Phase 2 — Lịch đăng ⏸ (tạm hoãn 2026-09-24, người dùng làm các phần cơ bản khác trước)
 

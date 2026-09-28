@@ -31,6 +31,7 @@ const publicPageSelect = {
   missingScopes: true,
   tokenCheckedAt: true,
   tokenError: true,
+  defaultDomainId: true,
   createdAt: true,
 } as const;
 
@@ -194,6 +195,27 @@ router.post(
 );
 
 // ─── Disconnect Page ────────────────────────────
+
+// ─── Default content domain of a Page ───────────
+
+router.patch(
+  '/:id',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { defaultDomainId } = z.object({ defaultDomainId: z.string().uuid().nullable() }).parse(req.body);
+    const page = await prisma.facebookPage.findFirst({ where: { id: req.params.id, userId }, select: { id: true } });
+    if (!page) throw createError(404, 'Page not found');
+    if (defaultDomainId && !(await prisma.contentDomain.findFirst({ where: { id: defaultDomainId, userId, isArchived: false } }))) {
+      throw createError(404, 'Lĩnh vực không tồn tại.');
+    }
+    const updated = await prisma.facebookPage.update({
+      where: { id: page.id },
+      data: { defaultDomainId },
+      select: { id: true, defaultDomainId: true },
+    });
+    res.json({ success: true, data: updated });
+  })
+);
 
 router.delete(
   '/:id',

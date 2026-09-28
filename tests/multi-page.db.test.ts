@@ -266,6 +266,40 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
     }
   });
 
+  it("a schedule's posts carry the schedule's domain and format", async () => {
+    const domain = await prisma.contentDomain.create({
+      data: { userId, name: `Lịch ${Date.now()}`, formats: { create: { name: 'F', instructions: 'x', isDefault: true } } },
+      include: { formats: true },
+    });
+    const schedule = await prisma.postSchedule.create({
+      data: {
+        userId,
+        pageId: pages[0].id,
+        name: 'Lịch theo lĩnh vực',
+        frequency: 'DAILY',
+        startDate: new Date(Date.now() - 86_400_000),
+        domainId: domain.id,
+        formatId: domain.formats[0].id,
+      },
+    });
+    const key = `schedule:${schedule.id}`;
+    try {
+      await upsertKeyedJob(key, 'run_schedule', { scheduleId: schedule.id }, new Date());
+      const until = Date.now() + 15_000;
+      let post = null;
+      while (Date.now() < until && !post) {
+        await new Promise((r) => setTimeout(r, 150));
+        post = await prisma.post.findFirst({ where: { userId, domainId: domain.id } });
+      }
+      expect(post).toMatchObject({ domainId: domain.id, formatId: domain.formats[0].id });
+    } finally {
+      await prisma.job.deleteMany({ where: { key } });
+      await prisma.post.deleteMany({ where: { domainId: domain.id } });
+      await prisma.postSchedule.delete({ where: { id: schedule.id } });
+      await prisma.contentDomain.delete({ where: { id: domain.id } });
+    }
+  });
+
   it('a double click never publishes the same Page twice', async () => {
     const post = await createPost(2);
     const targetIds = post.targets.map((t) => t.id);

@@ -66,6 +66,7 @@ const ROUTE_CASES: Record<string, Case> = {
     path: (b) => `/api/pages/${b.pageId}/refresh-token`,
     body: { accessToken: 'EAAx' },
   },
+  'PATCH /api/pages/:id': { kind: 'foreign-id', path: (b) => `/api/pages/${b.pageId}`, body: { defaultDomainId: null } },
   'GET /api/templates': { kind: 'list', path: '/api/templates' },
   'GET /api/templates/:id': { kind: 'foreign-id', path: (b) => `/api/templates/${b.templateId}` },
   'POST /api/templates': {
@@ -253,6 +254,9 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       ['POST', '/api/posts', { pageIds: [aOwn.pageId], templateId: b.templateId, inputData: { basicInfo: 'x' } }],
       ['POST', '/api/posts', { pageIds: [aOwn.pageId], domainId: b.domainId, inputData: { basicInfo: 'x' } }],
       ['POST', '/api/posts', { pageIds: [aOwn.pageId], formatId: b.formatId, inputData: { basicInfo: 'x' } }],
+      ['PATCH', `/api/pages/${aOwn.pageId}`, { defaultDomainId: b.domainId }],
+      ['PUT', `/api/schedules/${aOwn.scheduleId}`, { domainId: b.domainId }],
+      ['POST', '/api/schedules', { pageId: aOwn.pageId, formatId: b.formatId, name: 'x', frequency: 'DAILY', startDate: future }],
     ];
     const failures: string[] = [];
     for (const [method, path, body] of attempts) {
@@ -260,6 +264,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       if (res.status !== 404) failures.push(`${method} ${path} ${JSON.stringify(body)} → ${res.status} ${res.text.slice(0, 100)}`);
     }
     expect(failures).toEqual([]);
+    expect(await prisma.facebookPage.findUnique({ where: { id: aOwn.pageId } })).toMatchObject({ defaultDomainId: null });
     expect(await prisma.postSchedule.findUnique({ where: { id: aOwn.scheduleId } })).toMatchObject({ pageId: aOwn.pageId, templateId: null });
   });
 
@@ -270,5 +275,6 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
     expect(await prisma.contentTemplate.findUnique({ where: { id: b.templateId } })).toMatchObject({ name: `${B_MARK} mẫu` });
     expect(await prisma.contentDomain.findUnique({ where: { id: b.domainId } })).toMatchObject({ name: `${B_MARK} lĩnh vực`, isArchived: false });
     expect(await prisma.contentFormat.findUnique({ where: { id: b.formatId } })).toMatchObject({ name: `${B_MARK} định dạng` });
+    expect(await prisma.facebookPage.findUnique({ where: { id: b.pageId } })).toMatchObject({ defaultDomainId: null });
   });
 });

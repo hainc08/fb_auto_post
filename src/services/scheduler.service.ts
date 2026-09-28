@@ -377,6 +377,8 @@ async function runScheduleJob(job: Job): Promise<JobResult | void> {
         userId: schedule.userId,
         pageId: schedule.pageId,
         templateId: schedule.templateId,
+        domainId: schedule.domainId,
+        formatId: schedule.formatId,
         inputData: schedule.inputData || undefined,
         status: 'DRAFT',
         scheduledAt: new Date(),
