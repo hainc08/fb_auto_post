@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { GeminiClient } from '../lib/clients/gemini';
 import { formatPostText, splitTrailingHashtags } from '../lib/format-post';
 import { logger } from '../utils/logger';
-import { buildIdeaPrompt } from '../lib/compose-prompt';
+import { buildIdeaPrompt, composePrompt, mergeHashtags, type PromptDomain, type PromptFormat } from '../lib/compose-prompt';
 
 export { buildIdeaPrompt };
 
@@ -48,6 +48,51 @@ const ideaPostValidator = z.object({
   post: z.string().min(1),
   image_prompt: z.string().min(1),
 });
+
+const TEXT_ONLY_SCHEMA = {
+  type: Type.OBJECT,
+  properties: { post: { type: Type.STRING } },
+  required: ['post'],
+  propertyOrdering: ['post'],
+};
+
+const textOnlyValidator = z.object({ post: z.string().min(1) });
+
+/**
+ * Write a post for a content domain + format (spec §5.2). Same Gemini call as the
+ * old idea flow; legacy formats send exactly the old system prompt.
+ * Returns the system prompt used, to store in Post.aiPrompt.
+ */
+export async function generateWithFormat(input: {
+  gemini: GeminiCredentials;
+  domain: PromptDomain & { defaultHashtags?: unknown };
+  format: PromptFormat;
+  idea: string;
+  pageName?: string | null;
+}): Promise<GeneratedContent & { prompt: string }> {
+  const prompt = composePrompt(input);
+  const request = { systemInstruction: prompt, prompt: `Viết bài Facebook cho ý tưởng: ${input.idea.trim()}`, temperature: 0.7 };
+
+  try {
+    const client = new GeminiClient(input.gemini);
+    const result = input.format.withImage
+      ? await client.generateJson({ ...request, responseSchema: IDEA_POST_SCHEMA, validator: ideaPostValidator })
+      : { ...(await client.generateJson({ ...request, responseSchema: TEXT_ONLY_SCHEMA, validator: textOnlyValidator })), image_prompt: '' };
+
+    const { body, hashtags } = splitTrailingHashtags(formatPostText(result.post));
+    logger.debug('Gemini generated post from format', { length: body.length, hashtags: hashtags.length });
+    return {
+      caption: body,
+      hashtags: mergeHashtags(hashtags, input.domain.defaultHashtags),
+      imagePrompt: result.image_prompt.trim(),
+      callToAction: '',
+      prompt,
+    };
+  } catch (error) {
+    logger.error('Failed to generate post from format:', { error: (error as Error).message });
+    throw new Error(`AI content generation failed: ${(error as Error).message}`);
+  }
+}
 
 /**
  * Write a post from an idea using ONLY the Settings system prompt (no extra
