@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { GeminiClient } from '../lib/clients/gemini';
 import { formatPostText, splitTrailingHashtags } from '../lib/format-post';
 import { logger } from '../utils/logger';
+import { buildIdeaPrompt } from '../lib/compose-prompt';
+
+export { buildIdeaPrompt };
 
 /**
  * AI Service - Google Gemini Integration
@@ -29,21 +32,6 @@ export interface ContentGenerationInput {
   language?: string;
   tone?: string;
   maxLength?: number;
-}
-
-/**
- * Where the idea goes inside the Settings system prompt: `{{topic}}`, or the
- * n8n-style `{{ $json["nội dung"] }}` carried over from the old workflow.
- */
-const IDEA_PLACEHOLDER = /\{\{\s*(?:topic|\$json\[[^\]]*\])\s*\}\}/g;
-
-/**
- * Build the generation prompt for "basic input" posts (no template):
- * put the idea into the placeholder if the prompt has one, otherwise append it.
- */
-export function buildIdeaPrompt(systemPrompt: string, idea: string): string {
-  const withIdea = systemPrompt.replace(IDEA_PLACEHOLDER, idea.trim());
-  return withIdea !== systemPrompt ? withIdea : `${systemPrompt}\n\nThông tin cơ bản:\n${idea.trim()}`;
 }
 
 const IDEA_POST_SCHEMA = {
