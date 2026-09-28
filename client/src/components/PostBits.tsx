@@ -57,3 +57,6 @@ export const pageInitials = (name?: string | null) =>
     .map((w) => w[0])
     .join('')
     .toUpperCase();
+
+/** Hashtag typed by a person: no leading "#", no spaces */
+export const cleanTagInput = (t: string) => t.trim().replace(/^#+/, '').replace(/\s+/g, '');
