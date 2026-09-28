@@ -6,7 +6,8 @@ import { AuthRequest, authenticate } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
 import { config } from '../config';
 import { enqueuePost } from '../services/scheduler.service';
-import { generateFromIdea, generatePostContent, improveCaption } from '../services/ai.service';
+import { improveCaption } from '../services/ai.service';
+import { imageStyleOf, writePost } from '../services/post-writer';
 import multer from 'multer';
 import { cloudflareConfigFrom, generateImage } from '../services/image.service';
 import { MAX_IMAGE_BYTES, removeImage, saveImage } from '../lib/image-store';
@@ -16,6 +17,8 @@ import { DEFAULT_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES, isLiveOnAnyPage, syncTa
 import { blockMessage, blockReason } from '../lib/page-health';
 
 import { assertOwnTemplate } from '../lib/ownership';
+import { resolveDomainFormat } from '../lib/domains';
+import { styledImagePrompt } from '../lib/compose-prompt';
 
 const router = Router();
 router.use(authenticate);
@@ -29,6 +32,8 @@ const createPostSchema = z.object({
   pageId: z.string().uuid().optional(),
   pageIds: pageIdsSchema.optional(),
   templateId: z.string().uuid().optional(),
+  domainId: z.string().uuid().optional(),
+  formatId: z.string().uuid().optional(),
   caption: z.string().optional(),
   imageUrl: z.string().optional(),
   imagePrompt: z.string().optional(),
@@ -39,6 +44,9 @@ const createPostSchema = z.object({
 });
 
 const EDITABLE_STATUSES: PostStatus[] = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'];
+
+/** Domain + format labels shown with a post */
+const domainFormatSelect = { domain: { select: { id: true, name: true } }, format: { select: { id: true, name: true } } } as const;
 
 const LOCKED_MESSAGE = 'Bài đã lên ít nhất 1 Page nên không sửa nội dung được nữa (để mọi Page giống nhau). Bạn vẫn có thể đăng lại các Page lỗi.';
 
@@ -89,6 +97,8 @@ const updatePostSchema = z
     imagePrompt: z.string().max(2000),
     /** The idea AI writes from (stored as inputData.basicInfo) */
     idea: z.string().trim().max(500),
+    domainId: z.string().uuid(),
+    formatId: z.string().uuid(),
   })
   .partial()
   .refine((d) => Object.keys(d).length > 0, 'Không có trường nào để cập nhật');
@@ -98,7 +108,7 @@ const updatePostSchema = z
 router.get(
   '/',
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const { status, pageId, page = '1', limit = '20' } = req.query;
+    const { status, pageId, domainId, page = '1', limit = '20' } = req.query;
 
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
     const take = Math.min(parseInt(limit as string), 50);
@@ -107,6 +117,7 @@ router.get(
       userId: req.user!.id,
       ...(status && { status: status as PostStatus }),
       ...(pageId && { pageId: pageId as string }),
+      ...(domainId && { domainId: domainId as string }),
     };
 
     const [posts, total] = await Promise.all([
@@ -126,6 +137,7 @@ router.get(
           createdAt: true,
           page: { select: { id: true, pageName: true, pageAvatar: true } },
           template: { select: { id: true, name: true } },
+          ...domainFormatSelect,
           targets: { select: { status: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -158,6 +170,7 @@ router.get(
       include: {
         page: { select: { id: true, pageName: true, pageAvatar: true, pageId: true } },
         template: { select: { id: true, name: true } },
+        ...domainFormatSelect,
         logs: { orderBy: { createdAt: 'asc' } },
         ...targetInclude,
       },
@@ -180,6 +193,8 @@ router.post(
     const requested = data.pageIds ?? (data.pageId ? [data.pageId] : []);
     if (requested.length === 0) throw createError(400, 'Chọn ít nhất 1 Page.');
     await assertOwnTemplate(userId, data.templateId);
+    // Ids in the body: 404 before any "Page not postable" (409) check
+    const { domain, format } = await resolveDomainFormat(userId, { domainId: data.domainId, formatId: data.formatId, pageId: requested[0] });
     const pageIds = await assertOwnPages(userId, requested);
 
     // Check monthly post limit
@@ -213,6 +228,8 @@ router.post(
         pageId: pageIds[0],
         targets: { create: pageIds.map((pageId) => ({ pageId })) },
         templateId: data.templateId,
+        domainId: domain.id,
+        formatId: format.id,
         caption: data.caption,
         imageUrl: data.imageUrl,
         imagePrompt: data.imagePrompt,
@@ -225,6 +242,7 @@ router.post(
       include: {
         page: { select: { id: true, pageName: true } },
         template: { select: { id: true, name: true } },
+        ...domainFormatSelect,
       },
     });
 
@@ -267,6 +285,12 @@ router.patch(
     }
     if (await isLiveOnAnyPage(post.id)) throw createError(409, LOCKED_MESSAGE);
 
+    // Changing domain/format applies to the next "Viết lại"
+    const picked =
+      data.domainId || data.formatId
+        ? await resolveDomainFormat(req.user!.id, { domainId: data.domainId, formatId: data.formatId, pageId: post.pageId })
+        : null;
+
     const caption = data.caption !== undefined ? data.caption.trim() : post.caption;
     // An edited failed/draft post with content is ready to publish again
     const status: PostStatus =
@@ -283,11 +307,13 @@ router.patch(
           inputData: { ...((post.inputData as Record<string, string>) ?? {}), basicInfo: data.idea },
         }),
         status,
+        ...(picked && { domainId: picked.domain.id, formatId: picked.format.id }),
         ...(status !== post.status && { errorMessage: null, errorStep: null, errorCode: null }),
       },
       include: {
         page: { select: { id: true, pageName: true, pageAvatar: true } },
         template: { select: { id: true, name: true } },
+        ...domainFormatSelect,
       },
     });
 
@@ -308,29 +334,11 @@ router.post(
       where: { id: req.params.id, userId: req.user!.id },
       include: { template: true },
     });
-
     if (!post) throw createError(404, 'Post not found');
 
-    const variables = (post.inputData as Record<string, string>) || {};
     const settings = await getSettings(req.user!.id);
+    const { generated, aiPrompt, domainId, formatId } = await writePost(post, settings);
 
-    const gemini = { apiKey: settings.geminiApiKey, model: settings.geminiModel };
-    let generated;
-    if (post.template) {
-      // Legacy posts created from a template
-      generated = await generatePostContent({
-        gemini,
-        templatePrompt: post.template.promptTemplate,
-        variables,
-        language: (req.body.language as string) || 'vi',
-        tone: (req.body.tone as string) || 'professional',
-      });
-    } else {
-      if (!variables.basicInfo?.trim()) throw createError(400, 'Hãy nhập ý tưởng / thông tin cơ bản cho bài viết.');
-      generated = await generateFromIdea({ gemini, systemPrompt: settings.systemPrompt, idea: variables.basicInfo });
-    }
-
-    // Update post with generated content
     const updated = await prisma.post.update({
       where: { id: post.id },
       data: {
@@ -339,8 +347,11 @@ router.post(
         imagePrompt: generated.imagePrompt,
         callToAction: generated.callToAction,
         aiResponse: JSON.stringify(generated),
+        aiPrompt,
+        ...(formatId && { domainId, formatId }),
         status: 'READY',
       },
+      include: domainFormatSelect,
     });
 
     res.json({ success: true, data: { ...updated, generated } });
@@ -393,7 +404,10 @@ router.post(
     if (!prompt) throw createError(400, 'Chưa có image prompt để tạo ảnh.');
 
     const settings = await getSettings(req.user!.id);
-    const buffer = await generateImage({ cloudflare: cloudflareConfigFrom(settings), prompt });
+    const buffer = await generateImage({
+      cloudflare: cloudflareConfigFrom(settings),
+      prompt: styledImagePrompt(await imageStyleOf(post.domainId), prompt),
+    });
     const updated = await replacePostImage(post.id, post.imagePath, buffer, { imagePrompt: prompt }, 'image_generated');
 
     res.json({ success: true, data: { imageUrl: updated.imageUrl, imagePrompt: updated.imagePrompt } });

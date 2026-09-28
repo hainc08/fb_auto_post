@@ -251,6 +251,8 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       ['PUT', `/api/schedules/${aOwn.scheduleId}`, { templateId: b.templateId }],
       ['POST', '/api/schedules', { pageId: aOwn.pageId, templateId: b.templateId, name: 'x', frequency: 'DAILY', startDate: future }],
       ['POST', '/api/posts', { pageIds: [aOwn.pageId], templateId: b.templateId, inputData: { basicInfo: 'x' } }],
+      ['POST', '/api/posts', { pageIds: [aOwn.pageId], domainId: b.domainId, inputData: { basicInfo: 'x' } }],
+      ['POST', '/api/posts', { pageIds: [aOwn.pageId], formatId: b.formatId, inputData: { basicInfo: 'x' } }],
     ];
     const failures: string[] = [];
     for (const [method, path, body] of attempts) {

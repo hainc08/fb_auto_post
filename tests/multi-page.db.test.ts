@@ -3,6 +3,9 @@ import '../src/config'; // loads .env (DATABASE_URL)
 import prisma from '../src/utils/prisma';
 import { enqueuePost, startWorkers } from '../src/services/scheduler.service';
 import { upsertKeyedJob } from '../src/lib/job-queue';
+import { saveSettings } from '../src/lib/settings';
+import { GeminiClient } from '../src/lib/clients/gemini';
+import { CloudflareClient } from '../src/lib/clients/cloudflare';
 
 /**
  * End-to-end publish to several Pages on the real MariaDB, with Facebook mocked.
@@ -223,6 +226,43 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
     } finally {
       await prisma.post.delete({ where: { id: post.id } });
       await prisma.user.delete({ where: { id: other.id } });
+    }
+  });
+
+  it('a text-only format publishes without generating an image', async () => {
+    // Own account with a (fake) Gemini key: members never borrow the server .env key
+    const owner = await prisma.user.create({ data: { email: `textonly-${Date.now()}@autopost.test`, name: 'Text only' } });
+    await saveSettings(owner.id, { geminiApiKey: 'AIzaFakeKeyTextOnlyTest0000000000000' });
+    const page = await prisma.facebookPage.create({
+      data: { userId: owner.id, pageId: 'TEST_MP_TEXT', pageName: 'Trang chữ', pageAccessToken: 'EAAfaketokentextonlyxxxxxxxxxxxxxx' },
+    });
+    const domain = await prisma.contentDomain.create({
+      data: { userId: owner.id, name: 'Chỉ chữ', formats: { create: { name: 'Status', instructions: 'Một câu.', withImage: false, isDefault: true } } },
+      include: { formats: true },
+    });
+    vi.spyOn(GeminiClient.prototype, 'generateJson').mockResolvedValue({ post: 'Chỉ có chữ' } as never);
+    const cf = vi.spyOn(CloudflareClient.prototype, 'generateImage');
+    const post = await prisma.post.create({
+      data: {
+        userId: owner.id,
+        pageId: page.id,
+        domainId: domain.id,
+        formatId: domain.formats[0].id,
+        inputData: { basicInfo: 'Một ý' },
+        status: 'GENERATING',
+        targets: { create: [{ pageId: page.id }] },
+      },
+      include: { targets: true },
+    });
+    try {
+      await enqueuePost(post.id, owner.id, { targetIds: post.targets.map((t) => t.id), intervalMs: 0 });
+      const done = await waitForStatus(post.id, ['PUBLISHED', 'FAILED']);
+      expect(done).toMatchObject({ status: 'PUBLISHED', caption: 'Chỉ có chữ', imagePath: null, formatId: domain.formats[0].id });
+      expect(done.aiPrompt).toMatch('Định dạng bài "Status"');
+      expect(publishCalls).toContain('TEST_MP_TEXT');
+      expect(cf).not.toHaveBeenCalled();
+    } finally {
+      await prisma.user.delete({ where: { id: owner.id } });
     }
   });
 

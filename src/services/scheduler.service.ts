@@ -11,7 +11,8 @@ import { enqueue, removeKeyedJob, startJobWorker, UnrecoverableJobError, upsertK
 import { blockMessage, blockReason, checkPages } from '../lib/page-health';
 import { Frequency, nextRunAt } from '../lib/schedule-time';
 import { backfillTargets, refreshPostStatus } from '../lib/post-targets';
-import { generateFromIdea, generatePostContent } from './ai.service';
+import { imageStyleOf, writePost } from './post-writer';
+import { styledImagePrompt } from '../lib/compose-prompt';
 import { cloudflareConfigFrom, generateImage } from './image.service';
 import { sendPostNotification } from './email.service';
 
@@ -115,13 +116,8 @@ async function runPublishJob(job: Job): Promise<void> {
       await logStep(postId, 'ai_generation_started');
 
       const settings = await getSettings(userId);
-      const gemini = { apiKey: settings.geminiApiKey, model: settings.geminiModel };
-      // Template (legacy) or the idea written with the Settings system prompt
-      const generated = post.template
-        ? await generatePostContent({ gemini, templatePrompt: post.template.promptTemplate, variables })
-        : await generateFromIdea({ gemini, systemPrompt: settings.systemPrompt, idea: idea! });
+      const { generated, aiPrompt, domainId, formatId } = await writePost(post, settings);
 
-      // Update post with generated content
       await prisma.post.update({
         where: { id: postId },
         data: {
@@ -130,6 +126,8 @@ async function runPublishJob(job: Job): Promise<void> {
           imagePrompt: generated.imagePrompt,
           callToAction: generated.callToAction,
           aiResponse: JSON.stringify(generated),
+          aiPrompt,
+          ...(formatId && { domainId, formatId }),
         },
       });
 
@@ -144,6 +142,7 @@ async function runPublishJob(job: Job): Promise<void> {
         hashtags: generated.hashtags,
         imagePrompt: generated.imagePrompt,
         callToAction: generated.callToAction,
+        ...(formatId && { domainId, formatId }),
       });
     }
 
@@ -165,7 +164,7 @@ async function runPublishJob(job: Job): Promise<void> {
       const settings = await getSettings(userId);
       const buffer = await generateImage({
         cloudflare: cloudflareConfigFrom(settings),
-        prompt: post.imagePrompt,
+        prompt: styledImagePrompt(await imageStyleOf(post.domainId), post.imagePrompt),
       });
 
       // Keep what we publish, so the app shows the same image

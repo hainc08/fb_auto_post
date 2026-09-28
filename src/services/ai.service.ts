@@ -95,39 +95,6 @@ export async function generateWithFormat(input: {
 }
 
 /**
- * Write a post from an idea using ONLY the Settings system prompt (no extra
- * house rules), output `{ post, image_prompt }`. The post is then cleaned up
- * for Facebook and its trailing hashtags are split off, so publishing puts
- * them on the last line.
- */
-export async function generateFromIdea(input: {
-  gemini: GeminiCredentials;
-  systemPrompt: string;
-  idea: string;
-}): Promise<GeneratedContent> {
-  const { gemini, systemPrompt, idea } = input;
-
-  try {
-    const client = new GeminiClient(gemini);
-    const result = await client.generateJson({
-      systemInstruction: buildIdeaPrompt(systemPrompt, idea),
-      prompt: `Viết bài Facebook cho ý tưởng: ${idea.trim()}`,
-      responseSchema: IDEA_POST_SCHEMA,
-      validator: ideaPostValidator,
-      temperature: 0.7,
-    });
-
-    const { body, hashtags } = splitTrailingHashtags(formatPostText(result.post));
-    logger.debug('Gemini generated post from idea', { length: body.length, hashtags: hashtags.length });
-
-    return { caption: body, hashtags, imagePrompt: result.image_prompt.trim(), callToAction: '' };
-  } catch (error) {
-    logger.error('Failed to generate post from idea:', { error: (error as Error).message });
-    throw new Error(`AI content generation failed: ${(error as Error).message}`);
-  }
-}
-
-/**
  * Replace template variables: {{variable}} → actual value
  */
 function interpolateTemplate(template: string, variables: Record<string, string>): string {
