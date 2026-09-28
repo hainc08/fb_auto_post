@@ -10,6 +10,7 @@ import PostsPage from './pages/PostsPage';
 import CreatePostPage from './pages/CreatePostPage';
 import SchedulesPage from './pages/SchedulesPage';
 import SettingsPage from './pages/SettingsPage';
+import DomainsPage from './pages/DomainsPage';
 import UsersPage from './pages/UsersPage';
 import { ProtectedRoute } from './auth';
 
@@ -90,6 +91,16 @@ export default function App() {
             <ProtectedRoute>
               <AppLayout>
                 <SettingsPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/domains"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <DomainsPage />
               </AppLayout>
             </ProtectedRoute>
           }

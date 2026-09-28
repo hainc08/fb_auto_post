@@ -46,7 +46,9 @@ async function apiFetch<T = any>(
   if (!response.ok) {
     const code: string | undefined = data.code;
     if (code === 'UNAUTHENTICATED') window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: { code } }));
-    throw new ApiError(data.error || 'Request failed', response.status, code);
+    // Zod errors: show the first field message instead of "Validation failed"
+    const detail: string | undefined = Array.isArray(data.details) ? data.details[0]?.message : undefined;
+    throw new ApiError(detail ?? data.error ?? 'Request failed', response.status, code);
   }
   return data;
 }
@@ -124,6 +126,8 @@ export interface PageInfo {
   postable: boolean;
   blockReason: BlockReason | null;
   blockMessage: string | null;
+  /** Content domain preselected when creating a post for this Page */
+  defaultDomainId: string | null;
 }
 
 export type SyncAction = 'update' | 'reconnect' | 'add' | 'disconnect';
@@ -171,6 +175,95 @@ export const pagesApi = {
 
   disconnect: (id: string) =>
     apiFetch(`/pages/${id}`, { method: 'DELETE' }),
+
+  setDefaultDomain: (id: string, defaultDomainId: string | null) =>
+    apiFetch<{ id: string; defaultDomainId: string | null }>(`/pages/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ defaultDomainId }),
+    }),
+};
+
+// ─── Content domains & formats ──────────────────
+
+export type FormatLength = 'SHORT' | 'MEDIUM' | 'LONG';
+
+export const LENGTH_LABEL: Record<FormatLength, string> = {
+  SHORT: 'Ngắn · 80–120 từ',
+  MEDIUM: 'Vừa · 150–250 từ',
+  LONG: 'Dài · 300–450 từ',
+};
+
+export interface ContentFormat {
+  id: string;
+  domainId: string;
+  name: string;
+  instructions: string;
+  example: string | null;
+  length: FormatLength;
+  withImage: boolean;
+  isDefault: boolean;
+  legacyPrompt: boolean;
+  isArchived: boolean;
+  sortOrder: number;
+  _count?: { posts: number };
+}
+
+export interface ContentDomain {
+  id: string;
+  name: string;
+  description: string | null;
+  audience: string | null;
+  voice: string | null;
+  rules: string | null;
+  defaultHashtags: string[] | null;
+  imageStyle: string | null;
+  isArchived: boolean;
+  sortOrder: number;
+  formats: ContentFormat[];
+  _count?: { pages: number; posts: number; schedules: number };
+}
+
+export interface DomainInput {
+  name?: string;
+  description?: string | null;
+  audience?: string | null;
+  voice?: string | null;
+  rules?: string | null;
+  defaultHashtags?: string[];
+  imageStyle?: string | null;
+  isArchived?: boolean;
+}
+
+export interface FormatInput {
+  name?: string;
+  instructions?: string;
+  example?: string | null;
+  length?: FormatLength;
+  withImage?: boolean;
+  isDefault?: boolean;
+  isArchived?: boolean;
+}
+
+export interface FormatPreview {
+  prompt: string;
+  post?: string;
+  hashtags?: string[];
+  imagePrompt?: string;
+}
+
+export const domainsApi = {
+  list: (archived = false) => apiFetch<ContentDomain[]>(`/domains${archived ? '?archived=1' : ''}`),
+  create: (body: DomainInput & { name: string; format: FormatInput & { name: string; instructions: string } }) =>
+    apiFetch<ContentDomain>('/domains', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: DomainInput) => apiFetch<ContentDomain>(`/domains/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  remove: (id: string) => apiFetch(`/domains/${id}`, { method: 'DELETE' }),
+  createFormat: (domainId: string, body: FormatInput & { name: string; instructions: string }) =>
+    apiFetch<ContentFormat>(`/domains/${domainId}/formats`, { method: 'POST', body: JSON.stringify(body) }),
+  updateFormat: (id: string, body: FormatInput) => apiFetch<ContentFormat>(`/formats/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removeFormat: (id: string) => apiFetch(`/formats/${id}`, { method: 'DELETE' }),
+  /** `generate: true` costs one Gemini call of the user's key */
+  preview: (formatId: string, body: { idea: string; pageId?: string; generate?: boolean }) =>
+    apiFetch<FormatPreview>(`/formats/${formatId}/preview`, { method: 'POST', body: JSON.stringify(body) }),
 };
 
 // ─── Templates API ──────────────────────────────
@@ -202,10 +295,12 @@ export interface PostUpdate {
   imagePrompt?: string;
   /** The idea AI writes from */
   idea?: string;
+  domainId?: string;
+  formatId?: string;
 }
 
 export const postsApi = {
-  list: (params?: { status?: string; pageId?: string; page?: string; limit?: string }) => {
+  list: (params?: { status?: string; pageId?: string; domainId?: string; page?: string; limit?: string }) => {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
     return apiFetch(`/posts${query}`);
   },

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown, LogOut, Users } from 'lucide-react';
+import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown, LogOut, Users, Shapes } from 'lucide-react';
 import { pagesApi, postsApi, settingsApi, type PublicSettings } from '../api';
 import { useAuth } from '../auth';
 
@@ -115,6 +115,10 @@ export default function Sidebar() {
             <CalendarDays className="nav-icon" strokeWidth={1.8} />
             <span className="nav-label">Lịch đăng</span>
             <span className="nav-tag">Beta</span>
+          </NavLink>
+          <NavLink to="/domains" className={navClass}>
+            <Shapes className="nav-icon" strokeWidth={1.8} />
+            <span className="nav-label">Lĩnh vực</span>
           </NavLink>
         </div>
 
