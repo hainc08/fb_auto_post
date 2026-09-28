@@ -41,9 +41,15 @@ export const errorHandler = (
     });
   }
 
+  const code =
+    err.details && typeof err.details === 'object' && typeof (err.details as { code?: unknown }).code === 'string'
+      ? (err.details as { code: string }).code
+      : undefined;
+
   res.status(statusCode).json({
     success: false,
     error: message,
+    ...(code && { code }),
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
   });
 };

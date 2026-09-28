@@ -6,6 +6,7 @@ import { config } from './config';
 import { logger } from './utils/logger';
 import { asyncHandler, createError, errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { basicAuthGate, safeEqual } from './middleware/basic-auth.middleware';
+import { csrfGuard } from './middleware/auth.middleware';
 import authRoutes from './routes/auth.routes';
 import pagesRoutes from './routes/pages.routes';
 import templatesRoutes from './routes/templates.routes';
@@ -85,6 +86,7 @@ export function createApp() {
     })
   );
 
+  app.use('/api', csrfGuard);
   for (const [mount, router] of API_ROUTERS) app.use(mount, router);
 
   app.get('/api', (_req, res) => {
