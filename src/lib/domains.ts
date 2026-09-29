@@ -64,9 +64,9 @@ export async function ensureDefaultDomain(userId: string, db: Db = prisma): Prom
   return true;
 }
 
-/** Startup migration (idempotent): every user without a domain gets the legacy one. */
-export async function migrateDomains(db: Db = prisma): Promise<number> {
-  const users = await db.user.findMany({ where: { domains: { none: {} } }, select: { id: true } });
+/** Startup migration (idempotent): every user without a domain gets the legacy one. `where` narrows it (tests). */
+export async function migrateDomains(db: Db = prisma, where: Prisma.UserWhereInput = {}): Promise<number> {
+  const users = await db.user.findMany({ where: { ...where, domains: { none: {} } }, select: { id: true } });
   let migrated = 0;
   for (const { id } of users) if (await ensureDefaultDomain(id, db)) migrated++;
   return migrated;

@@ -20,8 +20,9 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('content domains', { timeout: 60_000 
     const { user } = await createTestUser();
     await prisma.setting.create({ data: { userId: user.id, key: 'systemPrompt', value: 'Prompt riêng của tôi {{topic}}' } });
 
-    expect(await migrateDomains()).toBeGreaterThanOrEqual(1);
-    await migrateDomains();
+    // Only this user: a global migration would also migrate other test files' users mid-run
+    expect(await migrateDomains(prisma, { id: user.id })).toBe(1);
+    expect(await migrateDomains(prisma, { id: user.id })).toBe(0);
     const domains = await prisma.contentDomain.findMany({ where: { userId: user.id }, include: { formats: true } });
     expect(domains).toHaveLength(1);
     expect(domains[0].name).toBe('Mặc định');
