@@ -72,7 +72,7 @@ export default function FormatDrawer({ domainId, format, onClose, onSaved }: Pro
             className="form-textarea"
             rows={7}
             required
-            maxLength={4000}
+            maxLength={5000}
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
             placeholder="Mở bài thế nào, thân bài gồm gì, kết bài ra sao. Có thể dùng {{idea}}, {{page_name}}."

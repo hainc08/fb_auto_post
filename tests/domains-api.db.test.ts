@@ -4,6 +4,7 @@ import prisma from '../src/utils/prisma';
 import { createApp } from '../src/app';
 import { GeminiClient } from '../src/lib/clients/gemini';
 import { saveSettings } from '../src/lib/settings';
+import { ensureDefaultDomain } from '../src/lib/domains';
 import { startTestServer, api } from './helpers/http';
 import { cleanupTestUsers, createTestUser } from './helpers/users';
 
@@ -126,6 +127,25 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('domains & formats API', { timeout: 9
     }
     const eleventh = await api(server.baseUrl, 'POST', `/api/domains/${d.id}/formats`, { cookie, body: { name: 'F10', instructions: 'x' } });
     expect(eleventh.status).toBe(409);
+  });
+
+  it('a migrated old prompt of up to 5,000 characters (the old Settings limit) can still be edited', async () => {
+    const { user, cookie } = await createTestUser();
+    const longPrompt = `Prompt cũ rất dài {{topic}} ${'x'.repeat(4600)}`;
+    await prisma.setting.create({ data: { userId: user.id, key: 'systemPrompt', value: longPrompt } });
+    await ensureDefaultDomain(user.id);
+    const legacy = await prisma.contentFormat.findFirstOrThrow({ where: { domain: { userId: user.id } } });
+    expect(legacy.instructions).toBe(longPrompt);
+
+    // The drawer always sends the whole form, instructions included
+    const res = await api(server.baseUrl, 'PATCH', `/api/formats/${legacy.id}`, {
+      cookie,
+      body: { name: 'Bài chuẩn (cũ)', instructions: longPrompt, example: null, length: 'MEDIUM', withImage: true, isDefault: true },
+    });
+    expect(res.status).toBe(200);
+    expect(res.json.data.name).toBe('Bài chuẩn (cũ)');
+    const tooLong = await api(server.baseUrl, 'PATCH', `/api/formats/${legacy.id}`, { cookie, body: { instructions: 'y'.repeat(5001) } });
+    expect(tooLong.status).toBe(400);
   });
 
   it('preview returns the composed prompt free; generate=true calls Gemini once and saves nothing', async () => {
