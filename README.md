@@ -81,10 +81,17 @@ cd client && npm run dev
 - **Dashboard**: http://localhost:5173
 - **API Docs**: http://localhost:3000/api
 
+## 👥 Tài khoản & lĩnh vực
+
+- Đăng nhập bằng email + mật khẩu. Không có tự đăng ký: **admin** tạo tài khoản ở **Người dùng** và đặt mật khẩu cho member.
+- Mỗi người chỉ thấy Page, bài, lịch, lĩnh vực và cấu hình của mình; mỗi người tự nhập key Gemini / Cloudflare / Facebook App trong **Cài đặt**.
+- **Lĩnh vực** quyết định cách AI viết (đối tượng, giọng văn, quy tắc, hashtag, phong cách ảnh); mỗi lĩnh vực có nhiều **định dạng bài** (Mẹo ngắn, Listicle, Hỏi đáp…). Khi tạo bài, chọn lĩnh vực + định dạng.
+- Chạy local lần đầu: đặt `ADMIN_EMAIL` và `ADMIN_PASSWORD` (≥ 8 ký tự) trong `.env`, khởi động server, đăng nhập bằng thông tin đó.
+
 ## 🌐 Deploy
 
 Hostinger (Business/Cloud Node.js) build từ branch `deploy`, sinh bằng `npm run deploy:branch -- --push` (không sửa tay branch này). Xem [docs/DEPLOY_HOSTINGER.md](docs/DEPLOY_HOSTINGER.md).
-Tóm tắt: build `npm run build:prod && npm run db:deploy`, entry `dist/server.js`, Node 22, hàng đợi job nằm trong MariaDB (không cần Redis), bắt buộc `BASIC_AUTH_USER/PASS`.
+Tóm tắt: build `npm run build:prod && npm run db:deploy`, entry `dist/server.js`, Node 22, hàng đợi job nằm trong MariaDB (không cần Redis), bắt buộc `JWT_SECRET` (≥ 32 ký tự); lần đầu cần `ADMIN_EMAIL` + `ADMIN_PASSWORD`.
 
 ## 📁 Project Structure
 
@@ -150,6 +157,7 @@ See `http://localhost:3000/api` for full API documentation.
 ## 🛡️ Security
 
 - JWT-based authentication
+- Đăng nhập bằng cookie httpOnly; mọi dữ liệu tách theo tài khoản (test `tests/isolation.db.test.ts` duyệt mọi route).
 - API Key support for external integrations
 - Plan-based access control
 - Encrypted Facebook access tokens

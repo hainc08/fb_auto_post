@@ -36,7 +36,7 @@ Chạy trên máy (mỗi lệnh 1 giá trị):
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # ENCRYPTION_KEY
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"      # JWT_SECRET
-node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" # BASIC_AUTH_PASS
+node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" # ADMIN_PASSWORD (hoặc BASIC_AUTH_PASS nếu dùng)
 ```
 - **ENCRYPTION_KEY** mã hoá API key + Page token trong DB. **Lưu lại cẩn thận**; đổi khoá = mất khả năng giải mã dữ liệu cũ (phải nhập lại cấu hình).
 - Nếu định chuyển dữ liệu từ máy local lên (mục 6) thì dùng **đúng ENCRYPTION_KEY đang có trong `.env` local**.
@@ -78,9 +78,9 @@ node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" #
 | `CLIENT_URL` | `https://ten-mien-cua-ban.com` |
 | `DATABASE_URL` | mục 1.1 |
 | `ENCRYPTION_KEY` | mục 1.2 |
-| `JWT_SECRET` | mục 1.2 |
-| `BASIC_AUTH_USER` | vd `admin` |
-| `BASIC_AUTH_PASS` | mục 1.2 |
+| `JWT_SECRET` | mục 1.2 — **bắt buộc**, ≥ 32 ký tự ngẫu nhiên (thiếu/yếu thì app không khởi động) |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | lần deploy đầu: tài khoản quản trị (mật khẩu ≥ 8 ký tự). Xoá `ADMIN_PASSWORD` sau khi đăng nhập được |
+| `BASIC_AUTH_USER`, `BASIC_AUTH_PASS` | **tuỳ chọn** — lớp mật khẩu thứ hai cho cả trang; app đã có đăng nhập riêng |
 | `STORAGE_DIR` | mục 1.3 |
 | `CRON_SECRET` | chuỗi ngẫu nhiên — cho Cron Job ở mục 4 |
 | `VITE_FB_APP_ID` | Facebook App ID (dùng lúc build giao diện, cho nút "Kết nối Page") |
@@ -88,7 +88,7 @@ node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" #
 | `GEMINI_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | tuỳ chọn — có thể nhập sau trong **Cấu hình** |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM` | nếu muốn email báo kết quả đăng (Hostinger có mail riêng: `smtp.hostinger.com`, port `465`) |
 
-> ⚠️ **Không bao giờ bỏ trống `BASIC_AUTH_USER` / `BASIC_AUTH_PASS`.** App đang tắt đăng nhập nội bộ; không có 2 biến này thì ai có link cũng xem được API key và đăng bài lên Page của bạn. Log server sẽ cảnh báo nếu thiếu.
+> ⚠️ **`JWT_SECRET` phải là chuỗi ngẫu nhiên ≥ 32 ký tự** (mục 1.2). Ai biết chuỗi này có thể giả phiên đăng nhập. Không dùng giá trị mẫu cũ trong `.env.example`.
 
 5. Bấm **Deploy**. Xem log build; lần đầu mất vài phút.
 6. Gắn tên miền + bật **SSL** (hPanel → Security → SSL) nếu chưa có.
@@ -98,7 +98,7 @@ node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" #
 ## 3. Kiểm tra sau deploy
 
 1. `https://ten-mien/health` → `{"status":"ok",...}` (không hỏi mật khẩu).
-2. `https://ten-mien/` → trình duyệt hỏi user/mật khẩu → nhập `BASIC_AUTH_*` → vào Dashboard.
+2. `https://ten-mien/` → trang **Đăng nhập** → nhập `ADMIN_EMAIL` / `ADMIN_PASSWORD` → vào Dashboard.
 3. **Cấu hình**: nhập/kiểm tra Gemini, Cloudflare, Facebook App → bấm các nút **Kiểm tra**.
 4. **Pages**: kết nối Page (hoặc "đổi token dài hạn" trong Cấu hình).
 5. Tạo 1 bài → AI viết → tạo ảnh → **Duyệt & đăng** → kiểm tra bài trên Page, và ảnh vẫn hiện sau khi F5.
@@ -161,6 +161,25 @@ npm run deploy:branch -- --push     # dựng lại branch deploy từ commit hi�
 
 ---
 
+## 6b. Checklist nâng cấp lên bản nhiều người dùng (Phase 1d)
+
+Làm **một lần** khi đưa bản có đăng nhập + lĩnh vực lên host đang chạy:
+
+1. hPanel → Environment variables:
+   - kiểm tra `JWT_SECRET` là chuỗi ngẫu nhiên ≥ 32 ký tự;
+   - thêm `ADMIN_EMAIL` (email bạn sẽ dùng) và `ADMIN_PASSWORD` (≥ 8 ký tự).
+2. Merge `feature/multi-user-domains` vào `main` → `npm run deploy:branch -- --push`. Build tự chạy `db push`, chỉ **thêm** bảng/cột, không xoá dữ liệu.
+3. Mở trang → đăng nhập bằng `ADMIN_EMAIL` / `ADMIN_PASSWORD`. Kiểm tra:
+   - Page và bài cũ vẫn còn;
+   - **Lĩnh vực** có "Mặc định / Bài chuẩn" (chính là System prompt cũ);
+   - tạo 1 bài → nội dung giống cách viết trước đây.
+4. Xoá `ADMIN_PASSWORD` (và `BASIC_AUTH_USER`, `BASIC_AUTH_PASS` nếu không muốn giữ lớp mật khẩu thứ hai) khỏi hPanel → **Redeploy**.
+5. **Người dùng** → Thêm member cho từng người (đặt mật khẩu, gửi riêng cho họ). Mỗi member tự nhập key trong **Cài đặt** và đồng bộ Page của mình.
+
+Không đổi: Cron Job `/cron/tick`, `/health`, UptimeRobot, đồng bộ Page, branch `deploy`.
+
+---
+
 ## 7. Xử lý sự cố
 
 | Triệu chứng | Nguyên nhân / cách xử lý |
@@ -170,5 +189,6 @@ npm run deploy:branch -- --push     # dựng lại branch deploy từ commit hi�
 | Build lỗi `db push ... data loss` | Schema đổi làm mất dữ liệu. Backup DB (phpMyAdmin → Export), rồi chạy qua SSH trong thư mục app: `npx prisma db push --accept-data-loss` — **chỉ khi chắc chắn** |
 | Bài đứng mãi ở "Chờ đăng"/"Đang đăng…" | App đang ngủ hoặc sập nên worker không chạy: kiểm tra log app, UptimeRobot (mục 4). Job bị ngắt giữa chừng sẽ tự chạy lại sau 10 phút |
 | Ảnh mất sau khi deploy | Chưa đặt `STORAGE_DIR` hoặc thư mục không ghi được — kiểm tra quyền qua SSH |
-| Bị hỏi mật khẩu liên tục | Sai `BASIC_AUTH_USER/PASS`; đổi biến xong phải **Redeploy/Restart** |
-| Log: `BASIC_AUTH_USER/BASIC_AUTH_PASS not set` | Thêm 2 biến này ngay (xem mục 2) |
+| Không đăng nhập được admin | Kiểm tra `ADMIN_EMAIL`/`ADMIN_PASSWORD` rồi **Restart**; log có dòng `[Bootstrap]` cho biết đã đặt mật khẩu hay chưa |
+| App không khởi động, log `JWT_SECRET phải là chuỗi ngẫu nhiên…` | Đặt `JWT_SECRET` ≥ 32 ký tự ngẫu nhiên, Restart |
+| Trình duyệt hỏi user/mật khẩu (hộp thoại của trình duyệt) | Đang bật `BASIC_AUTH_USER/PASS` — nhập đúng, hoặc xoá 2 biến này rồi **Redeploy** |
