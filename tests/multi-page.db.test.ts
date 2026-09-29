@@ -13,6 +13,8 @@ import { CloudflareClient } from '../src/lib/clients/cloudflare';
  * Stop any dev server on the same DB first: its worker would take these jobs
  * and call the real Facebook API (with fake tokens).
  */
+/** Poll fast: the production 3 s poll makes multi-step publishes brush against the 15 s waits under load */
+const TEST_WORKER = { pollMs: 500 };
 const PAGE_IDS = ['TEST_MP_1', 'TEST_MP_2', 'TEST_MP_3'];
 let userId: string;
 let pages: { id: string; pageId: string }[] = [];
@@ -77,7 +79,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
         prisma.facebookPage.create({ data: { userId, pageId, pageName: `Trang thử ${i + 1}`, pageAccessToken: `EAAfaketoken${i}xxxxxxxxxxxxxxxxxxxx` } })
       )
     );
-    stop = startWorkers();
+    stop = startWorkers(TEST_WORKER);
   });
 
   // vitest.config unstubs globals after every test, so mock Facebook before each one
@@ -134,7 +136,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
     // Never let these run: we only inspect the booked times
     stop?.();
     await enqueuePost(post.id, userId, { skipAi: true, targetIds: post.targets.map((t) => t.id), intervalMs: 120_000 });
-    stop = startWorkers();
+    stop = startWorkers(TEST_WORKER);
     await new Promise((r) => setTimeout(r, 3500));
 
     const jobs = await prisma.job.findMany({ where: { type: 'publish_target', payload: { path: '$.targetId', string_contains: '' } }, orderBy: { runAt: 'asc' } });

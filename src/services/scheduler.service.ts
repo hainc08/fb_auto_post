@@ -7,7 +7,7 @@ import { readImage, saveImage } from '../lib/image-store';
 import { composeMessage } from '../lib/format-post';
 import { FacebookClient } from '../lib/clients/facebook';
 import { classifyFailure, UNCERTAIN_PUBLISH_MESSAGE } from '../lib/job-failure';
-import { enqueue, removeKeyedJob, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobResult, JobWorker } from '../lib/job-queue';
+import { enqueue, removeKeyedJob, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobResult, JobWorker, WorkerOptions } from '../lib/job-queue';
 import { blockMessage, blockReason, checkPages } from '../lib/page-health';
 import { Frequency, nextRunAt } from '../lib/schedule-time';
 import { backfillTargets, refreshPostStatus } from '../lib/post-targets';
@@ -418,7 +418,8 @@ let worker: JobWorker | null = null;
 /** The worker running in this process (for the cron tick), if started. */
 export const getWorker = () => worker;
 
-export function startWorkers(): JobWorker {
+/** `options` lets tests poll faster than the production default (3 s). */
+export function startWorkers(options: WorkerOptions = {}): JobWorker {
   void backfillTargets().catch((e) => logger.error('[Targets] Backfill failed', { error: (e as Error).message }));
   void bookMissingScheduleJobs();
   void bookTokenCheck();
@@ -427,7 +428,7 @@ export function startWorkers(): JobWorker {
     publish_target: runTargetJob,
     run_schedule: runScheduleJob,
     check_page_tokens: runTokenCheckJob,
-  });
+  }, options);
   return worker;
 }
 
