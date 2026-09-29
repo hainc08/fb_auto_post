@@ -38,8 +38,8 @@ export const domainFields = {
 
 export const formatFields = {
   name: z.string().trim().min(1, 'Nhập tên định dạng.').max(80),
-  // 5,000 = the old Settings system prompt limit: migrated "Bài chuẩn" formats must stay editable
-  instructions: z.string().trim().min(1, 'Nhập cấu trúc bài.').max(5000, 'Cấu trúc bài tối đa 5.000 ký tự.'),
+  // Migrated "Bài chuẩn" formats hold the old system prompt verbatim (real ones exceed 5,000): keep them editable
+  instructions: z.string().trim().min(1, 'Nhập cấu trúc bài.').max(10_000, 'Cấu trúc bài tối đa 10.000 ký tự.'),
   example: text(4000),
   length: z.enum(['SHORT', 'MEDIUM', 'LONG']).optional(),
   withImage: z.boolean().optional(),

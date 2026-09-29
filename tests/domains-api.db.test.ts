@@ -129,9 +129,10 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('domains & formats API', { timeout: 9
     expect(eleventh.status).toBe(409);
   });
 
-  it('a migrated old prompt of up to 5,000 characters (the old Settings limit) can still be edited', async () => {
+  it('a long migrated old prompt (real ones exceed the old 5,000 limit) can still be edited, up to 10,000', async () => {
     const { user, cookie } = await createTestUser();
-    const longPrompt = `Prompt cũ rất dài {{topic}} ${'x'.repeat(4600)}`;
+    // A real local prompt measured 5,013 characters: legacy prompts are not bound by the old Settings limit
+    const longPrompt = `Prompt cũ rất dài {{topic}} ${'x'.repeat(6000)}`;
     await prisma.setting.create({ data: { userId: user.id, key: 'systemPrompt', value: longPrompt } });
     await ensureDefaultDomain(user.id);
     const legacy = await prisma.contentFormat.findFirstOrThrow({ where: { domain: { userId: user.id } } });
@@ -144,7 +145,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('domains & formats API', { timeout: 9
     });
     expect(res.status).toBe(200);
     expect(res.json.data.name).toBe('Bài chuẩn (cũ)');
-    const tooLong = await api(server.baseUrl, 'PATCH', `/api/formats/${legacy.id}`, { cookie, body: { instructions: 'y'.repeat(5001) } });
+    const tooLong = await api(server.baseUrl, 'PATCH', `/api/formats/${legacy.id}`, { cookie, body: { instructions: 'y'.repeat(10_001) } });
     expect(tooLong.status).toBe(400);
   });
 
