@@ -505,6 +505,8 @@ tbody tr:hover { background: var(--bg-secondary); }
   padding: 24px; display: flex; flex-direction: column; gap: 18px;
   position: sticky; top: var(--topbar-height); height: calc(100vh - var(--topbar-height)); overflow-y: auto;
 }
+/* Children keep their natural height; the whole panel scrolls (else the preview card shrinks and crops its image) */
+.inspector > * { flex-shrink: 0; }
 .inspector-empty { margin: auto; text-align: center; color: var(--text-tertiary); font-size: 14px; max-width: 260px; }
 
 .timeline { list-style: none; display: flex; flex-direction: column; gap: 12px; }
@@ -794,6 +796,8 @@ tbody tr:hover { background: var(--bg-secondary); }
 .app-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px; margin: 0 0 16px; background: var(--warning-bg); color: var(--warning-400); border: 1px solid color-mix(in srgb, var(--warning-500) 30%, transparent); border-radius: var(--radius-md); font-size: 13.5px; animation: banner-in var(--transition-slow) both; }
 .app-banner span { flex: 1; min-width: 220px; color: var(--text-primary); }
 .app-banner.inline { margin: 0; }
+/* Full-height pages (Posts) have no padding of their own */
+.main-content.flush > .app-banner { margin: 16px 32px 0 40px; }
 @keyframes banner-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
 .table-wrap { overflow-x: auto; }
