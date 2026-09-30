@@ -514,7 +514,9 @@ tbody tr:hover { background: var(--bg-secondary); }
 @media (min-width: 901px) {
   .main-content.flush { flex: none; display: flex; flex-direction: column; height: calc(100vh - var(--topbar-height)); overflow: hidden; }
   .main-content.flush > .split-view { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  /* Children keep their natural height and the column scrolls (else the header and filter tabs get squashed onto each other) */
   .main-content.flush .split-main { overflow-y: auto; }
+  .main-content.flush .split-main > * { flex-shrink: 0; }
   .main-content.flush .inspector { position: static; height: auto; min-height: 0; }
 }
 
