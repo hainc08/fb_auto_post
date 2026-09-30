@@ -18,6 +18,7 @@ import { reelsProblem, type VideoInfo } from '../lib/mp4-info';
 import { cloudflareConfigFrom, generateImage } from './image.service';
 import { sendPostNotification } from './email.service';
 import { bookScheduleTick, runPrepareJob, runScheduleTickJob } from './schedule-runner';
+import { bookEngagementSync, runEngagementSyncJob } from './engagement-sync';
 
 /**
  * Scheduler Service - background work on the MariaDB job queue (src/lib/job-queue.ts)
@@ -26,6 +27,7 @@ import { bookScheduleTick, runPrepareJob, runScheduleTickJob } from './schedule-
  * - publish_target: publish the prepared post to one Page
  * - prepare_post: AI writes a slot-schedule post (schedule-runner.ts)
  * - schedule_tick: every minute: publish approved due posts, move late ones, write ahead
+ * - sync_engagement: every hour, reactions/comments/shares + comments of recent posts
  * - run_schedule: old per-schedule jobs, drained without doing anything
  */
 
@@ -379,12 +381,14 @@ export function startWorkers(options: WorkerOptions & { only?: JobType[] } = {})
   void backfillTargets().catch((e) => logger.error('[Targets] Backfill failed', { error: (e as Error).message }));
   void bookScheduleTick().catch((e) => logger.error('[Schedules] Could not book the tick', { error: (e as Error).message }));
   void bookTokenCheck();
+  void bookEngagementSync().catch((e) => logger.error('[Engagement] Could not book the sync', { error: (e as Error).message }));
   const handlers: Partial<Record<JobType, JobHandler>> = {
     publish_post: runPublishJob,
     publish_target: runTargetJob,
     run_schedule: runScheduleJob,
     prepare_post: runPrepareJob,
     schedule_tick: runScheduleTickJob,
+    sync_engagement: runEngagementSyncJob,
     check_page_tokens: runTokenCheckJob,
   };
   if (only) for (const type of Object.keys(handlers) as JobType[]) if (!only.includes(type)) delete handlers[type];
