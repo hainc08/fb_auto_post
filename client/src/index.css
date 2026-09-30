@@ -421,13 +421,16 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary-500); 
   background: var(--bg-tertiary); color: var(--text-secondary);
 }
 .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.85; }
-.badge-ready, .badge-scheduled { background: var(--info-bg); color: var(--info-text); }
+.badge-scheduled { background: var(--info-bg); color: var(--info-text); }
+/* Waiting for a person: amber */
+.badge-ready { background: var(--warning-bg); color: var(--warning-400); }
 .badge-published { background: var(--success-bg); color: var(--success-text); }
 .badge-failed { background: var(--error-bg); color: var(--error-500); }
 .badge-failed::before { border-radius: 1px; transform: rotate(45deg); }
 .badge-draft { background: var(--bg-tertiary); color: var(--text-secondary); }
 .badge-draft::before { border-radius: 2px; }
-.badge-generating, .badge-publishing { background: var(--warning-bg); color: var(--warning-400); }
+/* Work in progress: blue with a pulsing dot */
+.badge-generating, .badge-publishing { background: var(--info-bg); color: var(--info-text); }
 .badge-generating::before, .badge-publishing::before { animation: pulse-dot 1.2s ease-in-out infinite; }
 @keyframes pulse-dot { 50% { opacity: 0.25; } }
 
