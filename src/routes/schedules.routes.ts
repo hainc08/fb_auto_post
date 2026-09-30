@@ -4,9 +4,11 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { AuthRequest, authenticate } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
-import { resolveDomainFormat } from '../lib/domains';
+import { formatForPost, resolveDomainFormat } from '../lib/domains';
+import { getSettings } from '../lib/settings';
 import { nextSlots, SLOT_PATTERN, VN_TZ } from '../lib/schedule-time';
 import { PENDING_STATUSES, reslot, slotTiming } from '../services/schedule-runner';
+import { suggestIdeas } from '../services/ai.service';
 
 /** Slot schedules (Phase 2): weekdays + 1–3 times a day, several Pages, an idea queue. */
 
@@ -275,6 +277,27 @@ router.put(
     }
     await prisma.$transaction(ids.map((id, position) => prisma.scheduleIdea.update({ where: { id }, data: { position } })));
     res.json({ success: true });
+  })
+);
+
+router.post(
+  '/:id/ideas/suggest',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const s = await findOwn(req);
+    const { domain, format } = await formatForPost({ userId: req.user!.id, pageId: s.pageId, formatId: s.formatId });
+    const [ideas, posts] = await Promise.all([
+      prisma.scheduleIdea.findMany({ where: { scheduleId: s.id }, orderBy: { createdAt: 'desc' }, take: 60, select: { text: true } }),
+      prisma.post.findMany({ where: { scheduleId: s.id, caption: { not: null } }, orderBy: { createdAt: 'desc' }, take: 20, select: { caption: true } }),
+    ]);
+    // What was already queued or written: the first line of a post is its topic
+    const avoid = [...ideas.map((i) => i.text), ...posts.map((p) => p.caption!.split('\n')[0].slice(0, 150))];
+    const settings = await getSettings(req.user!.id);
+    try {
+      const suggested = await suggestIdeas({ apiKey: settings.geminiApiKey, model: settings.geminiModel }, { domain, format, avoid });
+      res.json({ success: true, data: { ideas: suggested } });
+    } catch (error) {
+      throw createError(502, `AI chưa gợi ý được: ${(error as Error).message}`);
+    }
   })
 );
 

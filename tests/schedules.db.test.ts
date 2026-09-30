@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import '../src/config';
 import prisma from '../src/utils/prisma';
 import { createApp } from '../src/app';
+import { saveSettings } from '../src/lib/settings';
+import { createStarterDomains } from '../src/lib/domains';
+import { GeminiClient } from '../src/lib/clients/gemini';
 import { startTestServer, api } from './helpers/http';
 import { cleanupTestUsers, createTestUser } from './helpers/users';
 
@@ -26,6 +29,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('schedules API', { timeout: 60_000 },
     const u = await createTestUser();
     cookie = u.cookie;
     userId = u.user.id;
+    await createStarterDomains(userId);
     const mk = (n: string) =>
       prisma.facebookPage.create({ data: { userId, pageId: `SCH_${n}_${Date.now()}`, pageName: n, pageAccessToken: 'EAAfaketokenschedulesapixxxxxxxxxxxx' } });
     pageA = (await mk('A')).id;
@@ -91,5 +95,17 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('schedules API', { timeout: 60_000 },
     });
     expect((await api(server.baseUrl, 'DELETE', `/api/schedules/${created.id}`, { cookie })).status).toBe(200);
     expect(await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).toMatchObject({ status: 'READY', scheduleQueued: false, scheduleId: null, approvedAt: null });
+  });
+
+  it('suggests new ideas with AI, never repeating the queued ones', async () => {
+    await saveSettings(userId, { geminiApiKey: 'AIzaFakeKeySchedulesApi00000000000000' });
+    const created = (await api(server.baseUrl, 'POST', '/api/schedules', { cookie, body: body({ ideas: ['Phòng rầy nâu'] }) })).json.data;
+    const gemini = vi
+      .spyOn(GeminiClient.prototype, 'generateJson')
+      .mockResolvedValue({ ideas: ['phòng rầy nâu', 'Bón phân đúng lúc', 'Chọn giống lúa'] } as never);
+    const res = await api(server.baseUrl, 'POST', `/api/schedules/${created.id}/ideas/suggest`, { cookie });
+    expect(res.status).toBe(200);
+    expect(res.json.data.ideas).toEqual(['Bón phân đúng lúc', 'Chọn giống lúa']);
+    expect(String((gemini.mock.calls[0][0] as { prompt: string }).prompt)).toMatch(/Phòng rầy nâu/);
   });
 });

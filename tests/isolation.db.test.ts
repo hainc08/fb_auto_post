@@ -105,6 +105,7 @@ const ROUTE_CASES: Record<string, Case> = {
   'DELETE /api/schedules/:id': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}` },
   'POST /api/schedules/:id/ideas': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/ideas`, body: { texts: ['hack idea'] } },
   'DELETE /api/schedules/:id/ideas/:ideaId': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/ideas/${b.ideaId}` },
+  'POST /api/schedules/:id/ideas/suggest': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/ideas/suggest` },
   'PUT /api/schedules/:id/ideas/order': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/ideas/order`, body: { ids: [] } },
   'GET /api/analytics/overview': { kind: 'list', path: '/api/analytics/overview' },
   'GET /api/analytics/posts-timeline': { kind: 'list', path: '/api/analytics/posts-timeline' },
