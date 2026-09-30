@@ -91,6 +91,7 @@ const ROUTE_CASES: Record<string, Case> = {
   'POST /api/posts/:id/image/upload': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/image/upload`, body: {} },
   'DELETE /api/posts/:id/image': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/image` },
   'POST /api/posts/:id/improve': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/improve`, body: { instruction: 'ngắn hơn' } },
+  'POST /api/posts/:id/approve': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/approve` },
   'POST /api/posts/:id/publish': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/publish`, body: {} },
   'POST /api/posts/:id/targets/:targetId/retry': {
     kind: 'foreign-id',

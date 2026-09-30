@@ -156,6 +156,9 @@ router.get(
           template: { select: { id: true, name: true } },
           ...domainFormatSelect,
           targets: { select: { status: true } },
+          scheduleQueued: true,
+          approvedAt: true,
+          schedule: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -187,6 +190,7 @@ router.get(
       include: {
         page: { select: { id: true, pageName: true, pageAvatar: true, pageId: true } },
         template: { select: { id: true, name: true } },
+        schedule: { select: { id: true, name: true } },
         ...domainFormatSelect,
         logs: { orderBy: { createdAt: 'asc' } },
         ...targetInclude,
@@ -610,7 +614,8 @@ const QUEUEABLE: PostStatus[] = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED', 'PUBLI
 async function claimForPublishing(postId: string) {
   const { count } = await prisma.post.updateMany({
     where: { id: postId, status: { in: QUEUEABLE } },
-    data: { status: 'GENERATING' },
+    // publishing by hand takes the post out of its schedule (the tick never publishes it again)
+    data: { status: 'GENERATING', scheduleQueued: false },
   });
   if (count === 0) throw createError(409, 'Bài đang được xử lý hoặc đang đăng, hãy chờ xong rồi thử lại.');
 }
@@ -648,6 +653,29 @@ router.post(
       success: true,
       data: { jobId, pages: targets.length, intervalMinutes, message: 'Post queued for publishing' },
     });
+  })
+);
+
+// ─── Approve a schedule post for its slot ───────
+
+router.post(
+  '/:id/approve',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const post = await prisma.post.findFirst({ where: { id: req.params.id, userId: req.user!.id }, include: { targets: true } });
+    if (!post) throw createError(404, 'Post not found');
+    if (!post.scheduleQueued || post.status !== 'READY') {
+      throw createError(400, 'Chỉ duyệt được bài của lịch đăng đã viết xong và đang chờ duyệt.');
+    }
+    // Same Page checks as "Đăng": approving a post that cannot go out would fail silently later
+    await assertOwnPages(req.user!.id, post.targets.map((t) => t.pageId));
+    const { count } = await prisma.post.updateMany({
+      where: { id: post.id, status: 'READY', scheduleQueued: true },
+      data: { status: 'SCHEDULED', approvedAt: new Date() },
+    });
+    if (!count) throw createError(409, 'Bài vừa thay đổi, hãy tải lại.');
+    await prisma.postLog.create({ data: { postId: post.id, action: 'approved', details: { slot: post.scheduledAt?.toISOString() ?? null } } });
+    const saved = await prisma.post.findUniqueOrThrow({ where: { id: post.id }, select: { id: true, status: true, approvedAt: true, scheduledAt: true } });
+    res.json({ success: true, data: saved });
   })
 );
 
