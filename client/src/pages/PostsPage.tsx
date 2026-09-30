@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock } from 'lucide-react';
+import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye } from 'lucide-react';
 import { postsApi, domainsApi, assetUrl, type ContentDomain } from '../api';
 import EditPostModal from '../components/EditPostModal';
 import { useToast } from '../components/Toast';
-import { StatusBadge, PostThumb, formatWhen, postTitle, wordCount, pageInitials } from '../components/PostBits';
+import { formatWhen, pageInitials } from '../components/PostBits';
+import PostListItem from '../components/PostListItem';
+import PostFilters from '../components/PostFilters';
+import type { MenuAction } from '../components/PostActionsMenu';
+import { matchesFilters, statusCounts, type TimeRange, type TargetSummary } from '../lib/post-display';
 import { slotLabel } from '../components/ScheduleBits';
 
 interface PostData {
@@ -25,7 +29,7 @@ interface PostData {
   errorMessage: string | null;
   createdAt: string;
   page: { id: string; pageName: string; pageAvatar: string | null };
-  targets?: Array<{ status: TargetStatus }>;
+  targets?: TargetSummary[];
   domain?: { id: string; name: string } | null;
   format?: { id: string; name: string } | null;
 }
@@ -63,8 +67,9 @@ const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('vi-VN', { hour
 
 const TABS: Array<{ value: string; label: string }> = [
   { value: '', label: 'Tất cả' },
-  { value: 'READY', label: 'Chờ duyệt' },
   { value: 'DRAFT', label: 'Nháp' },
+  { value: 'READY', label: 'Chờ duyệt' },
+  { value: 'SCHEDULED', label: 'Đã lên lịch' },
   { value: 'PUBLISHED', label: 'Đã đăng' },
   { value: 'FAILED', label: 'Lỗi' },
 ];
@@ -98,6 +103,8 @@ export default function PostsPage() {
   const status = params.get('status') ?? '';
   const q = params.get('q') ?? '';
   const domainFilter = params.get('domain') ?? '';
+  const pageFilter = params.get('page') ?? '';
+  const time = (params.get('time') ?? '') as TimeRange;
   const [domains, setDomains] = useState<ContentDomain[]>([]);
   const [posts, setPosts] = useState<PostData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,6 +115,8 @@ export default function PostsPage() {
   const [acting, setActing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
+  /** Inline "Duyệt & đăng" waiting for its second click */
+  const [armed, setArmed] = useState<string | null>(null);
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -143,16 +152,18 @@ export default function PostsPage() {
     return () => clearInterval(timer);
   }, [posts]);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { '': posts.length };
-    for (const p of posts) c[p.status] = (c[p.status] ?? 0) + 1;
-    return c;
+  // Every filter but the status tab (tab counts and the overview follow search/Page/time)
+  const filtered = useMemo(() => posts.filter((p) => matchesFilters(p, { q, pageId: pageFilter, time })), [posts, q, pageFilter, time]);
+  const counts = useMemo(() => statusCounts(filtered), [filtered]);
+  const visible = useMemo(() => filtered.filter((p) => !status || p.status === status), [filtered, status]);
+  const pageOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const p of posts) {
+      for (const t of p.targets ?? []) if (t.page) seen.set(t.page.id, t.page.pageName);
+      if (!p.targets?.length && p.page) seen.set(p.page.id, p.page.pageName);
+    }
+    return [...seen].map(([id, pageName]) => ({ id, pageName })).sort((a, b) => a.pageName.localeCompare(b.pageName, 'vi'));
   }, [posts]);
-
-  const visible = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return posts.filter((p) => (!status || p.status === status) && (!needle || (p.caption ?? '').toLowerCase().includes(needle)));
-  }, [posts, status, q]);
 
   // Keep a valid selection
   useEffect(() => {
@@ -169,27 +180,23 @@ export default function PostsPage() {
     postsApi.get(selectedId).then((r) => setDetail(r.data)).catch(() => setDetail(null));
   }, [selectedId, selected?.status, selected?.caption, selected?.imageUrl, selected?.videoUrl, selected?.videoKind, selected?.targets?.map((t) => t.status).join()]);
 
-  async function publish() {
-    if (!selectedId) return;
-    if (confirming !== 'publish') return setConfirming('publish');
+  async function publish(id: string) {
     setActing(true);
     try {
-      const res = await postsApi.publish(selectedId, { intervalMinutes: RETRY_INTERVAL_MINUTES });
+      const res = await postsApi.publish(id, { intervalMinutes: RETRY_INTERVAL_MINUTES });
       toast.success(res.data.pages > 1 ? `Đang đăng lên ${res.data.pages} Page.` : 'Đã đưa bài vào hàng đợi đăng.');
       await load();
     } catch (e: any) {
       toast.error(e.message);
     } finally {
       setActing(false);
-      setConfirming(null);
     }
   }
 
-  async function approve() {
-    if (!selectedId) return;
+  async function approve(id: string) {
     setActing(true);
     try {
-      const res = await postsApi.approve(selectedId);
+      const res = await postsApi.approve(id);
       toast.success(`Đã duyệt — bài sẽ đăng lúc ${slotLabel(res.data.scheduledAt)}.`);
       await load();
     } catch (e: any) {
@@ -197,6 +204,12 @@ export default function PostsPage() {
     } finally {
       setActing(false);
     }
+  }
+
+  /** Inspector buttons: first click asks, second click acts */
+  function confirmPublish() {
+    if (confirming !== 'publish') return setConfirming('publish');
+    void publish(selectedId!).finally(() => setConfirming(null));
   }
 
   async function retryTarget(targetId: string) {
@@ -213,21 +226,75 @@ export default function PostsPage() {
     }
   }
 
-  async function remove() {
-    if (!selectedId) return;
-    if (confirming !== 'delete') return setConfirming('delete');
+  async function remove(id: string) {
     setActing(true);
     try {
-      await postsApi.delete(selectedId);
+      await postsApi.delete(id);
       toast.success('Đã xoá bài đăng.');
-      setPosts((list) => list.filter((p) => p.id !== selectedId));
-      setSelectedId(null);
+      setPosts((list) => list.filter((p) => p.id !== id));
+      if (selectedId === id) setSelectedId(null);
     } catch (e: any) {
       toast.error(e.message);
     } finally {
       setActing(false);
-      setConfirming(null);
     }
+  }
+
+  function confirmRemove() {
+    if (confirming !== 'delete') return setConfirming('delete');
+    void remove(selectedId!).finally(() => setConfirming(null));
+  }
+
+  /** ⋯ menu: only actions the app supports today (plan Decision 4) */
+  function rowActions(p: PostData): MenuAction[] {
+    const live = (p.targets ?? []).some((t) => t.status === 'PUBLISHED');
+    const a: MenuAction[] = [{ key: 'open', label: 'Xem chi tiết', icon: <Eye size={15} aria-hidden="true" />, onSelect: () => setSelectedId(p.id) }];
+    if (EDITABLE.includes(p.status) && !live) a.push({ key: 'edit', label: 'Sửa bài', icon: <PenLine size={15} aria-hidden="true" />, onSelect: () => setEditingId(p.id) });
+    if (p.fbPermalink) a.push({ key: 'fb', label: 'Xem trên Facebook', icon: <ExternalLink size={15} aria-hidden="true" />, href: p.fbPermalink });
+    if (p.status === 'READY' && p.scheduleQueued) {
+      a.push({ key: 'approve', label: 'Duyệt (đăng theo lịch)', icon: <CalendarClock size={15} aria-hidden="true" />, onSelect: () => void approve(p.id) });
+    }
+    if (p.status === 'READY' && !p.scheduleQueued && p.caption) {
+      a.push({ key: 'publish', label: 'Duyệt & đăng', icon: <Send size={15} aria-hidden="true" />, confirmLabel: 'Bấm lần nữa để đăng công khai', onSelect: () => void publish(p.id) });
+    }
+    if (p.status === 'FAILED' && p.caption) {
+      a.push({ key: 'retry', label: 'Đăng lại', icon: <RotateCcw size={15} aria-hidden="true" />, confirmLabel: 'Bấm lần nữa để đăng lại', onSelect: () => void publish(p.id) });
+    }
+    if (p.status !== 'PUBLISHING') {
+      a.push({ key: 'delete', label: 'Xoá', icon: <Trash2 size={15} aria-hidden="true" />, danger: true, confirmLabel: 'Bấm lần nữa để xoá vĩnh viễn', onSelect: () => void remove(p.id) });
+    }
+    return a;
+  }
+
+  /** Posts waiting for approval: [Sửa] [Duyệt & đăng] right on the row */
+  function rowInline(p: PostData) {
+    if (p.status !== 'READY') return null;
+    const stop = (fn: () => void) => (e: MouseEvent) => {
+      e.stopPropagation();
+      fn();
+    };
+    return (
+      <>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => setEditingId(p.id))}>Sửa</button>
+        {p.scheduleQueued ? (
+          <button type="button" className="btn btn-primary btn-sm" disabled={acting} onClick={stop(() => void approve(p.id))}>Duyệt</button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={acting || !p.caption}
+            onClick={stop(() => {
+              if (armed !== p.id) return setArmed(p.id);
+              setArmed(null);
+              void publish(p.id);
+            })}
+            onBlur={() => setArmed((a) => (a === p.id ? null : a))}
+          >
+            {armed === p.id ? 'Bấm lần nữa để đăng' : 'Duyệt & đăng'}
+          </button>
+        )}
+      </>
+    );
   }
 
   function handleSaved(updated: PostData) {
@@ -248,34 +315,41 @@ export default function PostsPage() {
   return (
     <div className="split-view">
       <div className="split-main">
-        <div className="row" style={{ alignItems: 'flex-end' }}>
-          <div className="page-header" style={{ marginBottom: 0, flex: 1 }}>
+        <div className="posts-header">
+          <div className="page-header" style={{ marginBottom: 0 }}>
             <h1>Bài đăng</h1>
-            <p>Duyệt, chỉnh sửa và đăng bài lên Fanpage.</p>
+            <p>Quản lý, duyệt và theo dõi nội dung Fanpage.</p>
           </div>
-          <label className="topbar-search" style={{ width: 240, height: 38 }}>
-            <Search size={15} aria-hidden="true" />
-            <input type="search" placeholder="Tìm trong bài đăng" aria-label="Tìm trong bài đăng" value={q} onChange={(e) => setParam('q', e.target.value)} />
-          </label>
+          <Link to="/posts/create" className="btn btn-primary"><Plus size={16} aria-hidden="true" /> Tạo bài mới</Link>
         </div>
 
-        <div className="row filter-row">
-          <div className="filter-tabs" role="tablist" aria-label="Lọc theo trạng thái">
-            {TABS.map((t) => (
-              <button key={t.value} type="button" role="tab" className="filter-tab" aria-selected={status === t.value} onClick={() => setParam('status', t.value)}>
-                {t.label}<span className="count">· {counts[t.value] ?? 0}</span>
-              </button>
-            ))}
-          </div>
-          {domains.length > 1 && (
-            <select className="form-select select-sm domain-filter" aria-label="Lọc theo lĩnh vực" value={domainFilter} onChange={(e) => setParam('domain', e.target.value)}>
-              <option value="">Mọi lĩnh vực</option>
-              {domains.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}{d.isArchived ? ' (lưu trữ)' : ''}</option>
-              ))}
-            </select>
-          )}
+        {!loading && posts.length > 0 && (
+          <p className="posts-overview" aria-label="Tổng quan">
+            <span><strong>{counts[''] ?? 0}</strong> bài</span>
+            <span><strong>{counts.PUBLISHED ?? 0}</strong> đã đăng</span>
+            <span className={counts.READY ? 'attention' : ''}><strong>{counts.READY ?? 0}</strong> chờ duyệt</span>
+            {!!counts.SCHEDULED && <span><strong>{counts.SCHEDULED}</strong> đã lên lịch</span>}
+            {!!counts.FAILED && <span className="danger"><strong>{counts.FAILED}</strong> lỗi</span>}
+          </p>
+        )}
+
+        <div className="filter-tabs" role="tablist" aria-label="Lọc theo trạng thái">
+          {TABS.map((t) => (
+            <button key={t.value} type="button" role="tab" className="filter-tab" aria-selected={status === t.value} onClick={() => setParam('status', t.value)}>
+              {t.label}<span className="count">{counts[t.value] ?? 0}</span>
+            </button>
+          ))}
         </div>
+
+        <PostFilters
+          q={q}
+          pageId={pageFilter}
+          domainId={domainFilter}
+          time={time}
+          pages={pageOptions}
+          domains={domains}
+          onChange={(key, value) => setParam(key, value)}
+        />
 
         {loading ? (
           <div className="loading-page"><div className="spinner spinner-lg" /></div>
@@ -290,38 +364,16 @@ export default function PostsPage() {
             </div>
           </div>
         ) : (
-          <section className="card flush" aria-label="Danh sách bài đăng">
+          <section className="card flush post-list" aria-label="Danh sách bài đăng">
             {visible.map((p) => (
-              <button
+              <PostListItem
                 key={p.id}
-                type="button"
-                className={`post-row ${p.id === selectedId ? 'selected' : ''}`}
-                aria-current={p.id === selectedId}
-                onClick={() => setSelectedId(p.id)}
-              >
-                <PostThumb src={p.imageUrl} size={56} video={!!p.videoUrl} />
-                <span className="post-main">
-                  <span className={`post-title ${p.caption ? '' : 'empty'}`}>{postTitle(p.caption) || 'Chưa có nội dung'}</span>
-                  {p.errorMessage && p.status === 'FAILED' ? (
-                    <span className="post-meta error">{p.errorMessage}</span>
-                  ) : (
-                    <span className="post-meta">
-                      {p.domain && <span className="domain-tag">{p.domain.name}{p.format ? ` · ${p.format.name}` : ''}</span>}
-                      {(p.targets?.length ?? 0) > 1 ? `${p.targets!.length} Page` : p.page?.pageName} · {p.scheduleQueued ? 'Theo lịch · ' : ''}{p.videoKind === 'REEL' ? 'Reels · ' : p.videoUrl ? 'Video · ' : ''}{wordCount(p.caption)} từ
-                      {p.hashtags?.length ? ` · ${p.hashtags.map((h) => `#${h.replace(/^#+/, '')}`).join(' ')}` : ''}
-                    </span>
-                  )}
-                </span>
-                <span className="row" style={{ gap: 6, flexShrink: 0 }}>
-                  {(p.targets?.length ?? 0) > 1 && ['PUBLISHED', 'FAILED', 'PUBLISHING'].includes(p.status) && (
-                    <span className="badge badge-draft badge-pages" title="Số Page đã đăng thành công">
-                      {countTargets(p.targets).published}/{p.targets!.length} Page
-                    </span>
-                  )}
-                  <StatusBadge status={p.status} />
-                </span>
-                <span className="post-time">{formatWhen(p.publishedAt ?? p.createdAt)}</span>
-              </button>
+                post={p}
+                selected={p.id === selectedId}
+                onSelect={() => setSelectedId(p.id)}
+                actions={rowActions(p)}
+                inline={rowInline(p)}
+              />
             ))}
           </section>
         )}
@@ -480,12 +532,12 @@ export default function PostsPage() {
                 </div>
               )}
               {detail.scheduleQueued && detail.status === 'READY' && (
-                <button type="button" className="btn btn-primary btn-lg btn-block" onClick={approve} disabled={acting || !detail.caption}>
+                <button type="button" className="btn btn-primary btn-lg btn-block" onClick={() => void approve(selectedId!)} disabled={acting || !detail.caption}>
                   <CalendarClock size={16} aria-hidden="true" /> Duyệt — đăng lúc {slotLabel(detail.scheduledAt)}
                 </button>
               )}
               {PUBLISHABLE.includes(detail.status) && (
-                <button type="button" className={detail.scheduleQueued ? 'btn btn-secondary btn-block' : 'btn btn-primary btn-lg btn-block'} onClick={publish} disabled={acting || !detail.caption}>
+                <button type="button" className={detail.scheduleQueued ? 'btn btn-secondary btn-block' : 'btn btn-primary btn-lg btn-block'} onClick={confirmPublish} disabled={acting || !detail.caption}>
                   {acting && confirming === 'publish' ? <div className="spinner" /> : <Send size={16} aria-hidden="true" />}
                   {confirming === 'publish'
                     ? 'Bấm lần nữa để đăng công khai'
@@ -495,7 +547,7 @@ export default function PostsPage() {
                 </button>
               )}
               {detail.status !== 'PUBLISHING' && (
-                <button type="button" className="btn btn-danger btn-block" onClick={remove} disabled={acting}>
+                <button type="button" className="btn btn-danger btn-block" onClick={confirmRemove} disabled={acting}>
                   <Trash2 size={15} aria-hidden="true" />
                   {confirming === 'delete' ? 'Bấm lần nữa để xoá vĩnh viễn' : 'Xoá bài'}
                 </button>
