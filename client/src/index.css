@@ -1093,3 +1093,22 @@ tbody tr:hover { background: var(--bg-secondary); }
 .idea-used { margin-top: 10px; font-size: 0.82rem; color: var(--text-secondary); }
 .schedule-note { display: flex; align-items: center; gap: 6px; font-size: 0.84rem; color: var(--text-secondary); }
 @media (max-width: 900px) { .schedule-detail-grid { grid-template-columns: 1fr; } }
+
+/* ─── Posts list: actions menu + publish progress ─── */
+.actions-menu { position: relative; display: inline-flex; }
+.actions-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 190px; padding: 4px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08); display: flex; flex-direction: column; }
+.actions-menu-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 0; background: none; border-radius: var(--radius-sm); font-size: 13.5px; color: var(--text-primary); text-align: left; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.actions-menu-item:hover, .actions-menu-item:focus-visible { background: var(--bg-secondary); outline: none; }
+.actions-menu-item.danger { color: var(--error-500); }
+.publish-progress { position: relative; display: inline-flex; }
+.progress-chip { border: 0; background: none; padding: 0; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; cursor: pointer; color: var(--text-secondary); }
+.progress-chip.tone-success { color: var(--success-text); }
+.progress-chip.tone-error { color: var(--error-500); }
+.progress-chip.tone-progress { color: var(--info-text); }
+.progress-chip:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; border-radius: 4px; }
+.progress-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 220px; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08); display: flex; flex-direction: column; gap: 5px; }
+.progress-line { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-primary); }
+.progress-line.status-published svg { color: var(--success-text); }
+.progress-line.status-failed svg { color: var(--error-500); }
+.progress-page { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-error { color: var(--error-500); font-size: 12px; white-space: nowrap; }
