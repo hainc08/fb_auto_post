@@ -68,7 +68,7 @@ Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `
 - ✅ M3 (2026-09-28) Giao diện: trang Lĩnh vực (định dạng, xem prompt, thử viết), Tạo bài chọn lĩnh vực + định dạng, cột lĩnh vực mặc định ở Kênh Facebook, lọc bài theo lĩnh vực, checklist khởi động
 - ✅ M4 (2026-09-29) Tài liệu: AGENTS.md, README, DEPLOY_HOSTINGER (mục 6b checklist nâng cấp) — deploy do người dùng thực hiện theo mục 6b
 
-## Phase 2 — Lịch đăng ⏸ (tạm hoãn 2026-09-24, người dùng làm các phần cơ bản khác trước)
+## Phase 2 — Lịch đăng ✅ (2026-09-30)
 
 **Quyết định đã chốt khi brainstorm (2026-09-24), dùng lại khi tiếp tục:**
 1. AI tạo bài sẵn → người dùng duyệt (sửa được) → tự đăng đúng giờ.
@@ -77,9 +77,7 @@ Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `
 4. Luôn giữ sẵn N bài cho các lượt kế tiếp (mặc định 3), tự viết bù khi duyệt/xoá.
 5. Đến giờ mà bài chưa duyệt → dời sang khung giờ trống kế tiếp, các bài sau lùi theo.
 
-**Chờ duyệt:** hướng kỹ thuật A (đề xuất): 1 job chạy mỗi phút (hàng đợi MariaDB `jobs`, đã thay BullMQ từ 2026-09-25), dữ liệu gốc nằm trong MariaDB (tạo bù bài + đăng bài đã duyệt / dời bài chưa duyệt), job tự tạo lại khi khởi động. Giả định chưa xác nhận: bài theo lịch luôn có ảnh AI; 1 lịch = 1 Page; nhắc duyệt bằng số bài chờ duyệt trên menu/Dashboard (chưa gửi email); bỏ lịch cũ và cron tuỳ biến.
-
-**Lỗi của lịch hiện tại cần xử lý khi làm:** cùng 1 ý tưởng cho mọi lượt; đăng thẳng không duyệt; giờ tính theo máy chủ (sai khi server chạy UTC); "Một lần" thực ra lặp lại hằng năm; ngày kết thúc bị bỏ qua; sửa giờ không cập nhật lịch chạy; lịch chỉ nằm trong Redis nên mất khi Redis bị xoá.
+- ✅ (2026-09-30) Lịch theo thứ + 1–3 khung giờ (giờ VN), nhiều Page, hàng chờ ý tưởng + AI gợi ý 10 ý tưởng, giữ sẵn N bài, duyệt trước khi đăng, bài chưa duyệt dời sang khung sau; lịch cũ tự chuyển đổi — plan docs/superpowers/plans/2026-09-30-schedule-slots.md
 
 ## Phase 3 — "Bộ não marketing" ⬜
 - **Brand Profile theo Page**: giọng văn, chân dung khách hàng, USP, từ cấm, CTA mặc định, emoji level

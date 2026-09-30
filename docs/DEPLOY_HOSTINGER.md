@@ -105,6 +105,7 @@ Video bài viết nằm ở `STORAGE_DIR/videos` (tối đa 100 MB mỗi video).
 4. **Pages**: kết nối Page (hoặc "đổi token dài hạn" trong Cấu hình).
 5. Tạo 1 bài → AI viết → tạo ảnh → **Duyệt & đăng** → kiểm tra bài trên Page, và ảnh vẫn hiện sau khi F5.
 6. Tải thử một video khoảng 50–100 MB. Nếu báo "Máy chủ từ chối file quá lớn" (lỗi 413 từ proxy của Hostinger) thì giới hạn tải lên của gói thấp hơn 100 MB — dùng video nhỏ hơn.
+7. **Lịch đăng**: tạo một lịch có khung giờ gần nhất và 1 ý tưởng → trong 1–2 phút trang lịch có bài "AI đang viết" rồi "Chờ duyệt". Duyệt bài; đến giờ bài được đăng. Lịch cũ (trước bản này) tự chuyển sang lịch theo khung giờ; lịch "Một lần"/"Hàng tháng" bị tạm dừng, tên có "(cần xem lại)".
 
 ### Facebook App
 developers.facebook.com → App → **Settings → Basic**:
@@ -125,6 +126,7 @@ Worker đăng bài chạy **chung tiến trình** với web. Nếu Hostinger cho
    curl -fsS -m 55 "https://ten-mien-cua-ban.com/cron/tick?key=CRON_SECRET_CUA_BAN" > /dev/null
    ```
    Mỗi lần gọi: đánh thức app, chạy hết job tới hạn (tối đa ~45 giây) rồi trả `{"ok":true,"processed":N}`. Không cần mật khẩu Basic Auth; sai/thiếu key → 401.
+   Lịch đăng được xử lý mỗi phút (đăng bài đã duyệt, dời bài chưa duyệt, AI viết sẵn bài), nên cron nên chạy **mỗi phút**. Nếu gói chỉ cho mỗi 5 phút thì giờ đăng có thể trễ tới 5 phút.
 
 **4.2 Theo dõi**
 - `https://ten-mien/health` có mục `worker.lastPollAt` (lần quét gần nhất) và `dueJobs` (job tới hạn chưa chạy). `dueJobs` tăng dần ⇒ worker không chạy.
