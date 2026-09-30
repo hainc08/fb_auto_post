@@ -1,10 +1,23 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Check, Sparkles, RefreshCw, ImageIcon, Send, X, Upload, AlertTriangle } from 'lucide-react';
-import { postsApi, pagesApi, domainsApi, assetUrl, MAX_UPLOAD_BYTES, UPLOAD_TYPES, type ContentDomain, type PageInfo, type PostUpdate } from '../api';
+import {
+  postsApi,
+  pagesApi,
+  domainsApi,
+  assetUrl,
+  MAX_UPLOAD_BYTES,
+  UPLOAD_TYPES,
+  EMPTY_VIDEO,
+  type ContentDomain,
+  type PageInfo,
+  type PostUpdate,
+  type VideoState,
+} from '../api';
 import { useToast } from '../components/Toast';
 import { wordCount, pageInitials } from '../components/PostBits';
 import PromptPreview from '../components/PromptPreview';
+import VideoField from '../components/VideoField';
 
 const HOOK_LENGTH = 125;
 
@@ -66,6 +79,7 @@ export default function CreatePostPage() {
   const [busy, setBusy] = useState<Busy>(null);
   const [timings, setTimings] = useState<{ writing?: number; image?: number }>({});
   const [confirmPublish, setConfirmPublish] = useState(false);
+  const [video, setVideo] = useState<VideoState>(EMPTY_VIDEO);
   const [domains, setDomains] = useState<ContentDomain[]>([]);
   const [domainId, setDomainId] = useState('');
   const [formatId, setFormatId] = useState('');
@@ -212,6 +226,7 @@ export default function CreatePostPage() {
     try {
       const res = await postsApi.generateImage(postId, imagePrompt);
       setPreviewImage(assetUrl(res.data.imageUrl));
+      setVideo(EMPTY_VIDEO);
       setTimings((t) => ({ ...t, image: performance.now() - t0 }));
     } catch (e: any) {
       toast.error(`Chưa tạo được ảnh: ${e.message}`);
@@ -230,6 +245,7 @@ export default function CreatePostPage() {
       const id = postId ?? (await ensurePost());
       const res = await postsApi.uploadImage(id, file);
       setPreviewImage(assetUrl(res.data.imageUrl));
+      setVideo(EMPTY_VIDEO);
       toast.success('Đã tải ảnh lên — ảnh này sẽ được đăng kèm bài.');
     } catch (e: any) {
       toast.error(e.message);
@@ -529,17 +545,29 @@ export default function CreatePostPage() {
               />
             </div>
             <div className="stack" style={{ gap: 8, marginTop: 26 }}>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={makeImage} disabled={!!busy || !postId || !imagePrompt.trim()}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={makeImage} disabled={!!busy || !postId || !imagePrompt.trim() || !!video.videoUrl}>
                 {busy === 'image' ? <div className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />}
                 {previewImage ? 'Tạo lại bằng AI' : 'Tạo ảnh bằng AI'}
               </button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!busy || !selectedPages.length}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!busy || !selectedPages.length || !!video.videoUrl}>
                 {busy === 'upload' ? <div className="spinner" /> : <Upload size={14} aria-hidden="true" />}
                 Tải ảnh lên
               </button>
               <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => uploadImage(e.target.files?.[0])} />
             </div>
           </div>
+          <div className="settings-divider" style={{ margin: '14px 0 10px' }} />
+          <span className="form-label">Hoặc đăng video</span>
+          <VideoField
+            postId={postId}
+            ensurePost={ensurePost}
+            value={video}
+            onChange={(v) => {
+              setVideo(v);
+              if (v.videoUrl) setPreviewImage(null); // the server removed the image
+            }}
+            disabled={!!busy || !selectedPages.length}
+          />
         </section>
       </div>
 
@@ -565,7 +593,9 @@ export default function CreatePostPage() {
               <span style={{ color: '#8a8d91', fontStyle: 'italic' }}>Nội dung bài sẽ hiện ở đây…</span>
             )}
           </div>
-          {previewImage ? (
+          {video.videoUrl ? (
+            <video className="fb-image fb-video" src={assetUrl(video.videoUrl)!} controls muted preload="metadata" />
+          ) : previewImage ? (
             <img className="fb-image" src={previewImage} alt="" />
           ) : (
             <div className="fb-image placeholder">{imagePrompt ? 'Ảnh sẽ được AI tạo khi đăng' : 'Ảnh AI sẽ hiện ở đây'}</div>
@@ -600,7 +630,9 @@ export default function CreatePostPage() {
               ? 'Bấm lần nữa để đăng công khai'
               : selectedPages.length > 1
                 ? `Duyệt & đăng lên ${selectedPages.length} Page`
-                : 'Duyệt & đăng ngay'}
+                : video.videoKind === 'REEL'
+                  ? 'Duyệt & đăng Reels'
+                  : 'Duyệt & đăng ngay'}
           </button>
           <button type="button" className="btn btn-secondary btn-block" onClick={handleSave} disabled={!!busy || !postId}>
             {busy === 'saving' ? <div className="spinner" /> : null}

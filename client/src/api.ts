@@ -11,6 +11,27 @@ export function assetUrl(path?: string | null): string | null {
 
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const UPLOAD_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+export const VIDEO_TYPES = ['video/mp4', 'video/quicktime'];
+
+export type VideoKind = 'FEED' | 'REEL';
+
+export interface VideoMeta {
+  durationSec: number;
+  width: number;
+  height: number;
+  bytes: number;
+}
+
+export interface VideoState {
+  videoUrl: string | null;
+  videoKind: VideoKind | null;
+  videoMeta: VideoMeta | null;
+  /** Why the video can't be a Reel (null = it can) */
+  reelsProblem: string | null;
+}
+
+export const EMPTY_VIDEO: VideoState = { videoUrl: null, videoKind: null, videoMeta: null, reelsProblem: null };
 
 // ─── Fetch Wrapper ──────────────────────────────
 // Session = httpOnly cookie set by the API (JS never sees it). Every call sends it
@@ -297,6 +318,7 @@ export interface PostUpdate {
   idea?: string;
   domainId?: string;
   formatId?: string;
+  videoKind?: VideoKind;
 }
 
 export const postsApi = {
@@ -336,6 +358,36 @@ export const postsApi = {
   },
 
   removeImage: (id: string) => apiFetch<{ imageUrl: null }>(`/posts/${id}/image`, { method: 'DELETE' }),
+
+  /** XHR (not fetch) so a 100 MB upload can report progress */
+  uploadVideo: (id: string, file: File, onProgress?: (percent: number) => void) =>
+    new Promise<VideoState>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/posts/${id}/video/upload`);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader('X-Requested-With', 'autopost');
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        let data: any = {};
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          /* non-JSON error page (e.g. proxy 413) */
+        }
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(data.data as VideoState);
+        if (data.code === 'UNAUTHENTICATED') window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: { code: data.code } }));
+        const message = xhr.status === 413 ? 'Máy chủ từ chối file quá lớn.' : data.error || 'Tải video lên thất bại.';
+        reject(new ApiError(message, xhr.status, data.code));
+      };
+      xhr.onerror = () => reject(new ApiError('Mất kết nối khi tải video lên.', 0));
+      const body = new FormData();
+      body.append('video', file);
+      xhr.send(body);
+    }),
+
+  removeVideo: (id: string) => apiFetch<{ videoUrl: null }>(`/posts/${id}/video`, { method: 'DELETE' }),
 
   /** Pass `caption` to rewrite an unsaved draft (result is not persisted). */
   improve: (id: string, instruction: string, caption?: string) =>
