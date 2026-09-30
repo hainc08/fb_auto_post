@@ -9,6 +9,7 @@ import PagesPage from './pages/PagesPage';
 import PostsPage from './pages/PostsPage';
 import CreatePostPage from './pages/CreatePostPage';
 import SchedulesPage from './pages/SchedulesPage';
+import ScheduleDetailPage from './pages/ScheduleDetailPage';
 import SettingsPage from './pages/SettingsPage';
 import DomainsPage from './pages/DomainsPage';
 import UsersPage from './pages/UsersPage';
@@ -81,6 +82,16 @@ export default function App() {
             <ProtectedRoute>
               <AppLayout>
                 <SchedulesPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/schedules/:id"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <ScheduleDetailPage />
               </AppLayout>
             </ProtectedRoute>
           }

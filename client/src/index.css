@@ -1050,3 +1050,25 @@ tbody tr:hover { background: var(--bg-secondary); }
   .schedule-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .schedule-form-grid { grid-template-columns: 1fr; }
 }
+
+.back-link { display: inline-flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px; }
+.schedule-detail-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.schedule-detail-grid h2 { font-size: 1rem; margin: 0 0 12px; }
+.queue-list, .idea-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.queue-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'thumb main badge' 'thumb actions actions'; gap: 4px 10px; align-items: center; padding: 8px; border: 1px solid var(--border-subtle); border-radius: 10px; }
+.queue-item .post-thumb { grid-area: thumb; }
+.queue-main { grid-area: main; display: flex; flex-direction: column; min-width: 0; font-size: 0.85rem; }
+.queue-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-item .badge { grid-area: badge; }
+.queue-actions { grid-area: actions; display: flex; gap: 6px; justify-content: flex-end; }
+.idea-queue-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.idea-queue-head h2 { margin: 0; }
+.idea-list li { display: flex; align-items: center; gap: 6px; font-size: 0.86rem; }
+.idea-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.idea-actions { display: flex; flex-shrink: 0; }
+.idea-suggestions { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 10px; background: var(--bg-secondary); margin-bottom: 10px; }
+.idea-add { display: flex; gap: 8px; align-items: flex-start; }
+.idea-add .form-textarea { flex: 1; min-height: 56px; }
+.idea-used { margin-top: 10px; font-size: 0.82rem; color: var(--text-secondary); }
+.schedule-note { display: flex; align-items: center; gap: 6px; font-size: 0.84rem; color: var(--text-secondary); }
+@media (max-width: 900px) { .schedule-detail-grid { grid-template-columns: 1fr; } }

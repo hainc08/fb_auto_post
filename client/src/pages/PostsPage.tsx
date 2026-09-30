@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw } from 'lucide-react';
+import { Search, PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock } from 'lucide-react';
 import { postsApi, domainsApi, assetUrl, type ContentDomain } from '../api';
 import EditPostModal from '../components/EditPostModal';
 import { useToast } from '../components/Toast';
 import { StatusBadge, PostThumb, formatWhen, postTitle, wordCount, pageInitials } from '../components/PostBits';
+import { slotLabel } from '../components/ScheduleBits';
 
 interface PostData {
   id: string;
@@ -12,6 +13,9 @@ interface PostData {
   imageUrl: string | null;
   videoUrl?: string | null;
   videoKind?: 'FEED' | 'REEL' | null;
+  scheduleQueued?: boolean;
+  approvedAt?: string | null;
+  schedule?: { id: string; name: string } | null;
   hashtags: string[] | null;
   status: string;
   fbPostId: string | null;
@@ -181,6 +185,20 @@ export default function PostsPage() {
     }
   }
 
+  async function approve() {
+    if (!selectedId) return;
+    setActing(true);
+    try {
+      const res = await postsApi.approve(selectedId);
+      toast.success(`Đã duyệt — bài sẽ đăng lúc ${slotLabel(res.data.scheduledAt)}.`);
+      await load();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setActing(false);
+    }
+  }
+
   async function retryTarget(targetId: string) {
     if (!selectedId) return;
     setRetrying(targetId);
@@ -289,7 +307,7 @@ export default function PostsPage() {
                   ) : (
                     <span className="post-meta">
                       {p.domain && <span className="domain-tag">{p.domain.name}{p.format ? ` · ${p.format.name}` : ''}</span>}
-                      {(p.targets?.length ?? 0) > 1 ? `${p.targets!.length} Page` : p.page?.pageName} · {p.videoKind === 'REEL' ? 'Reels · ' : p.videoUrl ? 'Video · ' : ''}{wordCount(p.caption)} từ
+                      {(p.targets?.length ?? 0) > 1 ? `${p.targets!.length} Page` : p.page?.pageName} · {p.scheduleQueued ? 'Theo lịch · ' : ''}{p.videoKind === 'REEL' ? 'Reels · ' : p.videoUrl ? 'Video · ' : ''}{wordCount(p.caption)} từ
                       {p.hashtags?.length ? ` · ${p.hashtags.map((h) => `#${h.replace(/^#+/, '')}`).join(' ')}` : ''}
                     </span>
                   )}
@@ -452,14 +470,28 @@ export default function PostsPage() {
                   <ExternalLink size={15} aria-hidden="true" /> Xem trên Facebook
                 </a>
               )}
+              {detail.scheduleQueued && (
+                <div className="schedule-note">
+                  <CalendarClock size={15} aria-hidden="true" />
+                  <span>
+                    Theo lịch <Link to={`/schedules/${detail.schedule?.id}`}>{detail.schedule?.name}</Link> · {slotLabel(detail.scheduledAt)}
+                    {detail.status === 'SCHEDULED' ? ' · đã duyệt' : ''}
+                  </span>
+                </div>
+              )}
+              {detail.scheduleQueued && detail.status === 'READY' && (
+                <button type="button" className="btn btn-primary btn-lg btn-block" onClick={approve} disabled={acting || !detail.caption}>
+                  <CalendarClock size={16} aria-hidden="true" /> Duyệt — đăng lúc {slotLabel(detail.scheduledAt)}
+                </button>
+              )}
               {PUBLISHABLE.includes(detail.status) && (
-                <button type="button" className="btn btn-primary btn-lg btn-block" onClick={publish} disabled={acting || !detail.caption}>
+                <button type="button" className={detail.scheduleQueued ? 'btn btn-secondary btn-block' : 'btn btn-primary btn-lg btn-block'} onClick={publish} disabled={acting || !detail.caption}>
                   {acting && confirming === 'publish' ? <div className="spinner" /> : <Send size={16} aria-hidden="true" />}
                   {confirming === 'publish'
                     ? 'Bấm lần nữa để đăng công khai'
                     : detail.status === 'FAILED'
                       ? tally.total > 1 ? `Đăng lại ${tally.total - tally.published} Page chưa lên` : 'Đăng lại'
-                      : tally.total > 1 ? `Duyệt & đăng lên ${tally.total} Page` : 'Duyệt & đăng ngay'}
+                      : detail.scheduleQueued ? 'Đăng ngay (bỏ khung giờ)' : tally.total > 1 ? `Duyệt & đăng lên ${tally.total} Page` : 'Duyệt & đăng ngay'}
                 </button>
               )}
               {detail.status !== 'PUBLISHING' && (
