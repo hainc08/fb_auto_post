@@ -27,10 +27,14 @@ export const bufferSource = (buf: Buffer): ByteSource => ({
   read: async (offset, length) => buf.subarray(offset, Math.min(buf.length, offset + length)),
 });
 
+/** Real files have a handful of boxes per level; a crafted one could have millions */
+const MAX_BOXES = 10_000;
+
 async function readBoxes(src: ByteSource, start: number, end: number): Promise<Box[] | null> {
   const boxes: Box[] = [];
   let pos = start;
   while (pos + 8 <= end) {
+    if (boxes.length >= MAX_BOXES) return null;
     const head = await src.read(pos, 16);
     if (head.length < 8) return null;
     let size = head.readUInt32BE(0);
@@ -72,7 +76,7 @@ export async function inspectMp4(src: ByteSource): Promise<VideoInfo | null> {
     const inTrak = await readBoxes(src, trak.start + trak.headerSize, trak.start + trak.size);
     const tkhd = inTrak && find(inTrak, 'tkhd');
     if (!tkhd) continue;
-    const body = await src.read(tkhd.start + tkhd.headerSize, tkhd.size - tkhd.headerSize);
+    const body = await src.read(tkhd.start + tkhd.headerSize, Math.min(tkhd.size - tkhd.headerSize, 92)); // v1 tkhd body is 92 bytes
     const matrixAt = body[0] === 1 ? 52 : 40;
     if (body.length < matrixAt + 44) continue;
     const w = body.readUInt32BE(matrixAt + 36) / 65536;

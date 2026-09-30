@@ -60,6 +60,7 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
   const captionRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [imageBusy, setImageBusy] = useState<null | 'generate' | 'upload' | 'remove'>(null);
+  const [videoBusy, setVideoBusy] = useState(false);
 
   useEffect(() => {
     postsApi
@@ -353,11 +354,11 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
                     onChange={(e) => setForm({ ...form, imagePrompt: e.target.value })} />
                   {editable && (
                     <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={generateImage} disabled={!!imageBusy || !form.imagePrompt.trim()}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={generateImage} disabled={!!imageBusy || videoBusy || !form.imagePrompt.trim()}>
                         {imageBusy === 'generate' ? <span className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />}
                         {post.imageUrl ? 'Tạo lại bằng AI' : 'Tạo bằng AI'}
                       </button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!imageBusy}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!imageBusy || videoBusy}>
                         {imageBusy === 'upload' ? <span className="spinner" /> : <Upload size={14} aria-hidden="true" />}
                         Tải ảnh từ máy
                       </button>
@@ -380,7 +381,7 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
               {editable && (
                 <>
                   <span className="form-label" style={{ marginTop: 14 }}>Hoặc đăng video</span>
-                  <VideoField postId={post.id} value={video} onChange={applyVideo} disabled={saving || !!imageBusy} />
+                  <VideoField postId={post.id} value={video} onChange={applyVideo} disabled={saving || !!imageBusy} onBusyChange={setVideoBusy} />
                 </>
               )}
             </div>

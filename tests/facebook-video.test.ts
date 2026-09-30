@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { FacebookClient } from '../src/lib/clients/facebook';
+import { FacebookClient, TIMEOUT_MS, VIDEO_TIMEOUT_MS } from '../src/lib/clients/facebook';
+import { STALE_AFTER_MS } from '../src/lib/job-queue';
 
 const TOKEN = 'EAAfaketokenvideotestxxxxxxxxxxxxxx';
 const client = () => new FacebookClient({ appId: '123', appSecret: 'fake-secret', graphVersion: 'v23.0' }, [TOKEN]);
@@ -7,6 +8,10 @@ const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200
 const video = () => ({ blob: new Blob([Buffer.alloc(32, 1)], { type: 'video/mp4' }), size: 32, mime: 'video/mp4' });
 
 describe('FacebookClient video publishing', () => {
+  it('a Reel (start + upload + finish + permalink) ends before the job counts as stale', () => {
+    expect(VIDEO_TIMEOUT_MS + 3 * TIMEOUT_MS).toBeLessThan(STALE_AFTER_MS);
+  });
+
   it('publishVideo uploads to graph-video with the caption as description', async () => {
     const fetch = vi.fn(async () => json({ id: 'VID1' }));
     vi.stubGlobal('fetch', fetch);

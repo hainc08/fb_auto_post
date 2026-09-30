@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Film, Upload, Trash2 } from 'lucide-react';
 import { postsApi, assetUrl, ApiError, MAX_VIDEO_BYTES, VIDEO_TYPES, EMPTY_VIDEO, type VideoKind, type VideoState } from '../api';
 import { useToast } from './Toast';
@@ -10,17 +10,20 @@ interface Props {
   value: VideoState;
   onChange: (value: VideoState) => void;
   disabled?: boolean;
+  /** Tells the parent an upload/removal is running, so it can hold publish and image changes */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
 
 /** Upload a local video (≤ 100 MB), choose "Bài video" or "Reels", remove it. */
-export default function VideoField({ postId, ensurePost, value, onChange, disabled }: Props) {
+export default function VideoField({ postId, ensurePost, value, onChange, disabled, onBusyChange }: Props) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => onBusyChange?.(busy), [busy, onBusyChange]);
 
   async function pick(file?: File) {
     if (!file) return;

@@ -1,5 +1,5 @@
 import { openAsBlob } from 'node:fs';
-import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';
+import { mkdir, open, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { inspectMp4, type ByteSource, type VideoInfo } from './mp4-info';
 
@@ -100,4 +100,27 @@ export async function removeVideo(videoPath: string | null | undefined): Promise
   if (!videoPath) return;
   const full = resolveVideo(videoPath);
   if (full) await unlink(full).catch(() => {});
+}
+
+/**
+ * Delete temp uploads older than maxAgeMs: an upload the browser aborted can
+ * leave a partial file behind. Returns how many files were removed.
+ */
+export async function sweepVideoTmp(maxAgeMs = 60 * 60_000, now = Date.now()): Promise<number> {
+  let names: string[];
+  try {
+    names = await readdir(VIDEO_TMP_DIR);
+  } catch {
+    return 0; // no uploads yet
+  }
+  let removed = 0;
+  for (const name of names) {
+    const full = path.join(VIDEO_TMP_DIR, name);
+    const info = await stat(full).catch(() => null);
+    if (info?.isFile() && now - info.mtimeMs > maxAgeMs) {
+      await unlink(full).catch(() => {});
+      removed++;
+    }
+  }
+  return removed;
 }

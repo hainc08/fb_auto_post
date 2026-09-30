@@ -500,7 +500,9 @@ router.post(
   }),
   (req, res, next) =>
     videoUpload.single('video')(req, res, (err: unknown) => {
-      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') return next(createError(400, 'Video vượt quá 100 MB.'));
+      if (err instanceof multer.MulterError) {
+        return next(createError(400, err.code === 'LIMIT_FILE_SIZE' ? 'Video vượt quá 100 MB.' : 'Chỉ gửi một file video trong trường "video".'));
+      }
       next(err);
     }),
   asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -519,18 +521,24 @@ router.post(
     } catch (error) {
       throw createError(400, (error as Error).message);
     }
-    const updated = await prisma.post.update({
-      where: { id: post.id },
-      data: {
-        videoPath: stored.videoPath,
-        videoUrl: stored.videoUrl,
-        videoMime: stored.mime,
-        videoMeta: { ...stored.meta },
-        videoKind: 'FEED',
-        imagePath: null,
-        imageUrl: null,
-      },
-    });
+    let updated;
+    try {
+      updated = await prisma.post.update({
+        where: { id: post.id },
+        data: {
+          videoPath: stored.videoPath,
+          videoUrl: stored.videoUrl,
+          videoMime: stored.mime,
+          videoMeta: { ...stored.meta },
+          videoKind: 'FEED',
+          imagePath: null,
+          imageUrl: null,
+        },
+      });
+    } catch (error) {
+      await removeVideo(stored.videoPath); // e.g. the post was deleted meanwhile
+      throw error;
+    }
     await removeVideo(post.videoPath);
     await removeImage(post.imagePath);
     await prisma.postLog.create({ data: { postId: post.id, action: 'video_uploaded', details: { ...stored.meta } } });

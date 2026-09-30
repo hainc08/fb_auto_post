@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, unlink, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { VIDEO_TMP_DIR, detectVideoMime, openVideo, removeVideo, resolveVideo, saveUploadedVideo } from '../src/lib/video-store';
+import { VIDEO_TMP_DIR, detectVideoMime, openVideo, removeVideo, resolveVideo, saveUploadedVideo, sweepVideoTmp } from '../src/lib/video-store';
 import { tinyMp4 } from './helpers/mp4';
 
 async function tmpFile(content: Buffer) {
@@ -53,5 +53,16 @@ describe('video store', () => {
     expect(resolveVideo('storage/videos/../../.env')).toBeNull();
     expect(resolveVideo('/etc/passwd')).toBeNull();
     expect(resolveVideo(`storage/videos/${randomUUID()}-1.mp4`)).not.toBeNull();
+  });
+
+  it('sweeps temp uploads older than an hour and keeps recent ones', async () => {
+    const old = await tmpFile(Buffer.from('partial'));
+    const fresh = await tmpFile(Buffer.from('in progress'));
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60_000);
+    await utimes(old, twoHoursAgo, twoHoursAgo);
+    await sweepVideoTmp();
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
+    await unlink(fresh);
   });
 });

@@ -32,7 +32,7 @@ export interface JobResult {
 export type JobHandler = (job: Job) => Promise<JobResult | void>;
 
 const RETRY_BASE_MS = 5_000; // 5s, 10s, 20s…
-const STALE_AFTER_MS = 10 * 60_000; // a single job never legitimately runs this long
+export const STALE_AFTER_MS = 10 * 60_000; // a single job never legitimately runs this long
 const KEEP_DONE_DAYS = 7;
 const KEEP_FAILED_DAYS = 30;
 

@@ -6,11 +6,15 @@ import { fetchWithRetry, redactSecrets } from '../http';
  */
 
 const GRAPH_BASE = 'https://graph.facebook.com';
-const TIMEOUT_MS = 60_000;
+export const TIMEOUT_MS = 60_000;
 const GRAPH_VIDEO_BASE = 'https://graph-video.facebook.com';
 const RUPLOAD_BASE = 'https://rupload.facebook.com/video-upload';
-/** Uploading up to 100 MB from a shared host can take minutes */
-const VIDEO_TIMEOUT_MS = 15 * 60_000;
+/**
+ * Uploading up to 100 MB can take minutes, but a Reel (start + upload + finish)
+ * plus the permalink lookup must end before the job queue treats the job as
+ * stale (STALE_AFTER_MS), or the job would be retried while still uploading.
+ */
+export const VIDEO_TIMEOUT_MS = 6 * 60_000;
 
 export const REQUIRED_SCOPES = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'];
 

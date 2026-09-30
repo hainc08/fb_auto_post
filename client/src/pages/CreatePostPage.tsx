@@ -80,6 +80,7 @@ export default function CreatePostPage() {
   const [timings, setTimings] = useState<{ writing?: number; image?: number }>({});
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [video, setVideo] = useState<VideoState>(EMPTY_VIDEO);
+  const [videoBusy, setVideoBusy] = useState(false);
   const [domains, setDomains] = useState<ContentDomain[]>([]);
   const [domainId, setDomainId] = useState('');
   const [formatId, setFormatId] = useState('');
@@ -452,7 +453,7 @@ export default function CreatePostPage() {
                 onKeyDown={(e) => e.key === 'Enter' && !busy && write()}
                 placeholder="VD: Tóm tắt biên bản cuộc họp dài thành danh sách việc cần làm"
               />
-              <button type="button" className="btn btn-dark" onClick={write} disabled={!!busy || !idea.trim() || !selectedPages.length}>
+              <button type="button" className="btn btn-dark" onClick={write} disabled={!!busy || videoBusy || !idea.trim() || !selectedPages.length}>
                 {busy === 'writing' ? <div className="spinner" /> : hasContent ? <RefreshCw size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
                 {hasContent ? 'Viết lại' : 'Viết bài bằng AI'}
               </button>
@@ -492,7 +493,7 @@ export default function CreatePostPage() {
           <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
             <span className="muted" style={{ fontSize: 12.5 }}>Viết lại nhanh:</span>
             {QUICK_REWRITES.map((q) => (
-              <button key={q.label} type="button" className="chip-btn" disabled={!!busy || !hasContent} onClick={() => rewrite(q.instruction)}>
+              <button key={q.label} type="button" className="chip-btn" disabled={!!busy || videoBusy || !hasContent} onClick={() => rewrite(q.instruction)}>
                 {q.label}
               </button>
             ))}
@@ -545,11 +546,11 @@ export default function CreatePostPage() {
               />
             </div>
             <div className="stack" style={{ gap: 8, marginTop: 26 }}>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={makeImage} disabled={!!busy || !postId || !imagePrompt.trim() || !!video.videoUrl}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={makeImage} disabled={!!busy || videoBusy || !postId || !imagePrompt.trim() || !!video.videoUrl}>
                 {busy === 'image' ? <div className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />}
                 {previewImage ? 'Tạo lại bằng AI' : 'Tạo ảnh bằng AI'}
               </button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!busy || !selectedPages.length || !!video.videoUrl}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!busy || videoBusy || !selectedPages.length || !!video.videoUrl}>
                 {busy === 'upload' ? <div className="spinner" /> : <Upload size={14} aria-hidden="true" />}
                 Tải ảnh lên
               </button>
@@ -567,6 +568,7 @@ export default function CreatePostPage() {
               if (v.videoUrl) setPreviewImage(null); // the server removed the image
             }}
             disabled={!!busy || !selectedPages.length}
+            onBusyChange={setVideoBusy}
           />
         </section>
       </div>
@@ -624,7 +626,7 @@ export default function CreatePostPage() {
               </span>
             </div>
           )}
-          <button type="button" className="btn btn-primary btn-lg btn-block" onClick={publish} disabled={!!busy || !hasContent || !selectedPages.length}>
+          <button type="button" className="btn btn-primary btn-lg btn-block" onClick={publish} disabled={!!busy || videoBusy || !hasContent || !selectedPages.length}>
             {busy === 'publishing' ? <div className="spinner" /> : <Send size={16} aria-hidden="true" />}
             {confirmPublish
               ? 'Bấm lần nữa để đăng công khai'
@@ -634,7 +636,7 @@ export default function CreatePostPage() {
                   ? 'Duyệt & đăng Reels'
                   : 'Duyệt & đăng ngay'}
           </button>
-          <button type="button" className="btn btn-secondary btn-block" onClick={handleSave} disabled={!!busy || !postId}>
+          <button type="button" className="btn btn-secondary btn-block" onClick={handleSave} disabled={!!busy || videoBusy || !postId}>
             {busy === 'saving' ? <div className="spinner" /> : null}
             Lưu, duyệt sau
           </button>

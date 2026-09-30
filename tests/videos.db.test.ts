@@ -85,6 +85,17 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('post videos', { timeout: 60_000 }, (
     expect(res.json.error).toMatch(/Video không hợp lệ/);
     expect(await tmpLeftovers()).toBe(before);
     expect((await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).videoPath).toBeNull();
+
+    // A wrong form field is a client error, not a 500
+    const form = new FormData();
+    form.append('file', new Blob([tinyMp4({ durationSec: 5, width: 640, height: 360 })]), 'v.mp4');
+    const wrong = await fetch(`${server.baseUrl}/api/posts/${post.id}/video/upload`, {
+      method: 'POST',
+      headers: { Cookie: cookie, 'X-Requested-With': 'autopost' },
+      body: form,
+    });
+    expect(wrong.status).toBe(400);
+    expect(await tmpLeftovers()).toBe(before);
   });
 
   it('an image upload replaces the video; removing and deleting clean up the file', async () => {

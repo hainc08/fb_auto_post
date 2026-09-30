@@ -28,6 +28,21 @@ describe('inspectMp4', () => {
     expect(await inspectMp4(bufferSource(full.subarray(0, full.length - 40)))).toBeNull();
     expect(await inspectMp4(bufferSource(Buffer.alloc(0)))).toBeNull();
   });
+
+  it('gives up on a file made of millions of tiny boxes instead of reading them all', async () => {
+    const mp4 = tinyMp4({ durationSec: 5, width: 640, height: 360 });
+    const ftyp = mp4.subarray(0, mp4.readUInt32BE(0)); // the real ftyp box
+    const free = Buffer.alloc(8 * 50_000);
+    for (let i = 0; i < 50_000; i++) {
+      free.writeUInt32BE(8, i * 8);
+      free.write('free', i * 8 + 4, 'latin1');
+    }
+    let reads = 0;
+    const src = bufferSource(Buffer.concat([ftyp, free]));
+    const counting = { size: src.size, read: (o: number, l: number) => (reads++, src.read(o, l)) };
+    expect(await inspectMp4(counting)).toBeNull();
+    expect(reads).toBeLessThanOrEqual(10_001);
+  });
 });
 
 describe('reelsProblem', () => {
