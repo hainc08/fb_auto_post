@@ -24,7 +24,7 @@
    - `GET /api/posts` returns `targets: [{ status, errorMessage, page: { id, pageName } }]` instead of `targets: [{ status }]`.
    - It is the same endpoint with no schema change or migration, and existing fields are unchanged.
    - Without it, the per-Page popover and the Page filter would need one extra request per post.
-3. **Not built, because the backend has no data (reported to the user, no fake UI):**
+3. **Not built in this plan (user decision 2026-09-30: redesign first):** engagement and comments are available from the Graph API with the current `pages_read_engagement` permission (verified with a read-only call), but showing them needs a sync job and new columns, and this CR forbids migrations. They get their own plan, "Tương tác & bình luận". Until then:
    - engagement (👍 💬 ↗);
    - comment counts / "cần trả lời" / the comment drawer;
    - "Xem bình luận" and "Nhân bản bài" (no API).
