@@ -1155,3 +1155,26 @@ tbody tr:hover { background: var(--bg-secondary); }
   .post-item-side { padding-left: 70px; }
   .post-item-tags { display: none; }
 }
+
+/* ─── Engagement + comments ─── */
+.post-item-stats { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.unanswered-badge { border: 0; cursor: pointer; font: inherit; font-size: 12px; }
+.unanswered-badge:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.comments-panel { max-width: 720px; width: 100%; }
+.comments-body { padding: 16px 24px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+/* The body scrolls; its children keep their height (else the filter switch is squashed) */
+.comments-body > * { flex-shrink: 0; }
+.comments-body > .segmented { align-self: flex-start; }
+.comments-page h3 { font-size: 14px; margin: 0 0 8px; }
+.comments-note svg { vertical-align: -2px; margin-right: 4px; }
+/* Normal text flow: the link stays inside the sentence */
+.comments-note { display: block; font-size: 13px; color: var(--warning-400); background: var(--warning-bg); border-radius: var(--radius-md); padding: 8px 10px; margin: 0 0 8px; }
+.comment-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.comment-thread { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 10px 12px; }
+.comment-thread.pending { border-color: color-mix(in srgb, var(--warning-500) 35%, transparent); }
+.comment-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.comment-body { margin: 4px 0 0; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-reply { margin: 8px 0 0 16px; padding-left: 10px; border-left: 2px solid var(--border-subtle); font-size: 13px; }
+.comment-reply.from-page { border-left-color: var(--primary-500); }
+.comment-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 8px; }
+.comment-actions .form-textarea { flex: 1 1 260px; min-height: 56px; }

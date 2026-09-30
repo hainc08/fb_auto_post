@@ -8,6 +8,7 @@ import {
   matchesFilters,
   statusCounts,
   pageFilterOptions,
+  engagementTotals,
   type ListPost,
 } from '../client/src/lib/post-display';
 import { statusMeta } from '../client/src/lib/post-status';
@@ -133,5 +134,18 @@ describe('pageFilterOptions', () => {
     expect(pageFilterOptions([pages[0]], '')).toEqual({ show: false, options: [pages[0]] });
     // Chosen Page no longer among the loaded posts (e.g. after a domain filter or a stale URL)
     expect(pageFilterOptions([pages[1]], 'p1')).toEqual({ show: true, options: [pages[1], { id: 'p1', pageName: 'Page đã chọn' }] });
+  });
+});
+
+describe('engagementTotals', () => {
+  it('sums every Page, and says whether anything was synced yet', () => {
+    expect(
+      engagementTotals([
+        { status: 'PUBLISHED', reactionCount: 30, commentCount: 10, shareCount: 4, unansweredCount: 2 },
+        { status: 'PUBLISHED', reactionCount: 8, commentCount: 2, shareCount: null, unansweredCount: 1 },
+      ])
+    ).toEqual({ reactions: 38, comments: 12, shares: 4, unanswered: 3, synced: true });
+    expect(engagementTotals([{ status: 'PUBLISHED' }])).toEqual({ reactions: 0, comments: 0, shares: 0, unanswered: 0, synced: false });
+    expect(engagementTotals(undefined).synced).toBe(false);
   });
 });
