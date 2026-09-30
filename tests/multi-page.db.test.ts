@@ -4,6 +4,10 @@ import prisma from '../src/utils/prisma';
 import { enqueuePost, startWorkers } from '../src/services/scheduler.service';
 import { upsertKeyedJob } from '../src/lib/job-queue';
 import { saveSettings } from '../src/lib/settings';
+import { saveUploadedVideo, removeVideo, VIDEO_TMP_DIR } from '../src/lib/video-store';
+import { tinyMp4 } from './helpers/mp4';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { GeminiClient } from '../src/lib/clients/gemini';
 import { CloudflareClient } from '../src/lib/clients/cloudflare';
 
@@ -66,6 +70,40 @@ const waitForStatus = async (postId: string, done: string[], ms = 15_000) => {
   }
   throw new Error('timed out');
 };
+
+async function attachVideo(postId: string, opts: { durationSec: number; width: number; height: number }, kind: 'FEED' | 'REEL') {
+  await mkdir(VIDEO_TMP_DIR, { recursive: true });
+  const tmp = path.join(VIDEO_TMP_DIR, `mp-${postId}.upload`);
+  await writeFile(tmp, tinyMp4(opts));
+  const stored = await saveUploadedVideo(postId, tmp);
+  await prisma.post.update({
+    where: { id: postId },
+    data: {
+      videoPath: stored.videoPath,
+      videoUrl: stored.videoUrl,
+      videoMime: stored.mime,
+      videoMeta: { ...stored.meta },
+      videoKind: kind,
+      imagePrompt: 'never used',
+    },
+  });
+  return stored.videoPath;
+}
+
+/** Graph stub for video publishing: records which endpoint each call hit */
+function videoFetch(calls: string[]) {
+  return vi.fn(async (input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    calls.push(`${url.host}${url.pathname}`);
+    if (url.pathname.endsWith('/video_reels')) {
+      const phase = new URLSearchParams(String(init?.body)).get('upload_phase');
+      return new Response(JSON.stringify(phase === 'start' ? { video_id: 'REEL_X' } : { success: true }), { status: 200 });
+    }
+    if (url.host === 'rupload.facebook.com') return new Response(JSON.stringify({ success: true }), { status: 200 });
+    if (url.pathname.endsWith('/videos')) return new Response(JSON.stringify({ id: 'VID_X' }), { status: 200 });
+    return new Response(JSON.stringify({ permalink_url: '/page/videos/VID_X/' }), { status: 200 });
+  });
+}
 
 describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', { timeout: 40_000 }, () => {
   beforeAll(async () => {
@@ -321,6 +359,59 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
       await prisma.post.deleteMany({ where: { domainId: domain.id } });
       await prisma.postSchedule.delete({ where: { id: schedule.id } });
       await prisma.contentDomain.delete({ where: { id: domain.id } });
+    }
+  });
+
+  it('publishes an uploaded video as a normal Page video, without generating an image', async () => {
+    const post = await createPost(1);
+    const videoPath = await attachVideo(post.id, { durationSec: 12, width: 1280, height: 720 }, 'FEED');
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', videoFetch(calls));
+    try {
+      await enqueuePost(post.id, userId, { skipAi: true, targetIds: post.targets.map((t) => t.id), intervalMs: 0 });
+      const done = await waitForStatus(post.id, ['PUBLISHED', 'FAILED']);
+      expect(done.status).toBe('PUBLISHED');
+      expect(done.imagePath).toBeNull();
+      // The Graph version comes from the account's Settings
+      expect(calls.some((c) => /^graph-video\.facebook\.com\/v[\d.]+\/TEST_MP_1\/videos$/.test(c))).toBe(true);
+      const target = await prisma.postTarget.findFirstOrThrow({ where: { postId: post.id } });
+      expect(target).toMatchObject({ fbPostId: 'VID_X', fbPermalink: 'https://www.facebook.com/page/videos/VID_X/' });
+    } finally {
+      await removeVideo(videoPath);
+    }
+  });
+
+  it('publishes a vertical video as a Reel (start → upload → finish)', async () => {
+    const post = await createPost(1);
+    const videoPath = await attachVideo(post.id, { durationSec: 20, width: 1080, height: 1920 }, 'REEL');
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', videoFetch(calls));
+    try {
+      await enqueuePost(post.id, userId, { skipAi: true, targetIds: post.targets.map((t) => t.id), intervalMs: 0 });
+      expect((await waitForStatus(post.id, ['PUBLISHED', 'FAILED'])).status).toBe('PUBLISHED');
+      expect(calls.filter((c) => c.endsWith('/video_reels'))).toHaveLength(2);
+      expect(calls.some((c) => /^rupload\.facebook\.com\/video-upload\/v[\d.]+\/REEL_X$/.test(c))).toBe(true);
+      const target = await prisma.postTarget.findFirstOrThrow({ where: { postId: post.id } });
+      expect(target.fbPostId).toBe('REEL_X');
+      expect(target.fbPermalink).toMatch(/facebook\.com/);
+    } finally {
+      await removeVideo(videoPath);
+    }
+  });
+
+  it('refuses to publish a Reel that does not meet the Reels requirements', async () => {
+    const post = await createPost(1);
+    const videoPath = await attachVideo(post.id, { durationSec: 20, width: 1920, height: 1080 }, 'REEL');
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', videoFetch(calls));
+    try {
+      await enqueuePost(post.id, userId, { skipAi: true, targetIds: post.targets.map((t) => t.id), intervalMs: 0 });
+      const done = await waitForStatus(post.id, ['PUBLISHED', 'FAILED']);
+      expect(done.status).toBe('FAILED');
+      expect(done.errorMessage).toMatch(/video dọc/);
+      expect(calls.filter((c) => c.includes('video'))).toEqual([]);
+    } finally {
+      await removeVideo(videoPath);
     }
   });
 

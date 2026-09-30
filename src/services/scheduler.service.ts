@@ -13,6 +13,8 @@ import { Frequency, nextRunAt } from '../lib/schedule-time';
 import { backfillTargets, refreshPostStatus } from '../lib/post-targets';
 import { imageStyleOf, writePost } from './post-writer';
 import { styledImagePrompt } from '../lib/compose-prompt';
+import { openVideo } from '../lib/video-store';
+import { reelsProblem, type VideoInfo } from '../lib/mp4-info';
 import { cloudflareConfigFrom, generateImage } from './image.service';
 import { sendPostNotification } from './email.service';
 
@@ -156,7 +158,7 @@ async function runPublishJob(job: Job): Promise<void> {
     let hasImage = !!(post.imagePath && (await readImage(post.imagePath)));
     if (hasImage) {
       await logStep(postId, 'image_reused');
-    } else if (!skipImageGeneration && post.imagePrompt) {
+    } else if (!skipImageGeneration && post.imagePrompt && !post.videoPath) {
       step = 'generate_image';
       logger.info('[Pipeline] Generating image...', { postId });
       await logStep(postId, 'image_generation_started');
@@ -178,7 +180,7 @@ async function runPublishJob(job: Job): Promise<void> {
       });
     }
 
-    if (!finalMessage && !hasImage) {
+    if (!finalMessage && !hasImage && !post.videoPath) {
       throw new UnrecoverableJobError('Bài chưa có nội dung hoặc ảnh để đăng.');
     }
 
@@ -265,6 +267,10 @@ async function runTargetJob(job: Job): Promise<void> {
     const finalMessage = post.message ?? composeMessage(post.caption, toStringArray(post.hashtags), post.callToAction);
     const image = post.imagePath ? await readImage(post.imagePath) : null;
     if (post.imagePath && !image) throw new UnrecoverableJobError('Không đọc được ảnh của bài trên máy chủ. Hãy tạo lại hoặc tải lại ảnh.');
+    const video = post.videoPath ? await openVideo(post.videoPath) : null;
+    if (post.videoPath && !video) throw new UnrecoverableJobError('Không đọc được video của bài trên máy chủ. Hãy tải lại video.');
+    const reelIssue = post.videoKind === 'REEL' && post.videoMeta ? reelsProblem(post.videoMeta as unknown as VideoInfo) : null;
+    if (reelIssue) throw new UnrecoverableJobError(reelIssue);
 
     // Take the Page atomically: a duplicate job for it (double click, retry race) stops here
     const { count } = await prisma.postTarget.updateMany({
@@ -284,9 +290,13 @@ async function runTargetJob(job: Job): Promise<void> {
       [pageToken]
     );
 
-    const published = image
-      ? await facebook.publishPhoto(page.pageId, pageToken, image, finalMessage)
-      : await facebook.publishText(page.pageId, pageToken, finalMessage);
+    const published = video
+      ? post.videoKind === 'REEL'
+        ? await facebook.publishReel(page.pageId, pageToken, video, finalMessage)
+        : await facebook.publishVideo(page.pageId, pageToken, video, finalMessage)
+      : image
+        ? await facebook.publishPhoto(page.pageId, pageToken, image, finalMessage)
+        : await facebook.publishText(page.pageId, pageToken, finalMessage);
 
     // Record the Facebook id right away: from here on, a retry must never publish again
     await prisma.postTarget.update({
@@ -301,7 +311,10 @@ async function runTargetJob(job: Job): Promise<void> {
       },
     });
 
-    const permalink = await facebook.getPermalink(published.postId, pageToken);
+    // A Reel may still be processing: fall back to its public URL
+    const permalink =
+      (await facebook.getPermalink(published.postId, pageToken)) ??
+      (post.videoKind === 'REEL' && video ? `https://www.facebook.com/reel/${published.postId}` : undefined);
     if (permalink) {
       await prisma.postTarget.update({ where: { id: targetId }, data: { fbPermalink: permalink } });
     }
