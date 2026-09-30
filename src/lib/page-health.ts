@@ -18,6 +18,8 @@ export interface TokenCheck {
   tokenAppId: string | null;
   tokenExpiresAt: Date | null;
   missingScopes: string[];
+  /** Every scope of the token (optional comment scopes are read from here) */
+  grantedScopes: string[];
   tokenError: string | null;
 }
 
@@ -27,6 +29,7 @@ export function classifyToken(info: TokenDebugInfo, currentAppId: string): Token
     tokenAppId: info.appId ?? null,
     tokenExpiresAt: info.expiresAt ? new Date(info.expiresAt) : null,
     missingScopes: info.missingScopes,
+    grantedScopes: info.scopes,
     tokenError: null,
   };
   if (!info.isValid) return { ...base, tokenStatus: 'REVOKED', tokenError: info.error ?? 'Token không hợp lệ.' };
@@ -40,7 +43,7 @@ export function classifyToken(info: TokenDebugInfo, currentAppId: string): Token
 
 /** Graph refused to inspect the token at all (expired, revoked, network…). */
 export function classifyInspectError(error: unknown): TokenCheck {
-  const empty = { tokenAppId: null, tokenExpiresAt: null, missingScopes: [] };
+  const empty = { tokenAppId: null, tokenExpiresAt: null, missingScopes: [], grantedScopes: [] };
   if (error instanceof FacebookApiError && error.code === 190) {
     // 463 = expired; 460 = password changed; others = revoked / invalid
     return { ...empty, tokenStatus: error.subcode === 463 ? 'EXPIRED' : 'REVOKED', tokenError: error.message };
@@ -63,6 +66,8 @@ function toData(check: TokenCheck): Prisma.FacebookPageUpdateInput {
     ...(check.tokenAppId || check.tokenStatus !== 'ERROR' ? { tokenAppId: check.tokenAppId } : {}),
     tokenExpiresAt: check.tokenExpiresAt,
     missingScopes: check.missingScopes,
+    // Keep the last known scopes when Graph could not answer this time
+    ...(check.tokenStatus !== 'ERROR' && { grantedScopes: check.grantedScopes }),
     tokenError: check.tokenError,
     tokenCheckedAt: new Date(),
   };

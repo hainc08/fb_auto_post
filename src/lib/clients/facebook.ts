@@ -17,6 +17,9 @@ const RUPLOAD_BASE = 'https://rupload.facebook.com/video-upload';
 export const VIDEO_TIMEOUT_MS = 6 * 60_000;
 
 export const REQUIRED_SCOPES = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'];
+/** Optional: without them the Page still posts; the comments panel asks for a re-sync */
+export const COMMENT_READ_SCOPE = 'pages_read_user_content';
+export const COMMENT_REPLY_SCOPE = 'pages_manage_engagement';
 
 /** A Page token belongs to the app that issued it; after switching App ID it must be re-issued. */
 export const OTHER_APP_TOKEN_MESSAGE =

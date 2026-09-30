@@ -106,3 +106,24 @@ describe('FacebookClient.inspectOwnToken', () => {
     expect(url.searchParams.get('input_token')).toBe('EAApagetoken1234567890abcdef');
   });
 });
+
+describe('optional comment scopes', () => {
+  const info = (scopes: string[]) => ({
+    isValid: true,
+    type: 'PAGE',
+    appId: '111',
+    expiresAt: null,
+    dataAccessExpiresAt: null,
+    scopes,
+    missingScopes: ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'].filter((s) => !scopes.includes(s)),
+  });
+
+  it('records the granted scopes, and missing comment scopes never block posting', () => {
+    const basic = classifyToken(info(['pages_manage_posts', 'pages_read_engagement', 'pages_show_list']), '111');
+    expect(basic).toMatchObject({ tokenStatus: 'VALID', grantedScopes: ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'] });
+
+    const full = classifyToken(info(['pages_manage_posts', 'pages_read_engagement', 'pages_show_list', 'pages_read_user_content', 'pages_manage_engagement']), '111');
+    expect(full.tokenStatus).toBe('VALID');
+    expect(full.grantedScopes).toContain('pages_manage_engagement');
+  });
+});

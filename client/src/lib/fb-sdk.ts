@@ -3,7 +3,8 @@
  * app needs no rebuild). The SDK script is loaded by index.html.
  */
 
-const SCOPES = 'pages_show_list,pages_manage_posts,pages_read_engagement';
+/** Posting needs the first three; comments (read + reply) use the last two and are optional */
+const SCOPES = 'pages_show_list,pages_manage_posts,pages_read_engagement,pages_read_user_content,pages_manage_engagement';
 
 type FBLoginResponse = { authResponse?: { accessToken: string } | null };
 type FBGlobal = {
