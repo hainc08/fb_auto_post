@@ -31,7 +31,7 @@ function listApiRoutes(): string[] {
   return out.sort();
 }
 
-type Ids = { postId: string; pageId: string; targetId: string; scheduleId: string; templateId: string; domainId: string; formatId: string };
+type Ids = { postId: string; pageId: string; targetId: string; scheduleId: string; ideaId: string; templateId: string; domainId: string; formatId: string };
 type Case =
   | { kind: 'foreign-id'; path: (b: Ids) => string; body?: unknown } // must 404
   | { kind: 'list'; path: string } // must not contain B's markers
@@ -98,10 +98,14 @@ const ROUTE_CASES: Record<string, Case> = {
   },
   'DELETE /api/posts/:id': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}` },
   'GET /api/schedules': { kind: 'list', path: '/api/schedules' },
-  'POST /api/schedules': { kind: 'foreign-id', path: () => '/api/schedules' }, // body = B's pageId (below)
-  'PUT /api/schedules/:id': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}`, body: {} },
+  'GET /api/schedules/:id': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}` },
+  'POST /api/schedules': { kind: 'foreign-id', path: () => '/api/schedules' }, // body = B's pageIds (below)
+  'PUT /api/schedules/:id': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}`, body: { name: 'hack' } },
   'PATCH /api/schedules/:id/toggle': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/toggle` },
   'DELETE /api/schedules/:id': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}` },
+  'POST /api/schedules/:id/ideas': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/ideas`, body: { texts: ['hack idea'] } },
+  'DELETE /api/schedules/:id/ideas/:ideaId': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/ideas/${b.ideaId}` },
+  'PUT /api/schedules/:id/ideas/order': { kind: 'foreign-id', path: (b) => `/api/schedules/${b.scheduleId}/ideas/order`, body: { ids: [] } },
   'GET /api/analytics/overview': { kind: 'list', path: '/api/analytics/overview' },
   'GET /api/analytics/posts-timeline': { kind: 'list', path: '/api/analytics/posts-timeline' },
   'GET /api/analytics/pages-performance': { kind: 'list', path: '/api/analytics/pages-performance' },
@@ -172,7 +176,16 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       data: { userId: a.user.id, pageId: 'ISO_A_PAGE', pageName: 'A Page', pageAccessToken: 'EAAisolationfaketokenaaaaaaaaaaaa' },
     });
     const aSchedule = await prisma.postSchedule.create({
-      data: { userId: a.user.id, pageId: aPage.id, name: 'A lịch', frequency: 'DAILY', startDate: new Date(Date.now() + 86_400_000) },
+      data: {
+        userId: a.user.id,
+        pageId: aPage.id,
+        name: 'A lịch',
+        frequency: 'SLOTS',
+        weekdays: [1],
+        slots: ['08:00'],
+        startDate: new Date(Date.now() + 86_400_000),
+        pages: { create: { pageId: aPage.id } },
+      },
     });
     aOwn = { pageId: aPage.id, scheduleId: aSchedule.id };
     const { user: userB } = await createTestUser({ name: 'User B' });
@@ -200,7 +213,18 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
     bVideoPath = storedVideo.videoPath;
     await prisma.post.update({ where: { id: post.id }, data: { videoPath: storedVideo.videoPath, videoUrl: storedVideo.videoUrl, videoMime: storedVideo.mime } });
     const schedule = await prisma.postSchedule.create({
-      data: { userId: userB.id, pageId: page.id, name: `${B_MARK} lịch`, frequency: 'DAILY', startDate: new Date(Date.now() + 86_400_000) },
+      data: {
+        userId: userB.id,
+        pageId: page.id,
+        name: `${B_MARK} lịch`,
+        frequency: 'SLOTS',
+        weekdays: [1],
+        slots: ['08:00'],
+        startDate: new Date(Date.now() + 86_400_000),
+        pages: { create: { pageId: page.id } },
+        ideas: { create: { text: `${B_MARK} ý tưởng`, position: 0 } },
+      },
+      include: { ideas: true },
     });
     const template = await prisma.contentTemplate.create({ data: { userId: userB.id, name: `${B_MARK} mẫu`, promptTemplate: 'mẫu của B' } });
     const domain = await prisma.contentDomain.create({
@@ -216,6 +240,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       pageId: page.id,
       targetId: post.targets[0].id,
       scheduleId: schedule.id,
+      ideaId: schedule.ideas[0].id,
       templateId: template.id,
       domainId: domain.id,
       formatId: domain.formats[0].id,
@@ -237,7 +262,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
   it("user A gets 404 on every route that takes user B's ids", async () => {
     const bodies: Record<string, unknown> = {
       'POST /api/posts': { pageIds: [b.pageId], inputData: { basicInfo: 'x' } },
-      'POST /api/schedules': { pageId: b.pageId, name: 'x', frequency: 'DAILY', startDate: new Date(Date.now() + 86_400_000).toISOString() },
+      'POST /api/schedules': { pageIds: [b.pageId], name: 'x', weekdays: [1], slots: ['08:00'] },
       'POST /api/settings/test/:group': { pageId: b.pageId },
     };
     const failures: string[] = [];
@@ -262,17 +287,14 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
   });
 
   it("user A cannot attach user B's Page or template to A's own posts and schedules (ids in the body)", async () => {
-    const future = new Date(Date.now() + 86_400_000).toISOString();
     const attempts: Array<[string, string, unknown]> = [
-      ['PUT', `/api/schedules/${aOwn.scheduleId}`, { pageId: b.pageId }],
-      ['PUT', `/api/schedules/${aOwn.scheduleId}`, { templateId: b.templateId }],
-      ['POST', '/api/schedules', { pageId: aOwn.pageId, templateId: b.templateId, name: 'x', frequency: 'DAILY', startDate: future }],
+      ['PUT', `/api/schedules/${aOwn.scheduleId}`, { pageIds: [b.pageId] }],
       ['POST', '/api/posts', { pageIds: [aOwn.pageId], templateId: b.templateId, inputData: { basicInfo: 'x' } }],
       ['POST', '/api/posts', { pageIds: [aOwn.pageId], domainId: b.domainId, inputData: { basicInfo: 'x' } }],
       ['POST', '/api/posts', { pageIds: [aOwn.pageId], formatId: b.formatId, inputData: { basicInfo: 'x' } }],
       ['PATCH', `/api/pages/${aOwn.pageId}`, { defaultDomainId: b.domainId }],
       ['PUT', `/api/schedules/${aOwn.scheduleId}`, { domainId: b.domainId }],
-      ['POST', '/api/schedules', { pageId: aOwn.pageId, formatId: b.formatId, name: 'x', frequency: 'DAILY', startDate: future }],
+      ['POST', '/api/schedules', { pageIds: [aOwn.pageId], formatId: b.formatId, name: 'x', weekdays: [1], slots: ['08:00'] }],
     ];
     const failures: string[] = [];
     for (const [method, path, body] of attempts) {
@@ -281,13 +303,15 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
     }
     expect(failures).toEqual([]);
     expect(await prisma.facebookPage.findUnique({ where: { id: aOwn.pageId } })).toMatchObject({ defaultDomainId: null });
-    expect(await prisma.postSchedule.findUnique({ where: { id: aOwn.scheduleId } })).toMatchObject({ pageId: aOwn.pageId, templateId: null });
+    expect(await prisma.postSchedule.findUnique({ where: { id: aOwn.scheduleId } })).toMatchObject({ pageId: aOwn.pageId, domainId: null });
+    expect(await prisma.schedulePage.count({ where: { scheduleId: aOwn.scheduleId, pageId: b.pageId } })).toBe(0);
   });
 
   it("user B's data is intact after all of A's attempts", async () => {
     expect(await prisma.post.findUnique({ where: { id: b.postId } })).toMatchObject({ caption: `${B_MARK} caption` });
     expect(await prisma.facebookPage.findUnique({ where: { id: b.pageId } })).toMatchObject({ isActive: true });
-    expect(await prisma.postSchedule.findUnique({ where: { id: b.scheduleId } })).not.toBeNull();
+    expect(await prisma.postSchedule.findUnique({ where: { id: b.scheduleId } })).toMatchObject({ name: `${B_MARK} lịch`, isActive: true });
+    expect(await prisma.scheduleIdea.findUnique({ where: { id: b.ideaId } })).toMatchObject({ status: 'QUEUED' });
     expect(await prisma.contentTemplate.findUnique({ where: { id: b.templateId } })).toMatchObject({ name: `${B_MARK} mẫu` });
     expect(await prisma.contentDomain.findUnique({ where: { id: b.domainId } })).toMatchObject({ name: `${B_MARK} lĩnh vực`, isArchived: false });
     expect(await prisma.contentFormat.findUnique({ where: { id: b.formatId } })).toMatchObject({ name: `${B_MARK} định dạng` });
