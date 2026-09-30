@@ -73,6 +73,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('post videos', { timeout: 60_000 }, (
     const reel = await api(server.baseUrl, 'PATCH', `/api/posts/${post.id}`, { cookie, body: { videoKind: 'REEL' } });
     expect(reel.json.data.videoKind).toBe('REEL');
     expect(existsSync(resolveVideo(saved.videoPath!)!)).toBe(false); // the first video file is gone
+    await api(server.baseUrl, 'DELETE', `/api/posts/${post.id}`, { cookie }); // test users are deleted without their files
   });
 
   it('rejects a file that is not a video and leaves no temp file', async () => {
