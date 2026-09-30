@@ -15,6 +15,8 @@ import { CloudflareClient } from '../src/lib/clients/cloudflare';
  */
 /** Poll fast: the production 3 s poll makes multi-step publishes brush against the 15 s waits under load */
 const TEST_WORKER = { pollMs: 500 };
+const TOKEN_CHECK_KEY = 'system:check_page_tokens';
+let tokenCheck: { runAt: Date; status: string } | null = null;
 const PAGE_IDS = ['TEST_MP_1', 'TEST_MP_2', 'TEST_MP_3'];
 let userId: string;
 let pages: { id: string; pageId: string }[] = [];
@@ -79,6 +81,12 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
         prisma.facebookPage.create({ data: { userId, pageId, pageName: `Trang thử ${i + 1}`, pageAccessToken: `EAAfaketoken${i}xxxxxxxxxxxxxxxxxxxx` } })
       )
     );
+    // The daily token check (03:00 VN) is often already due on the first run of the day: it would
+    // "check" these Pages against the mocked Graph API, mark them expired and break the publish tests
+    tokenCheck = await prisma.job.findUnique({ where: { key: TOKEN_CHECK_KEY }, select: { runAt: true, status: true } });
+    if (tokenCheck?.status === 'PENDING') {
+      await prisma.job.update({ where: { key: TOKEN_CHECK_KEY }, data: { runAt: new Date(Date.now() + 24 * 60 * 60_000) } });
+    }
     stop = startWorkers(TEST_WORKER);
   });
 
@@ -92,7 +100,10 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
 
   afterAll(async () => {
     stop?.();
-    const posts = await prisma.post.findMany({ where: { targets: { some: { pageId: { in: pages.map((p) => p.id) } } } }, select: { id: true } });
+    if (tokenCheck?.status === 'PENDING') {
+      await prisma.job.updateMany({ where: { key: TOKEN_CHECK_KEY, status: 'PENDING' }, data: { runAt: tokenCheck.runAt } });
+    }
+    const posts =await prisma.post.findMany({ where: { targets: { some: { pageId: { in: pages.map((p) => p.id) } } } }, select: { id: true } });
     await prisma.job.deleteMany({ where: { OR: posts.map((p) => ({ payload: { path: '$.postId', equals: p.id } })) } });
     await prisma.facebookPage.deleteMany({ where: { pageId: { in: PAGE_IDS } } }); // cascades posts' targets
     await prisma.post.deleteMany({ where: { id: { in: posts.map((p) => p.id) } } });
