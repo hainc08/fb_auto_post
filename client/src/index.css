@@ -508,6 +508,15 @@ tbody tr:hover { background: var(--bg-secondary); }
 /* Children keep their natural height; the whole panel scrolls (else the preview card shrinks and crops its image) */
 .inspector > * { flex-shrink: 0; }
 .inspector-empty { margin: auto; text-align: center; color: var(--text-tertiary); font-size: 14px; max-width: 260px; }
+/* Posts page (flush) on wide screens: exactly one screen tall. A banner above (e.g. the Facebook App
+   warning) takes its own height; the list and the inspector scroll on their own, so the inspector's
+   buttons are never pushed below the fold. Below 900px the panes stack and the page scrolls. */
+@media (min-width: 901px) {
+  .main-content.flush { flex: none; display: flex; flex-direction: column; height: calc(100vh - var(--topbar-height)); overflow: hidden; }
+  .main-content.flush > .split-view { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .main-content.flush .split-main { overflow-y: auto; }
+  .main-content.flush .inspector { position: static; height: auto; min-height: 0; }
+}
 
 .timeline { list-style: none; display: flex; flex-direction: column; gap: 12px; }
 .timeline li { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; }
