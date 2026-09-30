@@ -155,7 +155,11 @@ router.get(
           page: { select: { id: true, pageName: true, pageAvatar: true } },
           template: { select: { id: true, name: true } },
           ...domainFormatSelect,
-          targets: { select: { status: true } },
+          // Per-Page progress in the list (name + short error in a popover)
+          targets: {
+            select: { status: true, errorMessage: true, page: { select: { id: true, pageName: true } } },
+            orderBy: { createdAt: 'asc' },
+          },
           scheduleQueued: true,
           approvedAt: true,
           schedule: { select: { id: true, name: true } },
