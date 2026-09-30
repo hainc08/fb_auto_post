@@ -3,8 +3,12 @@
  * app needs no rebuild). The SDK script is loaded by index.html.
  */
 
-/** Posting needs the first three; comments (read + reply) use the last two and are optional */
-const SCOPES = 'pages_show_list,pages_manage_posts,pages_read_engagement,pages_read_user_content,pages_manage_engagement';
+/** Posting needs these; nothing else may ever block connecting a Page */
+const POSTING_SCOPES = 'pages_show_list,pages_manage_posts,pages_read_engagement';
+/** Optional: read + reply to comments. An App without them may refuse the whole login */
+const COMMENT_SCOPES = 'pages_read_user_content,pages_manage_engagement';
+/** After a failed login with the comment scopes, the next click asks only for the posting scopes */
+let withoutCommentScopes = false;
 
 type FBLoginResponse = { authResponse?: { accessToken: string } | null };
 type FBGlobal = {
@@ -28,11 +32,15 @@ export function loginWithFacebook(appId: string): Promise<string> {
       const FB = window.FB!;
       FB.init({ appId, cookie: false, xfbml: false, version: 'v23.0' });
       FB.login(
-        (response) =>
-          response.authResponse?.accessToken
-            ? resolve(response.authResponse.accessToken)
-            : reject(new Error('Bạn đã huỷ đăng nhập hoặc chưa cấp quyền cho App.')),
-        { scope: SCOPES, return_scopes: true, auth_type: 'rerequest' }
+        (response) => {
+          if (response.authResponse?.accessToken) return resolve(response.authResponse.accessToken);
+          if (!withoutCommentScopes) {
+            withoutCommentScopes = true;
+            return reject(new Error('Chưa đăng nhập được với quyền bình luận (App có thể chưa thêm quyền này, hoặc bạn đã huỷ). Bấm lại để kết nối chỉ với quyền đăng bài.'));
+          }
+          reject(new Error('Bạn đã huỷ đăng nhập hoặc chưa cấp quyền cho App.'));
+        },
+        { scope: withoutCommentScopes ? POSTING_SCOPES : `${POSTING_SCOPES},${COMMENT_SCOPES}`, return_scopes: true, auth_type: 'rerequest' }
       );
     };
 

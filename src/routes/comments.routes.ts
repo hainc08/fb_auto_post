@@ -5,7 +5,7 @@ import { AuthRequest, authenticate } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
 import { getSettings, revealSecret } from '../lib/settings';
 import { toStringArray } from '../utils/json';
-import { COMMENT_READ_SCOPE, COMMENT_REPLY_SCOPE, FacebookClient } from '../lib/clients/facebook';
+import { COMMENT_READ_SCOPE, COMMENT_REPLY_SCOPE, FacebookApiError, FacebookClient } from '../lib/clients/facebook';
 import { recountUnanswered, syncTargets } from '../services/engagement-sync';
 
 /** Comments of a published post: read, reply as the Page, mark handled, refresh (mounted at /api/posts). */
@@ -117,21 +117,27 @@ router.post(
     try {
       reply = await fb.replyToComment(comment.fbCommentId, token, message);
     } catch (error) {
-      throw createError(502, `Facebook chưa nhận câu trả lời: ${(error as Error).message}`);
+      // No clear answer (network drop, timeout): the reply may be live already
+      if (!(error instanceof FacebookApiError)) {
+        throw createError(502, 'Không chắc Facebook đã nhận câu trả lời. Hãy kiểm tra trên Facebook trước khi gửi lại.');
+      }
+      throw createError(502, `Facebook chưa nhận câu trả lời: ${error.message}`);
     }
     // A reply always answers the top-level comment of its thread
     const topFbId = comment.parentFbId ?? comment.fbCommentId;
-    await prisma.postComment.create({
-      data: {
-        targetId: comment.targetId,
-        fbCommentId: reply.id,
-        parentFbId: topFbId,
-        authorId: page.pageId,
-        authorName: page.pageName.slice(0, 200),
-        message,
-        commentedAt: new Date(),
-        fromPage: true,
-      },
+    // upsert: the hourly sync may have stored this reply already (Facebook accepted it; never a 500 that invites a resend)
+    const replyRow = {
+      targetId: comment.targetId,
+      parentFbId: topFbId,
+      authorId: page.pageId,
+      authorName: page.pageName.slice(0, 200),
+      message,
+      fromPage: true,
+    };
+    await prisma.postComment.upsert({
+      where: { fbCommentId: reply.id },
+      create: { ...replyRow, fbCommentId: reply.id, commentedAt: new Date() },
+      update: replyRow,
     });
     await prisma.postComment.updateMany({ where: { fbCommentId: topFbId }, data: { pageReplied: true } });
     await recountUnanswered(comment.targetId);

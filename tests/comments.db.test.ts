@@ -88,6 +88,27 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     expect(res.json.data.pages[0].unansweredCount).toBe(0);
   });
 
+  it('a reply the hourly sync already stored is not an error (no resend of a public reply)', async () => {
+    const { cookie, post, comment, target } = await setup();
+    const replyId = `RACE_${comment.id}`;
+    // The sync fetched the new reply between Facebook accepting it and the app saving it
+    await prisma.postComment.create({ data: { targetId: target.id, fbCommentId: replyId, parentFbId: comment.fbCommentId, message: 'Có nhé', commentedAt: new Date(), fromPage: true } });
+    stubGraph(async () => new Response(JSON.stringify({ id: replyId }), { status: 200 }));
+    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/${comment.id}/reply`, { cookie, body: { message: 'Có nhé' } });
+    expect(res.status).toBe(200);
+    expect(res.json.data.pages[0].threads[0]).toMatchObject({ needsReply: false });
+  });
+
+  it('when the answer from Facebook is lost, the user is told to check before resending', async () => {
+    const { cookie, post, comment } = await setup();
+    stubGraph(async () => {
+      throw new TypeError('fetch failed');
+    });
+    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/${comment.id}/reply`, { cookie, body: { message: 'x' } });
+    expect(res.status).toBe(502);
+    expect(res.json.error).toMatch(/kiểm tra trên Facebook/);
+  });
+
   it('without the reply permission: 409 in Vietnamese, nothing sent', async () => {
     const { cookie, post, comment } = await setup(ALL.filter((s) => s !== 'pages_manage_engagement'));
     const fetch = stubGraph();

@@ -33,6 +33,27 @@ describe('FacebookClient engagement and comments', () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
+  it('one bad id (deleted post, or a video without "shares") never blanks the other posts', async () => {
+    const fetch = vi.fn(async (input: string) => {
+      const url = new URL(input);
+      const ids = url.searchParams.get('ids');
+      const fields = url.searchParams.get('fields')!;
+      if (ids) return json({ error: { message: 'Some of the aliases you requested do not exist: GONE', code: 100 } }, 400);
+      const id = url.pathname.split('/').pop()!;
+      if (id === 'GONE') return json({ error: { message: 'Unsupported get request', code: 100 } }, 400);
+      if (id === 'VID' && fields.includes('shares')) return json({ error: { message: '(#100) Tried accessing nonexisting field (shares)', code: 100 } }, 400);
+      return json({ id, reactions: { summary: { total_count: 2 } }, comments: { summary: { total_count: 1 } } });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const res = await client().getEngagement(['OK', 'VID', 'GONE'], TOKEN);
+    expect(res).toEqual({ OK: { reactions: 2, comments: 1, shares: 0 }, VID: { reactions: 2, comments: 1, shares: 0 } });
+  });
+
+  it('an invalid token still fails the whole call (the Page needs a re-sync)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ error: { message: 'Session has expired', code: 190, error_subcode: 463 } }, 400)));
+    await expect(client().getEngagement(['A', 'B'], TOKEN)).rejects.toThrow();
+  });
+
   it('getComments asks for top-level comments, newest first, with their replies', async () => {
     const fetch = vi.fn(async () => json({ data: [{ id: 'C1', message: 'Có workflow mẫu không?', created_time: '2026-09-30T01:00:00+0000', from: { id: 'U1', name: 'An' } }] }));
     vi.stubGlobal('fetch', fetch);
@@ -42,7 +63,7 @@ describe('FacebookClient engagement and comments', () => {
     expect(url.pathname).toMatch(/\/P_1\/comments$/);
     expect(url.searchParams.get('filter')).toBe('toplevel');
     expect(url.searchParams.get('order')).toBe('reverse_chronological');
-    expect(url.searchParams.get('fields')).toContain('comments.limit(25)');
+    expect(url.searchParams.get('fields')).toContain('comments.order(reverse_chronological).limit(25)');
   });
 
   it('replyToComment posts once and returns the new comment id', async () => {

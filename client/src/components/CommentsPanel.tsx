@@ -18,7 +18,9 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
   const [pages, setPages] = useState<CommentsPage[] | null>(null);
   const [onlyPending, setOnlyPending] = useState(true);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
+  /** Actions in flight (several can run at once; each key stays busy until its own request ends) */
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+  const replying = [...busy].some((k) => k.startsWith('r:'));
 
   useEffect(() => {
     postsApi
@@ -34,7 +36,7 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
 
   /** Run one action; true when it succeeded */
   async function run(key: string, action: () => Promise<{ data: { pages: CommentsPage[] } }>, done?: string): Promise<boolean> {
-    setBusy(key);
+    setBusy((b) => new Set(b).add(key));
     try {
       const res = await action();
       setPages(res.data.pages);
@@ -45,7 +47,11 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
       toast.error(e.message);
       return false;
     } finally {
-      setBusy(null);
+      setBusy((b) => {
+        const next = new Set(b);
+        next.delete(key);
+        return next;
+      });
     }
   }
 
@@ -84,18 +90,19 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                disabled={!draft.trim() || busy === t.id}
+                // One public reply at a time: no second send while any reply is in flight
+                disabled={!draft.trim() || replying}
                 onClick={async () => {
-                  const ok = await run(t.id, () => postsApi.replyComment(postId, t.id, draft.trim()), 'Đã trả lời trên Facebook.');
+                  const ok = await run(`r:${t.id}`, () => postsApi.replyComment(postId, t.id, draft.trim()), 'Đã trả lời trên Facebook.');
                   if (ok) setDrafts((d) => ({ ...d, [t.id]: '' }));
                 }}
               >
-                {busy === t.id ? <div className="spinner" /> : 'Trả lời'}
+                {busy.has(`r:${t.id}`) ? <div className="spinner" /> : 'Trả lời'}
               </button>
             </>
           )}
           {!t.fromPage && (
-            <button type="button" className="btn btn-ghost btn-sm" disabled={busy === `h${t.id}`} onClick={() => void run(`h${t.id}`, () => postsApi.markHandled(postId, t.id, !t.handledAt))}>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={busy.has(`h:${t.id}`)} onClick={() => void run(`h:${t.id}`, () => postsApi.markHandled(postId, t.id, !t.handledAt))}>
               {t.handledAt ? (
                 <>
                   <Undo2 size={14} aria-hidden="true" /> Bỏ đánh dấu
@@ -123,8 +130,8 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
             </p>
           </div>
           <div className="row" style={{ gap: 6 }}>
-            <button type="button" className="btn btn-secondary btn-sm" disabled={busy === 'refresh'} onClick={() => void run('refresh', () => postsApi.refreshComments(postId), 'Đã làm mới.')}>
-              {busy === 'refresh' ? <div className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />} Làm mới
+            <button type="button" className="btn btn-secondary btn-sm" disabled={busy.has('refresh')} onClick={() => void run('refresh', () => postsApi.refreshComments(postId), 'Đã làm mới.')}>
+              {busy.has('refresh') ? <div className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />} Làm mới
             </button>
             <button type="button" className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Đóng">
               <X size={20} />

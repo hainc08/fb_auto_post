@@ -27,11 +27,18 @@ export async function recountUnanswered(targetId: string): Promise<number> {
 }
 
 async function storeComments(targetId: string, pageFbId: string, comments: GraphComment[], now: Date): Promise<void> {
+  // Threads with more replies than Facebook returned: an answer from the Page may be among the older ones
+  const truncated = comments.filter((c) => c.comments?.paging?.next).map((c) => c.id);
+  const stillAnswered = new Set(
+    (await prisma.postComment.findMany({ where: { fbCommentId: { in: truncated.length ? truncated : ['-'] }, pageReplied: true }, select: { fbCommentId: true } })).map(
+      (c) => c.fbCommentId
+    )
+  );
   const seen: string[] = [];
   for (const c of comments) {
     const replies = c.comments?.data ?? [];
     const rows = [
-      { row: c, parent: null as string | null, pageReplied: replies.some((r) => r.from?.id === pageFbId) },
+      { row: c, parent: null as string | null, pageReplied: replies.some((r) => r.from?.id === pageFbId) || stillAnswered.has(c.id) },
       ...replies.map((r) => ({ row: r, parent: c.id, pageReplied: false })),
     ];
     for (const { row, parent, pageReplied } of rows) {
@@ -49,17 +56,26 @@ async function storeComments(targetId: string, pageFbId: string, comments: Graph
       await prisma.postComment.upsert({ where: { fbCommentId: row.id }, create: { targetId, fbCommentId: row.id, ...data }, update: data });
     }
   }
-  // Gone from Facebook (deleted/hidden) inside the fetched window → gone here too.
-  // With a full window, older top-level comments were simply not fetched: keep them.
+
+  // Gone from Facebook (deleted/hidden) → gone here too, but only where the fetch was complete:
+  // - top-level: every one when fewer than 50 came back, else only those newer than the oldest fetched;
+  // - replies: only under top-level comments whose replies all came back.
   const oldest = comments.length ? new Date(comments[comments.length - 1].created_time) : null;
   const fullWindow = comments.length >= COMMENT_WINDOW && oldest;
+  const complete = comments.filter((c) => !c.comments?.paging?.next).map((c) => c.id);
   await prisma.postComment.deleteMany({
     where: {
       targetId,
       fbCommentId: { notIn: seen.length ? seen : ['-'] },
-      ...(fullWindow ? { OR: [{ parentFbId: { not: null } }, { commentedAt: { gte: oldest } }] } : {}),
+      OR: [
+        { parentFbId: null, ...(fullWindow ? { commentedAt: { gt: oldest } } : {}) },
+        { parentFbId: { in: complete.length ? complete : ['-'] } },
+      ],
     },
   });
+  // Replies whose top-level comment is gone
+  const tops = (await prisma.postComment.findMany({ where: { targetId, parentFbId: null }, select: { fbCommentId: true } })).map((c) => c.fbCommentId);
+  await prisma.postComment.deleteMany({ where: { targetId, parentFbId: { not: null, notIn: tops.length ? tops : ['-'] } } });
 }
 
 /** Sync these targets: counts for all, comments for those that have any. Grouped by Page; one Page failing never stops the others. */

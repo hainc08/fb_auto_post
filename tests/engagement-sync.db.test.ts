@@ -120,6 +120,42 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('engagement sync', { timeout: 60_000 
     expect(saved.comments.map((c) => c.fbCommentId).sort()).toEqual([`${fb}_D1`, `${fb}_D1_R`]);
   });
 
+  it('a thread with more replies than fetched keeps the Page reply and stays answered', async () => {
+    const fb = `ES4_${uniq()}`;
+    const p = await page(fb);
+    const t = await published(p.id, `${fb}_POST`);
+    // The Page answered in the app earlier (stored), then many viewers replied after it
+    await prisma.postComment.create({ data: { targetId: t.id, fbCommentId: `${fb}_TOP`, message: 'Còn hàng không?', commentedAt: new Date('2026-09-29T08:00:00Z'), pageReplied: true } });
+    await prisma.postComment.create({ data: { targetId: t.id, fbCommentId: `${fb}_APP_REPLY`, parentFbId: `${fb}_TOP`, message: 'Còn nhé', commentedAt: new Date('2026-09-29T08:10:00Z'), fromPage: true } });
+    const viewerReplies = Array.from({ length: 25 }, (_, i) => ({ id: `${fb}_R${i}`, message: `+${i}`, created_time: '2026-09-30T08:00:00+0000', from: { id: `U${i}`, name: `U${i}` } }));
+    vi.stubGlobal(
+      'fetch',
+      graph({ [`${fb}_POST`]: [1, 27, 0] }, {
+        [`${fb}_POST`]: [{ id: `${fb}_TOP`, message: 'Còn hàng không?', created_time: '2026-09-29T08:00:00+0000', from: { id: 'U0', name: 'An' }, comments: { data: viewerReplies, paging: { next: 'https://graph.facebook.com/next' } } }],
+      })
+    );
+    await runEngagementSync(now, { id: t.id });
+    const saved = await prisma.postTarget.findUniqueOrThrow({ where: { id: t.id }, include: { comments: true } });
+    expect(saved.unansweredCount).toBe(0);
+    expect(saved.comments.find((c) => c.fbCommentId === `${fb}_TOP`)?.pageReplied).toBe(true);
+    expect(saved.comments.some((c) => c.fbCommentId === `${fb}_APP_REPLY`)).toBe(true);
+  });
+
+  it('with more than 50 comments, older comments outside the fetched window keep their replies', async () => {
+    const fb = `ES5_${uniq()}`;
+    const p = await page(fb);
+    const t = await published(p.id, `${fb}_POST`);
+    await prisma.postComment.create({ data: { targetId: t.id, fbCommentId: `${fb}_OLD`, message: 'Cũ', commentedAt: new Date('2026-09-01T08:00:00Z'), pageReplied: true } });
+    await prisma.postComment.create({ data: { targetId: t.id, fbCommentId: `${fb}_OLD_R`, parentFbId: `${fb}_OLD`, message: 'Trả lời cũ', commentedAt: new Date('2026-09-01T09:00:00Z'), fromPage: true } });
+    const newer = Array.from({ length: 50 }, (_, i) => ({ id: `${fb}_N${i}`, message: `n${i}`, created_time: `2026-09-30T0${Math.floor(i / 10)}:${String(i % 10).padStart(2, '0')}:00+0000`, from: { id: `U${i}` } }));
+    vi.stubGlobal('fetch', graph({ [`${fb}_POST`]: [0, 52, 0] }, { [`${fb}_POST`]: newer.reverse() }));
+    await runEngagementSync(now, { id: t.id });
+    const ids = (await prisma.postComment.findMany({ where: { targetId: t.id }, select: { fbCommentId: true } })).map((c) => c.fbCommentId);
+    expect(ids).toContain(`${fb}_OLD`);
+    expect(ids).toContain(`${fb}_OLD_R`);
+    expect(ids).toHaveLength(52);
+  });
+
   it('without the comment permission, counts still sync and the reason is kept', async () => {
     const fb = `ES3_${uniq()}`;
     const p = await page(fb, ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list']);
