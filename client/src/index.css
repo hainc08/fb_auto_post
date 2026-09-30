@@ -361,6 +361,12 @@ img.avatar { object-fit: cover; }
 .filter-tab:hover { border-color: var(--border-hover); color: var(--text-primary); }
 .filter-tab[aria-selected="true"] { background: var(--text-primary); border-color: var(--text-primary); color: #fff; font-weight: 600; }
 .filter-tab .count { opacity: 0.7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+/* Status tabs + domain filter: the select keeps its own width (form-select is 100% wide), tab labels never wrap */
+.filter-row { flex-wrap: wrap; align-items: flex-start; }
+/* Tabs take the room they need first; the domain select wraps to the next line when it does not fit */
+.filter-row .filter-tabs { flex: 1 1 auto; }
+.filter-tab { white-space: nowrap; }
+.domain-filter { width: auto; flex: 0 1 auto; min-width: 150px; max-width: 240px; }
 
 /* ─── Forms ──────────────────────────────────── */
 .form-group { margin-bottom: 18px; }

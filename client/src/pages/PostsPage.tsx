@@ -259,8 +259,8 @@ export default function PostsPage() {
           </label>
         </div>
 
-        <div className="row">
-          <div className="filter-tabs" role="tablist" aria-label="Lọc theo trạng thái" style={{ flex: 1 }}>
+        <div className="row filter-row">
+          <div className="filter-tabs" role="tablist" aria-label="Lọc theo trạng thái">
             {TABS.map((t) => (
               <button key={t.value} type="button" role="tab" className="filter-tab" aria-selected={status === t.value} onClick={() => setParam('status', t.value)}>
                 {t.label}<span className="count">· {counts[t.value] ?? 0}</span>
@@ -268,7 +268,7 @@ export default function PostsPage() {
             ))}
           </div>
           {domains.length > 1 && (
-            <select className="form-select select-sm" aria-label="Lọc theo lĩnh vực" value={domainFilter} onChange={(e) => setParam('domain', e.target.value)}>
+            <select className="form-select select-sm domain-filter" aria-label="Lọc theo lĩnh vực" value={domainFilter} onChange={(e) => setParam('domain', e.target.value)}>
               <option value="">Mọi lĩnh vực</option>
               {domains.map((d) => (
                 <option key={d.id} value={d.id}>{d.name}{d.isArchived ? ' (lưu trữ)' : ''}</option>
