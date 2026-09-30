@@ -206,8 +206,14 @@ router.put(
           ]
         : []),
     ]);
-    // New times: the posts already waiting move to the new slots
-    if (data.weekdays || data.slots || data.startDate || data.endDate !== undefined) await reslot(s.id);
+    // New times: the posts already waiting move to the new slots (an edit that keeps them moves nothing)
+    const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+    const timingChanged =
+      (data.weekdays && !same(data.weekdays, s.weekdays)) ||
+      (data.slots && !same(data.slots, s.slots)) ||
+      startDate.getTime() !== s.startDate.getTime() ||
+      (endDate?.getTime() ?? null) !== (s.endDate?.getTime() ?? null);
+    if (timingChanged) await reslot(s.id);
     const updated = await prisma.postSchedule.findUniqueOrThrow({ where: { id: s.id }, include: scheduleInclude });
     res.json({ success: true, data: await summary(updated) });
   })

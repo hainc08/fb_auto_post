@@ -11,7 +11,7 @@ import { reslot, runPrepareJob, runScheduleTick } from '../src/services/schedule
 import { cleanupTestUsers, createTestUser } from './helpers/users';
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('img')]);
-const fakeJob = (postId: string, attempts = 1): Job => ({ payload: { postId }, attempts, maxAttempts: 3 }) as unknown as Job;
+const fakeJob = (postId: string, attempts = 1, interrupted = false): Job => ({ payload: { postId }, attempts, maxAttempts: 3, interrupted }) as unknown as Job;
 
 let userId: string;
 let pageId: string;
@@ -132,6 +132,26 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('schedule runner', { timeout: 60_000 
       expect(saved.scheduleQueued).toBe(true);
     });
 
+    it('an interrupted job (process restarted mid-way) finishes the post instead of leaving it GENERATING', async () => {
+      // Text saved, then the process died before the image
+      const half = await draftPost();
+      await prisma.post.update({ where: { id: half.id }, data: { status: 'GENERATING', caption: 'Đã viết', imagePrompt: 'rice' } });
+      const gemini = vi.spyOn(GeminiClient.prototype, 'generateJson');
+      vi.spyOn(CloudflareClient.prototype, 'generateImage').mockResolvedValue({ buffer: PNG, mimeType: 'image/png' } as never);
+      await runPrepareJob(fakeJob(half.id, 2, true));
+      const saved = await prisma.post.findUniqueOrThrow({ where: { id: half.id } });
+      expect(saved).toMatchObject({ status: 'READY', caption: 'Đã viết' });
+      expect(saved.imagePath).not.toBeNull();
+      expect(gemini).not.toHaveBeenCalled();
+
+      // Died before the text: written now
+      const none = await draftPost();
+      await prisma.post.update({ where: { id: none.id }, data: { status: 'GENERATING' } });
+      gemini.mockResolvedValue({ post: 'Viết lại', image_prompt: '' } as never);
+      await runPrepareJob(fakeJob(none.id, 2, true));
+      expect(await prisma.post.findUniqueOrThrow({ where: { id: none.id } })).toMatchObject({ status: 'READY', caption: 'Viết lại' });
+    });
+
     it('before the last attempt a failure puts the post back to DRAFT for the retry', async () => {
       const post = await draftPost();
       vi.spyOn(GeminiClient.prototype, 'generateJson').mockRejectedValue(new Error('503 overloaded'));
@@ -166,6 +186,15 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('schedule runner', { timeout: 60_000 
       await runScheduleTick(NOW, { id: s.id });
       expect(await prisma.post.findUniqueOrThrow({ where: { id: due.id } })).toMatchObject({ status: 'GENERATING', scheduleQueued: false });
       expect(await jobsFor('publish_post', due.id)).toBe(1);
+    });
+
+    it('publishes exactly what was approved: no new image for a post approved without one', async () => {
+      const s = await makeSchedule({ ideas: 0 });
+      const due = await queuedPost(s.id, new Date(NOW.getTime() - 60_000), 'SCHEDULED');
+      await prisma.post.update({ where: { id: due.id }, data: { imagePrompt: 'the image failed earlier' } });
+      await runScheduleTick(NOW, { id: s.id });
+      const job = await prisma.job.findFirstOrThrow({ where: { type: 'publish_post', payload: { path: '$.postId', equals: due.id } } });
+      expect(job.payload).toMatchObject({ skipAiGeneration: true, skipImageGeneration: true });
     });
 
     it('moves an unapproved post to the next slot and pushes the later ones back', async () => {

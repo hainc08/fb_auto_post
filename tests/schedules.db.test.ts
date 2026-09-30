@@ -72,6 +72,21 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('schedules API', { timeout: 60_000 },
     expect(a.scheduledAt!.getTime()).toBeLessThan(b.scheduledAt!.getTime());
   });
 
+  it('an edit that keeps the same days and times never moves the waiting posts', async () => {
+    const created = (await api(server.baseUrl, 'POST', '/api/schedules', { cookie, body: body({ ideas: [] }) })).json.data;
+    // An approved post left a gap before it (the earlier one was published by hand)
+    const later = new Date(Date.now() + 5 * 24 * 3600_000);
+    const post = await prisma.post.create({
+      data: { userId, pageId: pageA, scheduleId: created.id, scheduleQueued: true, scheduledAt: later, status: 'SCHEDULED', approvedAt: new Date(), caption: 'x' },
+    });
+    const res = await api(server.baseUrl, 'PUT', `/api/schedules/${created.id}`, {
+      cookie,
+      body: { name: 'Đổi tên', weekdays: created.weekdays, slots: created.slots, startDate: created.startDate, endDate: null },
+    });
+    expect(res.status).toBe(200);
+    expect((await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).scheduledAt?.toISOString()).toBe(later.toISOString());
+  });
+
   it('manages the idea queue: add, reorder, delete (used ideas stay)', async () => {
     const created = (await api(server.baseUrl, 'POST', '/api/schedules', { cookie, body: body({ ideas: ['Aaa'] }) })).json.data;
     expect((await api(server.baseUrl, 'POST', `/api/schedules/${created.id}/ideas`, { cookie, body: { texts: ['Bbb', '  ', 'Ccc'] } })).json.data.added).toBe(2);

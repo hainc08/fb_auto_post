@@ -21,7 +21,8 @@ export default function ScheduleForm({ initial, onClose, onSaved }: Props) {
   const [pages, setPages] = useState<PageInfo[]>([]);
   const [domains, setDomains] = useState<ContentDomain[]>([]);
   const [name, setName] = useState(initial?.name ?? '');
-  const [pageIds, setPageIds] = useState<string[]>(initial?.pages.map((p) => p.id) ?? []);
+  // Disconnected Pages are not listed, so they cannot stay selected (the API refuses them)
+  const [pageIds, setPageIds] = useState<string[]>(initial?.pages.filter((p) => p.isActive).map((p) => p.id) ?? []);
   const [weekdays, setWeekdays] = useState<number[]>(initial?.weekdays ?? [1, 2, 3, 4, 5]);
   const [slots, setSlots] = useState<string[]>(initial?.slots ?? ['08:00']);
   const [bufferSize, setBufferSize] = useState(initial?.bufferSize ?? 3);

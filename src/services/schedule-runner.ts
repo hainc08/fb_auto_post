@@ -28,16 +28,20 @@ export async function runPrepareJob(job: Job): Promise<void> {
   const { postId } = job.payload as { postId: string };
   const isLastAttempt = job.attempts >= job.maxAttempts;
 
-  // Only a post nobody wrote yet (the user may have written or deleted it meanwhile)
+  // Only a post nobody wrote yet (the user may have written or deleted it meanwhile).
+  // A job cut off by a restart left its post GENERATING: finish that one too.
   const { count } = await prisma.post.updateMany({
-    where: { id: postId, caption: null, status: { in: ['DRAFT', 'FAILED'] } },
+    where: {
+      id: postId,
+      OR: [{ caption: null, status: { in: ['DRAFT', 'FAILED'] } }, ...(job.interrupted ? [{ status: 'GENERATING' as const }] : [])],
+    },
     data: { status: 'GENERATING', errorMessage: null },
   });
   if (count === 0) return;
   const post = await prisma.post.findUniqueOrThrow({ where: { id: postId }, include: { template: true } });
 
-  let imagePrompt: string;
-  try {
+  let imagePrompt = post.imagePrompt ?? '';
+  if (!post.caption) try {
     const settings = await getSettings(post.userId);
     const { generated, aiPrompt, domainId, formatId } = await writePost(post, settings);
     imagePrompt = generated.imagePrompt;
@@ -69,7 +73,7 @@ export async function runPrepareJob(job: Job): Promise<void> {
   }
 
   // The image never blocks the post: without it the user can still add one before approving
-  if (imagePrompt) {
+  if (imagePrompt && !post.imagePath && !post.videoPath) {
     try {
       const settings = await getSettings(post.userId);
       const buffer = await generateImage({
@@ -143,7 +147,8 @@ export async function tickSchedule(scheduleId: string, now = new Date()): Promis
     if (count) {
       await enqueuePost(first.id, first.userId, {
         skipAi: !!first.caption,
-        skipImage: !!first.imagePath,
+        // Exactly what was approved: never a new image the user has not seen
+        skipImage: true,
         intervalMs: DEFAULT_INTERVAL_MINUTES * 60_000,
       });
       await log(first.id, 'schedule_published', { slot: first.scheduledAt?.toISOString() ?? null });
