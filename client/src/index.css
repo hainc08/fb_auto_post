@@ -1117,7 +1117,8 @@ tbody tr:hover { background: var(--bg-secondary); }
 .posts-overview .danger strong { color: var(--error-500); }
 .filter-tab .count { margin-left: 6px; opacity: 0.65; }
 .post-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.post-search { flex: 1 1 220px; max-width: 360px; height: 34px; }
+/* Reuses the top bar's search look, but stays visible when the top bar's search is hidden on small screens */
+.post-filters .post-search { display: flex; flex: 1 1 220px; max-width: 360px; height: 34px; }
 .post-filter { width: auto; flex: 0 1 auto; min-width: 130px; max-width: 220px; }
 .post-list { container-type: inline-size; }
 .post-item { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); }

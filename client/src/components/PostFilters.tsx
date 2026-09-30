@@ -20,7 +20,7 @@ export default function PostFilters({ q, pageId, domainId, time, pages, domains,
     <div className="post-filters">
       <label className="topbar-search post-search">
         <Search size={15} aria-hidden="true" />
-        <input type="search" placeholder="Tìm bài đăng..." aria-label="Tìm bài đăng" value={q} onChange={(e) => onChange('q', e.target.value)} />
+        <input type="search" placeholder="Tìm bài đăng..." aria-label="Tìm trong danh sách bài đăng" value={q} onChange={(e) => onChange('q', e.target.value)} />
       </label>
       {pages.length > 1 && (
         <select className="form-select select-sm post-filter" aria-label="Lọc theo Page" value={pageId} onChange={(e) => onChange('page', e.target.value)}>
