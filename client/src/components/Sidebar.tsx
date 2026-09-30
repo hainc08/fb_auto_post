@@ -114,7 +114,6 @@ export default function Sidebar() {
           <NavLink to="/schedules" className={navClass}>
             <CalendarDays className="nav-icon" strokeWidth={1.8} />
             <span className="nav-label">Lịch đăng</span>
-            <span className="nav-tag">Beta</span>
           </NavLink>
           <NavLink to="/domains" className={navClass}>
             <Shapes className="nav-icon" strokeWidth={1.8} />

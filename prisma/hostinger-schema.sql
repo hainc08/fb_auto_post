@@ -138,12 +138,16 @@ CREATE TABLE `posts` (
     `errorCode` VARCHAR(191) NULL,
     `publishedAt` DATETIME(3) NULL,
     `scheduledAt` DATETIME(3) NULL,
+    `scheduleId` VARCHAR(191) NULL,
+    `scheduleQueued` BOOLEAN NOT NULL DEFAULT false,
+    `approvedAt` DATETIME(3) NULL,
     `inputData` JSON NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `posts_userId_status_idx`(`userId`, `status`),
     INDEX `posts_scheduledAt_idx`(`scheduledAt`),
+    INDEX `posts_scheduleId_scheduleQueued_idx`(`scheduleId`, `scheduleQueued`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -183,7 +187,7 @@ CREATE TABLE `post_schedules` (
     `pageId` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
-    `frequency` ENUM('ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'CUSTOM_CRON') NOT NULL,
+    `frequency` ENUM('ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'CUSTOM_CRON', 'SLOTS') NOT NULL,
     `cronExpr` VARCHAR(191) NULL,
     `timezone` VARCHAR(191) NOT NULL DEFAULT 'Asia/Ho_Chi_Minh',
     `startDate` DATETIME(3) NOT NULL,
@@ -193,12 +197,38 @@ CREATE TABLE `post_schedules` (
     `formatId` VARCHAR(191) NULL,
     `inputData` JSON NULL,
     `autoGenImage` BOOLEAN NOT NULL DEFAULT true,
+    `weekdays` JSON NULL,
+    `slots` JSON NULL,
+    `bufferSize` INTEGER NOT NULL DEFAULT 3,
     `lastRunAt` DATETIME(3) NULL,
     `nextRunAt` DATETIME(3) NULL,
     `totalRuns` INTEGER NOT NULL DEFAULT 0,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `schedule_pages` (
+    `scheduleId` VARCHAR(191) NOT NULL,
+    `pageId` VARCHAR(191) NOT NULL,
+
+    PRIMARY KEY (`scheduleId`, `pageId`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `schedule_ideas` (
+    `id` VARCHAR(191) NOT NULL,
+    `scheduleId` VARCHAR(191) NOT NULL,
+    `text` VARCHAR(500) NOT NULL,
+    `position` INTEGER NOT NULL,
+    `status` ENUM('QUEUED', 'USED') NOT NULL DEFAULT 'QUEUED',
+    `postId` VARCHAR(191) NULL,
+    `usedAt` DATETIME(3) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `schedule_ideas_scheduleId_status_position_idx`(`scheduleId`, `status`, `position`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -319,6 +349,9 @@ ALTER TABLE `posts` ADD CONSTRAINT `posts_domainId_fkey` FOREIGN KEY (`domainId`
 ALTER TABLE `posts` ADD CONSTRAINT `posts_formatId_fkey` FOREIGN KEY (`formatId`) REFERENCES `content_formats`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `posts` ADD CONSTRAINT `posts_scheduleId_fkey` FOREIGN KEY (`scheduleId`) REFERENCES `post_schedules`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `post_logs` ADD CONSTRAINT `post_logs_postId_fkey` FOREIGN KEY (`postId`) REFERENCES `posts`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -335,6 +368,15 @@ ALTER TABLE `post_schedules` ADD CONSTRAINT `post_schedules_domainId_fkey` FOREI
 
 -- AddForeignKey
 ALTER TABLE `post_schedules` ADD CONSTRAINT `post_schedules_formatId_fkey` FOREIGN KEY (`formatId`) REFERENCES `content_formats`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `schedule_pages` ADD CONSTRAINT `schedule_pages_scheduleId_fkey` FOREIGN KEY (`scheduleId`) REFERENCES `post_schedules`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `schedule_pages` ADD CONSTRAINT `schedule_pages_pageId_fkey` FOREIGN KEY (`pageId`) REFERENCES `facebook_pages`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `schedule_ideas` ADD CONSTRAINT `schedule_ideas_scheduleId_fkey` FOREIGN KEY (`scheduleId`) REFERENCES `post_schedules`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `post_targets` ADD CONSTRAINT `post_targets_postId_fkey` FOREIGN KEY (`postId`) REFERENCES `posts`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

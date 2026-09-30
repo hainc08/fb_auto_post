@@ -1,19 +1,12 @@
 import { Film, ImageIcon } from 'lucide-react';
 import { assetUrl } from '../api';
+import { STATUS_META, statusMeta } from '../lib/post-status';
+import { splitCaption } from '../lib/post-display';
 
-/** One place for status wording, so every screen says the same thing. */
-export const STATUS_META: Record<string, { label: string; cls: string }> = {
-  DRAFT: { label: 'Nháp', cls: 'badge-draft' },
-  GENERATING: { label: 'Đang tạo…', cls: 'badge-generating' },
-  READY: { label: 'Chờ duyệt', cls: 'badge-ready' },
-  SCHEDULED: { label: 'Đã lên lịch', cls: 'badge-scheduled' },
-  PUBLISHING: { label: 'Đang đăng…', cls: 'badge-publishing' },
-  PUBLISHED: { label: 'Đã đăng', cls: 'badge-published' },
-  FAILED: { label: 'Lỗi', cls: 'badge-failed' },
-};
+export { STATUS_META };
 
 export function StatusBadge({ status }: { status: string }) {
-  const meta = STATUS_META[status] ?? { label: status, cls: 'badge-draft' };
+  const meta = statusMeta(status);
   return <span className={`badge ${meta.cls}`}>{meta.label}</span>;
 }
 
@@ -49,9 +42,7 @@ const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDat
 
 /** The hook = first line/sentence of the caption, used as the row title. */
 export function postTitle(caption?: string | null): string {
-  const text = (caption ?? '').trim();
-  if (!text) return '';
-  return text.split('\n').find((l) => l.trim())!.trim();
+  return splitCaption(caption).title;
 }
 
 export const wordCount = (text?: string | null) => (text ?? '').trim().split(/\s+/).filter(Boolean).length;

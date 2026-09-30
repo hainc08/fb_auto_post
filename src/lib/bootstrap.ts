@@ -4,6 +4,7 @@ import { config, DEFAULT_JWT_SECRET } from '../config';
 import { logger } from '../utils/logger';
 import { hashPassword, normalizeEmail, passwordSchema } from './passwords';
 import { migrateDomains } from './domains';
+import { migrateLegacySchedules } from './schedule-migrate';
 
 /** Values published in this public repo (old .env.example): anyone could sign sessions with them. */
 const KNOWN_SECRETS = new Set([DEFAULT_JWT_SECRET, 'your-super-secret-jwt-key-change-in-production']);
@@ -75,4 +76,6 @@ export async function runBootstrap(): Promise<void> {
   await ensureAdmin();
   const migrated = await migrateDomains();
   if (migrated) logger.info('[Bootstrap] Content domains created from old system prompts', { users: migrated });
+  const schedules = await migrateLegacySchedules();
+  if (schedules) logger.info('[Bootstrap] Old schedules converted to slot schedules', { schedules });
 }

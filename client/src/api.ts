@@ -394,6 +394,9 @@ export const postsApi = {
     apiFetch(`/posts/${id}/improve`, { method: 'POST', body: JSON.stringify({ instruction, caption }) }),
 
   /** Publish to `pageIds` (default: the post's Pages), `intervalMinutes` apart. */
+  /** Approve a schedule post for its slot. */
+  approve: (id: string) => apiFetch<{ id: string; status: string; scheduledAt: string | null }>(`/posts/${id}/approve`, { method: 'POST' }),
+
   publish: (id: string, body?: { pageIds?: string[]; intervalMinutes?: number }) =>
     apiFetch<{ pages: number; intervalMinutes: number }>(`/posts/${id}/publish`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
 
@@ -407,20 +410,74 @@ export const postsApi = {
 
 // ─── Schedules API ──────────────────────────────
 
+export interface ScheduleIdea {
+  id: string;
+  text: string;
+  status: 'QUEUED' | 'USED';
+  position: number;
+  usedAt: string | null;
+  postId: string | null;
+}
+
+export interface QueuedPost {
+  id: string;
+  status: 'DRAFT' | 'GENERATING' | 'READY' | 'SCHEDULED' | 'FAILED';
+  scheduledAt: string | null;
+  caption: string | null;
+  imageUrl: string | null;
+  videoUrl: string | null;
+  errorMessage: string | null;
+  approvedAt: string | null;
+}
+
+export interface ScheduleSummary {
+  id: string;
+  name: string;
+  isActive: boolean;
+  frequency: string;
+  weekdays: number[] | null;
+  slots: string[] | null;
+  bufferSize: number;
+  startDate: string;
+  endDate: string | null;
+  domain: { id: string; name: string } | null;
+  format: { id: string; name: string } | null;
+  pages: { id: string; pageName: string; pageAvatar: string | null; isActive: boolean }[];
+  ideasLeft: number;
+  queuedCount: number;
+  awaitingApproval: number;
+  nextSlotAt: string | null;
+}
+
+export interface ScheduleDetail extends ScheduleSummary {
+  ideas: ScheduleIdea[];
+  queue: QueuedPost[];
+}
+
+export interface ScheduleInput {
+  name: string;
+  pageIds: string[];
+  weekdays: number[];
+  slots: string[];
+  bufferSize: number;
+  startDate?: string;
+  endDate?: string | null;
+  domainId?: string;
+  formatId?: string;
+  ideas?: string[];
+}
+
 export const schedulesApi = {
-  list: () => apiFetch('/schedules'),
-
-  create: (body: any) =>
-    apiFetch('/schedules', { method: 'POST', body: JSON.stringify(body) }),
-
-  update: (id: string, body: any) =>
-    apiFetch(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
-
-  toggle: (id: string) =>
-    apiFetch(`/schedules/${id}/toggle`, { method: 'PATCH' }),
-
-  delete: (id: string) =>
-    apiFetch(`/schedules/${id}`, { method: 'DELETE' }),
+  list: () => apiFetch<ScheduleSummary[]>('/schedules'),
+  get: (id: string) => apiFetch<ScheduleDetail>(`/schedules/${id}`),
+  create: (body: ScheduleInput) => apiFetch<ScheduleSummary>('/schedules', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: Partial<ScheduleInput>) => apiFetch<ScheduleSummary>(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  toggle: (id: string) => apiFetch<ScheduleSummary>(`/schedules/${id}/toggle`, { method: 'PATCH' }),
+  delete: (id: string) => apiFetch(`/schedules/${id}`, { method: 'DELETE' }),
+  addIdeas: (id: string, texts: string[]) => apiFetch<{ added: number }>(`/schedules/${id}/ideas`, { method: 'POST', body: JSON.stringify({ texts }) }),
+  removeIdea: (id: string, ideaId: string) => apiFetch(`/schedules/${id}/ideas/${ideaId}`, { method: 'DELETE' }),
+  orderIdeas: (id: string, ids: string[]) => apiFetch(`/schedules/${id}/ideas/order`, { method: 'PUT', body: JSON.stringify({ ids }) }),
+  suggestIdeas: (id: string) => apiFetch<{ ideas: string[] }>(`/schedules/${id}/ideas/suggest`, { method: 'POST' }),
 };
 
 // ─── Analytics API ──────────────────────────────

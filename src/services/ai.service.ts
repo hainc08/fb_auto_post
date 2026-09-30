@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import { buildIdeaPrompt, composePrompt, mergeHashtags, type PromptDomain, type PromptFormat } from '../lib/compose-prompt';
 
 export { buildIdeaPrompt };
+import { buildIdeaSuggestPrompt, cleanSuggestions } from '../lib/idea-suggest';
 
 /**
  * AI Service - Google Gemini Integration
@@ -204,4 +205,23 @@ Chỉ trả về caption mới, không giải thích.`;
     logger.error('Failed to improve caption:', error);
     throw new Error(`Caption improvement failed: ${(error as Error).message}`);
   }
+}
+
+const IDEAS_SCHEMA = {
+  type: Type.OBJECT,
+  properties: { ideas: { type: Type.ARRAY, items: { type: Type.STRING } } },
+  required: ['ideas'],
+};
+const ideasValidator = z.object({ ideas: z.array(z.string()).min(1) });
+
+/** "AI gợi ý ý tưởng" for a schedule: new ideas, none repeating `avoid`. */
+export async function suggestIdeas(
+  gemini: GeminiCredentials,
+  input: { domain: PromptDomain; format: PromptFormat; avoid: string[]; count?: number }
+): Promise<string[]> {
+  const count = input.count ?? 10;
+  const { systemInstruction, prompt } = buildIdeaSuggestPrompt({ ...input, count });
+  const client = new GeminiClient(gemini);
+  const result = await client.generateJson({ systemInstruction, prompt, responseSchema: IDEAS_SCHEMA, validator: ideasValidator, temperature: 0.9 });
+  return cleanSuggestions(result.ideas, input.avoid, count);
 }
