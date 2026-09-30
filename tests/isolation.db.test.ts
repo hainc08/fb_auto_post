@@ -3,6 +3,10 @@ import '../src/config';
 import prisma from '../src/utils/prisma';
 import { createApp, API_ROUTERS } from '../src/app';
 import { removeImage, saveImage } from '../src/lib/image-store';
+import { removeVideo, saveUploadedVideo, VIDEO_TMP_DIR } from '../src/lib/video-store';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { tinyMp4 } from './helpers/mp4';
 import { startTestServer, api } from './helpers/http';
 import { cleanupTestUsers, createTestUser } from './helpers/users';
 
@@ -134,6 +138,9 @@ const ROUTE_CASES: Record<string, Case> = {
   'PATCH /api/formats/:id': { kind: 'foreign-id', path: (b) => `/api/formats/${b.formatId}`, body: { name: 'hack' } },
   'DELETE /api/formats/:id': { kind: 'foreign-id', path: (b) => `/api/formats/${b.formatId}` },
   'POST /api/formats/:id/preview': { kind: 'foreign-id', path: (b) => `/api/formats/${b.formatId}/preview`, body: { idea: 'x' } },
+  'POST /api/posts/:id/video/upload': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/video/upload`, body: {} },
+  'DELETE /api/posts/:id/video': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/video` },
+  'GET /api/videos/:postId': { kind: 'foreign-id', path: (b) => `/api/videos/${b.postId}` },
   'GET /api/images/:postId': { kind: 'foreign-id', path: (b) => `/api/images/${b.postId}` },
 };
 
@@ -144,6 +151,7 @@ let aCookie: string;
 let aOwn: { pageId: string; scheduleId: string };
 let b: Ids;
 let bImagePath: string;
+let bVideoPath: string;
 
 describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { timeout: 120_000 }, () => {
   // The server runs in this process: never let a route reach the real Graph API with fake tokens
@@ -184,6 +192,13 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
     // A real image file, so the image route would serve it if ownership were not checked
     bImagePath = (await saveImage(post.id, PNG)).imagePath;
     await prisma.post.update({ where: { id: post.id }, data: { imagePath: bImagePath } });
+    // A real video file, so the video route would serve it if ownership were not checked
+    await mkdir(VIDEO_TMP_DIR, { recursive: true });
+    const tmp = path.join(VIDEO_TMP_DIR, `iso-${post.id}.upload`);
+    await writeFile(tmp, tinyMp4({ durationSec: 5, width: 640, height: 360 }));
+    const storedVideo = await saveUploadedVideo(post.id, tmp);
+    bVideoPath = storedVideo.videoPath;
+    await prisma.post.update({ where: { id: post.id }, data: { videoPath: storedVideo.videoPath, videoUrl: storedVideo.videoUrl, videoMime: storedVideo.mime } });
     const schedule = await prisma.postSchedule.create({
       data: { userId: userB.id, pageId: page.id, name: `${B_MARK} lịch`, frequency: 'DAILY', startDate: new Date(Date.now() + 86_400_000) },
     });
@@ -210,6 +225,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
   afterAll(async () => {
     await server.close();
     await removeImage(bImagePath);
+    await removeVideo(bVideoPath);
     await cleanupTestUsers();
     await prisma.$disconnect();
   });

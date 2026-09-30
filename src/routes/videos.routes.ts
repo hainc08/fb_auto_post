@@ -1,0 +1,36 @@
+import { Router, Response, NextFunction } from 'express';
+import prisma from '../utils/prisma';
+import { AuthRequest, authenticate } from '../middleware/auth.middleware';
+import { asyncHandler, createError } from '../middleware/error.middleware';
+import { resolveVideo } from '../lib/video-store';
+
+/** Post videos for the owner's browser preview. sendFile handles Range (seeking). */
+const router = Router();
+router.use(authenticate);
+
+router.get(
+  '/:postId',
+  asyncHandler(async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const post = await prisma.post.findFirst({
+      where: { id: req.params.postId, userId: req.user!.id },
+      select: { videoPath: true, videoMime: true },
+    });
+    const full = post?.videoPath ? resolveVideo(post.videoPath) : null;
+    if (!full) throw createError(404, 'Video not found');
+    res.sendFile(
+      full,
+      {
+        headers: {
+          'Content-Type': post!.videoMime ?? 'video/mp4',
+          'Cache-Control': 'private, max-age=31536000, immutable',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      },
+      (err) => {
+        if (err && !res.headersSent) next(createError(404, 'Video not found'));
+      }
+    );
+  })
+);
+
+export default router;

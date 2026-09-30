@@ -17,6 +17,10 @@ import { DEFAULT_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES, isLiveOnAnyPage, syncTa
 import { blockMessage, blockReason } from '../lib/page-health';
 
 import { assertOwnTemplate } from '../lib/ownership';
+import { randomUUID } from 'node:crypto';
+import { mkdir, unlink } from 'node:fs/promises';
+import { MAX_VIDEO_BYTES, VIDEO_TMP_DIR, removeVideo, saveUploadedVideo } from '../lib/video-store';
+import { reelsProblem, type VideoInfo } from '../lib/mp4-info';
 import { resolveDomainFormat } from '../lib/domains';
 import { styledImagePrompt } from '../lib/compose-prompt';
 
@@ -47,6 +51,16 @@ const EDITABLE_STATUSES: PostStatus[] = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'
 
 /** Domain + format labels shown with a post */
 const domainFormatSelect = { domain: { select: { id: true, name: true } }, format: { select: { id: true, name: true } } } as const;
+
+const videoProblem = (meta: unknown) => (meta ? reelsProblem(meta as VideoInfo) : null);
+const videoState = (p: { videoUrl: string | null; videoKind: string | null; videoMeta: unknown }) => ({
+  videoUrl: p.videoUrl,
+  videoKind: p.videoKind,
+  videoMeta: p.videoMeta,
+  reelsProblem: videoProblem(p.videoMeta),
+});
+/** Clears a post's video columns (an image replaces it) */
+const noVideo = { videoPath: null, videoUrl: null, videoMime: null, videoMeta: Prisma.DbNull, videoKind: null };
 
 const LOCKED_MESSAGE = 'Bài đã lên ít nhất 1 Page nên không sửa nội dung được nữa (để mọi Page giống nhau). Bạn vẫn có thể đăng lại các Page lỗi.';
 
@@ -99,6 +113,7 @@ const updatePostSchema = z
     idea: z.string().trim().max(500),
     domainId: z.string().uuid(),
     formatId: z.string().uuid(),
+    videoKind: z.enum(['FEED', 'REEL']),
   })
   .partial()
   .refine((d) => Object.keys(d).length > 0, 'Không có trường nào để cập nhật');
@@ -127,6 +142,8 @@ router.get(
           id: true,
           caption: true,
           imageUrl: true,
+          videoUrl: true,
+          videoKind: true,
           hashtags: true,
           status: true,
           fbPostId: true,
@@ -178,7 +195,7 @@ router.get(
 
     if (!post) throw createError(404, 'Post not found');
 
-    res.json({ success: true, data: post });
+    res.json({ success: true, data: { ...post, reelsProblem: videoProblem(post.videoMeta) } });
   })
 );
 
@@ -291,6 +308,12 @@ router.patch(
         ? await resolveDomainFormat(req.user!.id, { domainId: data.domainId, formatId: data.formatId, pageId: post.pageId })
         : null;
 
+    if (data.videoKind) {
+      if (!post.videoPath) throw createError(400, 'Bài chưa có video.');
+      const problem = data.videoKind === 'REEL' ? videoProblem(post.videoMeta) : null;
+      if (problem) throw createError(400, problem);
+    }
+
     const caption = data.caption !== undefined ? data.caption.trim() : post.caption;
     // An edited failed/draft post with content is ready to publish again
     const status: PostStatus =
@@ -308,6 +331,7 @@ router.patch(
         }),
         status,
         ...(picked && { domainId: picked.domain.id, formatId: picked.format.id }),
+        ...(data.videoKind && { videoKind: data.videoKind }),
         ...(status !== post.status && { errorMessage: null, errorStep: null, errorCode: null }),
       },
       include: {
@@ -378,20 +402,26 @@ async function findImageEditablePost(req: AuthRequest) {
   return post;
 }
 
-/** Store a new image for the post and delete the previous file. */
-async function replacePostImage(postId: string, oldPath: string | null, buffer: Buffer, extra: Record<string, unknown>, action: string) {
+/** Store a new image for the post and delete the previous file (an image replaces a video). */
+async function replacePostImage(
+  post: { id: string; imagePath: string | null; videoPath: string | null },
+  buffer: Buffer,
+  extra: Record<string, unknown>,
+  action: string
+) {
   let stored;
   try {
-    stored = await saveImage(postId, buffer);
+    stored = await saveImage(post.id, buffer);
   } catch (error) {
     throw createError(400, (error as Error).message);
   }
   const updated = await prisma.post.update({
-    where: { id: postId },
-    data: { imagePath: stored.imagePath, imageUrl: stored.imageUrl, ...extra },
+    where: { id: post.id },
+    data: { imagePath: stored.imagePath, imageUrl: stored.imageUrl, ...noVideo, ...extra },
   });
-  await removeImage(oldPath);
-  await prisma.postLog.create({ data: { postId, action, details: { bytes: buffer.length, mime: stored.mime } } });
+  await removeImage(post.imagePath);
+  await removeVideo(post.videoPath);
+  await prisma.postLog.create({ data: { postId: post.id, action, details: { bytes: buffer.length, mime: stored.mime } } });
   return updated;
 }
 
@@ -408,7 +438,7 @@ router.post(
       cloudflare: cloudflareConfigFrom(settings),
       prompt: styledImagePrompt(await imageStyleOf(post.domainId), prompt),
     });
-    const updated = await replacePostImage(post.id, post.imagePath, buffer, { imagePrompt: prompt }, 'image_generated');
+    const updated = await replacePostImage(post, buffer, { imagePrompt: prompt }, 'image_generated');
 
     res.json({ success: true, data: { imageUrl: updated.imageUrl, imagePrompt: updated.imagePrompt } });
   })
@@ -427,7 +457,7 @@ router.post(
     const file = (req as AuthRequest & { file?: Express.Multer.File }).file;
     if (!file) throw createError(400, 'Chưa chọn ảnh để tải lên.');
 
-    const updated = await replacePostImage(post.id, post.imagePath, file.buffer, {}, 'image_uploaded');
+    const updated = await replacePostImage(post, file.buffer, {}, 'image_uploaded');
     logger.info('Post image uploaded', { postId: post.id, bytes: file.size });
 
     res.json({ success: true, data: { imageUrl: updated.imageUrl } });
@@ -443,6 +473,80 @@ router.delete(
     await removeImage(post.imagePath);
     await prisma.postLog.create({ data: { postId: post.id, action: 'image_removed' } });
     res.json({ success: true, data: { imageUrl: null } });
+  })
+);
+
+// ─── Post Video: upload (to disk) / remove ──────
+
+const videoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      mkdir(VIDEO_TMP_DIR, { recursive: true }).then(
+        () => cb(null, VIDEO_TMP_DIR),
+        (e) => cb(e as Error, VIDEO_TMP_DIR)
+      );
+    },
+    filename: (_req, _file, cb) => cb(null, `${randomUUID()}.upload`),
+  }),
+  limits: { fileSize: MAX_VIDEO_BYTES, files: 1 },
+});
+
+router.post(
+  '/:id/video/upload',
+  // Check the post before accepting up to 100 MB
+  asyncHandler(async (req: AuthRequest, _res: Response, next) => {
+    await findImageEditablePost(req);
+    next();
+  }),
+  (req, res, next) =>
+    videoUpload.single('video')(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') return next(createError(400, 'Video vượt quá 100 MB.'));
+      next(err);
+    }),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const file = (req as AuthRequest & { file?: Express.Multer.File }).file;
+    if (!file) throw createError(400, 'Chưa chọn video để tải lên.');
+    let post;
+    try {
+      post = await findImageEditablePost(req);
+    } catch (error) {
+      await unlink(file.path).catch(() => {});
+      throw error;
+    }
+    let stored;
+    try {
+      stored = await saveUploadedVideo(post.id, file.path);
+    } catch (error) {
+      throw createError(400, (error as Error).message);
+    }
+    const updated = await prisma.post.update({
+      where: { id: post.id },
+      data: {
+        videoPath: stored.videoPath,
+        videoUrl: stored.videoUrl,
+        videoMime: stored.mime,
+        videoMeta: { ...stored.meta },
+        videoKind: 'FEED',
+        imagePath: null,
+        imageUrl: null,
+      },
+    });
+    await removeVideo(post.videoPath);
+    await removeImage(post.imagePath);
+    await prisma.postLog.create({ data: { postId: post.id, action: 'video_uploaded', details: { ...stored.meta } } });
+    logger.info('Post video uploaded', { postId: post.id, bytes: stored.meta.bytes });
+    res.json({ success: true, data: videoState(updated) });
+  })
+);
+
+router.delete(
+  '/:id/video',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const post = await findImageEditablePost(req);
+    await prisma.post.update({ where: { id: post.id }, data: noVideo });
+    await removeVideo(post.videoPath);
+    await prisma.postLog.create({ data: { postId: post.id, action: 'video_removed' } });
+    res.json({ success: true, data: { videoUrl: null } });
   })
 );
 
@@ -573,6 +677,7 @@ router.delete(
 
     await prisma.post.delete({ where: { id: post.id } });
     await removeImage(post.imagePath);
+    await removeVideo(post.videoPath);
 
     res.json({ success: true, message: 'Post deleted' });
   })

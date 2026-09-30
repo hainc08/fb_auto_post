@@ -18,6 +18,7 @@ import schedulesRoutes from './routes/schedules.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import settingsRoutes from './routes/settings.routes';
 import imagesRoutes from './routes/images.routes';
+import videosRoutes from './routes/videos.routes';
 import { getWorker } from './services/scheduler.service';
 import { countDueJobs, workerStatus } from './lib/job-queue';
 
@@ -34,6 +35,7 @@ export const API_ROUTERS: ReadonlyArray<readonly [string, Router]> = [
   ['/api/analytics', analyticsRoutes],
   ['/api/settings', settingsRoutes],
   ['/api/images', imagesRoutes],
+  ['/api/videos', videosRoutes],
 ];
 
 export function createApp() {
