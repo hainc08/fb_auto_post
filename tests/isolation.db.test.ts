@@ -31,7 +31,7 @@ function listApiRoutes(): string[] {
   return out.sort();
 }
 
-type Ids = { postId: string; pageId: string; targetId: string; scheduleId: string; ideaId: string; templateId: string; domainId: string; formatId: string };
+type Ids = { postId: string; pageId: string; targetId: string; commentId: string; scheduleId: string; ideaId: string; templateId: string; domainId: string; formatId: string };
 type Case =
   | { kind: 'foreign-id'; path: (b: Ids) => string; body?: unknown } // must 404
   | { kind: 'list'; path: string } // must not contain B's markers
@@ -91,6 +91,10 @@ const ROUTE_CASES: Record<string, Case> = {
   'POST /api/posts/:id/image/upload': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/image/upload`, body: {} },
   'DELETE /api/posts/:id/image': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/image` },
   'POST /api/posts/:id/improve': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/improve`, body: { instruction: 'ngắn hơn' } },
+  'GET /api/posts/:id/comments': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments` },
+  'POST /api/posts/:id/comments/refresh': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/refresh` },
+  'POST /api/posts/:id/comments/:commentId/reply': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/${b.commentId}/reply`, body: { message: 'hack' } },
+  'PATCH /api/posts/:id/comments/:commentId': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/${b.commentId}`, body: { handled: true } },
   'POST /api/posts/:id/approve': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/approve` },
   'POST /api/posts/:id/publish': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/publish`, body: {} },
   'POST /api/posts/:id/targets/:targetId/retry': {
@@ -200,7 +204,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
         pageId: page.id,
         caption: `${B_MARK} caption`,
         status: 'FAILED',
-        targets: { create: [{ pageId: page.id, status: 'FAILED' }] },
+        targets: { create: [{ pageId: page.id, status: 'FAILED', fbPostId: `ISO_B_FB_${Date.now()}` }] },
       },
       include: { targets: true },
     });
@@ -241,6 +245,11 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       postId: post.id,
       pageId: page.id,
       targetId: post.targets[0].id,
+      commentId: (
+        await prisma.postComment.create({
+          data: { targetId: post.targets[0].id, fbCommentId: `ISO_B_COMMENT_${Date.now()}`, message: `${B_MARK} bình luận`, commentedAt: new Date() },
+        })
+      ).id,
       scheduleId: schedule.id,
       ideaId: schedule.ideas[0].id,
       templateId: template.id,

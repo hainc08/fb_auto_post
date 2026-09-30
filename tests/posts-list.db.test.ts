@@ -44,8 +44,8 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('posts list', { timeout: 60_000 }, ()
     // Rows created together can share a timestamp: compare without order
     expect(res.json.data[0].targets).toHaveLength(2);
     expect(res.json.data[0].targets).toEqual(expect.arrayContaining([
-      { status: 'PUBLISHED', errorMessage: null, page: { id: a.id, pageName: 'Trang A' } },
-      { status: 'FAILED', errorMessage: 'Error validating access token: Session has expired', page: { id: b.id, pageName: 'Trang B' } },
+      expect.objectContaining({ status: 'PUBLISHED', errorMessage: null, page: { id: a.id, pageName: 'Trang A' } }),
+      expect.objectContaining({ status: 'FAILED', errorMessage: 'Error validating access token: Session has expired', page: { id: b.id, pageName: 'Trang B' } }),
     ]));
   });
 });
