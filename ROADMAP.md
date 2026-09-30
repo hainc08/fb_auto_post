@@ -86,7 +86,8 @@ Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `
 - **Kế hoạch 30 ngày** tự động từ pillars → hàng loạt bài nháp
 - Kiểm tra rủi ro chính sách FB (engagement-bait, claim y tế/tài chính, chữ trên ảnh)
 
-## Phase 4 — Đo lường & vòng phản hồi ⬜
+## Phase 4 — Đo lường & vòng phản hồi 🔄
+- ✅ (2026-09-30) Lượt cảm xúc/bình luận/chia sẻ từng bài (đồng bộ mỗi giờ + Làm mới), xem và trả lời bình luận bằng tên Page, "cần trả lời" — plan docs/superpowers/plans/2026-09-30-engagement-comments.md
 - Đồng bộ insights bài viết (Graph API, metric còn hỗ trợ ở phiên bản hiện hành)
 - Dashboard thật: reach/engagement theo pillar, khung giờ vàng
 - Đưa bài top hiệu quả làm few-shot cho AI

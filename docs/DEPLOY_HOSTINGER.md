@@ -139,6 +139,12 @@ Lúc 03:00 (giờ VN) app kiểm tra lại token mọi Page. Page hết hạn / 
 
 ---
 
+## 4b. Tương tác & bình luận (từ 2026-09-30)
+
+- Số 👍 / 💬 / ↗ của các bài đăng trong 30 ngày gần nhất được **đồng bộ mỗi giờ** (cần Cron Job ở mục 4 chạy đều). Trong khung bình luận có nút **Làm mới** để lấy ngay.
+- Muốn **đọc và trả lời bình luận trong app**, mỗi Page cần **đồng bộ lại một lần** sau bản cập nhật này: **Kênh Facebook → Đồng bộ Page**, tick thêm hai quyền mới (đọc nội dung người dùng đăng trên Page, quản lý tương tác). Không đồng bộ lại thì Page **vẫn đăng bài bình thường** và vẫn thấy số liệu, chỉ chưa đọc/trả lời được bình luận.
+- Nếu Facebook App đang ở chế độ **Live** và cho người **không có vai trò trong App** sử dụng, hai quyền `pages_read_user_content` và `pages_manage_engagement` cần qua **App Review** của Meta (Advanced Access). Page của chính quản trị viên/nhà phát triển App dùng được ngay, không cần duyệt.
+
 ## 5. Cập nhật phiên bản
 
 Phát triển trên `main` như bình thường. Khi muốn đưa lên Hostinger:

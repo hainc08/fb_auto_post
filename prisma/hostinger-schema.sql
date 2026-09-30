@@ -74,6 +74,7 @@ CREATE TABLE `facebook_pages` (
     `tokenStatus` ENUM('UNCHECKED', 'VALID', 'OTHER_APP', 'EXPIRED', 'REVOKED', 'MISSING_PERMISSIONS', 'ERROR') NOT NULL DEFAULT 'UNCHECKED',
     `tokenExpiresAt` DATETIME(3) NULL,
     `missingScopes` JSON NULL,
+    `grantedScopes` JSON NULL,
     `tokenCheckedAt` DATETIME(3) NULL,
     `tokenError` TEXT NULL,
     `defaultDomainId` VARCHAR(191) NULL,
@@ -271,9 +272,35 @@ CREATE TABLE `post_targets` (
     `publishedAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
+    `reactionCount` INTEGER NULL,
+    `commentCount` INTEGER NULL,
+    `shareCount` INTEGER NULL,
+    `unansweredCount` INTEGER NOT NULL DEFAULT 0,
+    `statsSyncedAt` DATETIME(3) NULL,
+    `commentsError` TEXT NULL,
 
     INDEX `post_targets_pageId_idx`(`pageId`),
     UNIQUE INDEX `post_targets_postId_pageId_key`(`postId`, `pageId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `post_comments` (
+    `id` VARCHAR(191) NOT NULL,
+    `targetId` VARCHAR(191) NOT NULL,
+    `fbCommentId` VARCHAR(191) NOT NULL,
+    `parentFbId` VARCHAR(191) NULL,
+    `authorId` VARCHAR(191) NULL,
+    `authorName` VARCHAR(200) NULL,
+    `message` TEXT NOT NULL,
+    `commentedAt` DATETIME(3) NOT NULL,
+    `fromPage` BOOLEAN NOT NULL DEFAULT false,
+    `pageReplied` BOOLEAN NOT NULL DEFAULT false,
+    `handledAt` DATETIME(3) NULL,
+    `syncedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    UNIQUE INDEX `post_comments_fbCommentId_key`(`fbCommentId`),
+    INDEX `post_comments_targetId_parentFbId_idx`(`targetId`, `parentFbId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -383,6 +410,9 @@ ALTER TABLE `post_targets` ADD CONSTRAINT `post_targets_postId_fkey` FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE `post_targets` ADD CONSTRAINT `post_targets_pageId_fkey` FOREIGN KEY (`pageId`) REFERENCES `facebook_pages`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `post_comments` ADD CONSTRAINT `post_comments_targetId_fkey` FOREIGN KEY (`targetId`) REFERENCES `post_targets`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `content_domains` ADD CONSTRAINT `content_domains_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
