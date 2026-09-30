@@ -117,3 +117,56 @@ export function nextRunAt(s: ScheduleTiming, after: Date): Date | null {
   if (next && s.endDate && next.getTime() > s.endDate.getTime()) return null;
   return next;
 }
+
+// ─── Slot schedules (weekdays + times of day) ───
+
+export const VN_TZ = 'Asia/Ho_Chi_Minh';
+export const SLOT_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** Enough to find a slot even for a schedule that posts once a week near its end date */
+const MAX_DAYS_AHEAD = 400;
+
+export interface SlotTiming {
+  /** 0 = Sunday … 6 = Saturday, as seen in `timezone` */
+  weekdays: number[];
+  /** "HH:mm", 24 h */
+  slots: string[];
+  startDate?: Date | null;
+  endDate?: Date | null;
+  timezone?: string;
+}
+
+const dayOfWeek = (w: WallClock) => new Date(Date.UTC(w.year, w.month - 1, w.day)).getUTCDay();
+
+/** The next `count` slots strictly after `after`, within startDate…endDate, in order. */
+export function nextSlots(t: SlotTiming, after: Date, count: number): Date[] {
+  const tz = t.timezone || VN_TZ;
+  const days = new Set(t.weekdays);
+  const times = [...new Set(t.slots)]
+    .filter((s) => SLOT_PATTERN.test(s))
+    .sort()
+    .map((s) => s.split(':').map(Number) as [number, number]);
+  const out: Date[] = [];
+  if (!days.size || !times.length || count <= 0) return out;
+
+  const from = t.startDate && t.startDate.getTime() > after.getTime() ? t.startDate : after;
+  const first = toWall(from, tz);
+  for (let i = 0; i <= MAX_DAYS_AHEAD && out.length < count; i++) {
+    const day = addDays(first, i);
+    if (!days.has(dayOfWeek(day))) continue;
+    for (const [hour, minute] of times) {
+      const at = fromWall({ ...day, hour, minute }, tz);
+      if (at.getTime() <= after.getTime()) continue;
+      if (t.startDate && at.getTime() < t.startDate.getTime()) continue;
+      if (t.endDate && at.getTime() > t.endDate.getTime()) return out;
+      out.push(at);
+      if (out.length === count) break;
+    }
+  }
+  return out;
+}
+
+/** Weekday (0 = Sunday) and "HH:mm" of an instant, as seen in `tz`. */
+export function wallTime(date: Date, tz: string = VN_TZ): { weekday: number; hhmm: string } {
+  const w = toWall(date, tz);
+  return { weekday: dayOfWeek(w), hhmm: `${String(w.hour).padStart(2, '0')}:${String(w.minute).padStart(2, '0')}` };
+}
