@@ -50,7 +50,7 @@ Hostinger may sleep the process, so an external cron calls `/cron/tick?key=CRON_
 
 **Facebook.** `src/lib/clients/facebook.ts` wraps the Graph API; Page tokens are encrypted in `facebook_pages`, and `src/lib/page-sync.ts` previews/applies syncing Pages from a user token. Each Page records which App issued its token (`tokenAppId`) so a changed App ID blocks posting until the Page is re-synced.
 
-**Images** are stored on disk under `STORAGE_DIR/images` (`src/lib/image-store.ts`), served only to the post's owner by `GET /api/images/:postId`; the stored image is exactly what gets published.
+**Images** are stored on disk under `STORAGE_DIR/images` (`src/lib/image-store.ts`), served only to the post's owner by `GET /api/images/:postId`; the stored image is exactly what gets published. Videos (MP4/MOV ≤ 100 MB) live under `STORAGE_DIR/videos` (`src/lib/video-store.ts`, header parsed by `src/lib/mp4-info.ts`), served by `GET /api/videos/:postId`; a post has an image OR a video, and `Post.videoKind` picks `publishVideo` (feed) or `publishReel`.
 
 **Client** (`client/src`): `api.ts` is the single fetch layer (`credentials: 'include'`, CSRF header, 401 → `AUTH_EVENT` → back to `/login`); `auth.tsx` provides `AuthProvider`/`ProtectedRoute`. Styling is plain CSS in `client/src/index.css` with design tokens on `:root` (no Tailwind); reuse existing tokens and classes.
 

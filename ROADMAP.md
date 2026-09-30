@@ -38,6 +38,7 @@
 - ✅ (2026-09-25) Sửa lỗi độ tin cậy khi đăng: caption gốc không bị ghi đè (bản đăng lưu vào `message`); chỉ báo FAILED + email ở lần thử cuối; không đăng trùng (chặn khi đã có `fbPostId`, không retry khi Facebook timeout); bài có `scheduledAt` được đưa vào hàng đợi trễ; worker dùng `lib/clients/facebook` (Graph v23, lỗi tiếng Việt)
 - ✅ (2026-09-25) Bỏ Redis: hàng đợi job trong MariaDB (bảng `jobs`)
 - ✅ (2026-09-25) Đăng 1 bài lên nhiều Page (`post_targets`), trạng thái + link từng Page, giãn cách mặc định 2 phút, đăng lại từng Page lỗi
+- ✅ (2026-09-30) Tải video từ máy lên (MP4/MOV ≤ 100 MB), đăng dạng bài video hoặc Reels (kiểm tra điều kiện Reels trước khi đăng) — plan docs/superpowers/plans/2026-09-30-video-upload.md
 
 ## Phase 1b — Quản lý Page theo App ID 🔄 (plan chốt 2026-09-25)
 
