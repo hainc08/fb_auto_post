@@ -7,6 +7,7 @@ import {
   inTimeRange,
   matchesFilters,
   statusCounts,
+  pageFilterOptions,
   type ListPost,
 } from '../client/src/lib/post-display';
 import { statusMeta } from '../client/src/lib/post-status';
@@ -122,5 +123,15 @@ describe('statusMeta', () => {
     expect(statusMeta('PUBLISHED').cls).toBe('badge-published');
     expect(statusMeta('FAILED').cls).toBe('badge-failed');
     expect(statusMeta('WHATEVER')).toEqual({ label: 'WHATEVER', cls: 'badge-draft' });
+  });
+});
+
+describe('pageFilterOptions', () => {
+  const pages = [{ id: 'p1', pageName: 'A' }, { id: 'p2', pageName: 'B' }];
+  it('shows the select for several Pages, or while a Page is chosen, so the filter can always be cleared', () => {
+    expect(pageFilterOptions(pages, '')).toEqual({ show: true, options: pages });
+    expect(pageFilterOptions([pages[0]], '')).toEqual({ show: false, options: [pages[0]] });
+    // Chosen Page no longer among the loaded posts (e.g. after a domain filter or a stale URL)
+    expect(pageFilterOptions([pages[1]], 'p1')).toEqual({ show: true, options: [pages[1], { id: 'p1', pageName: 'Page đã chọn' }] });
   });
 });

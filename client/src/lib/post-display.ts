@@ -103,3 +103,15 @@ export function statusCounts(posts: ListPost[]): Record<string, number> {
   for (const p of posts) c[p.status] = (c[p.status] ?? 0) + 1;
   return c;
 }
+
+/**
+ * Page filter: shown for several Pages, and always while a Page is chosen, so it can be cleared
+ * even when that Page is no longer among the loaded posts (domain filter, stale URL).
+ */
+export function pageFilterOptions(
+  pages: Array<{ id: string; pageName: string }>,
+  selectedId: string
+): { show: boolean; options: Array<{ id: string; pageName: string }> } {
+  const options = selectedId && !pages.some((p) => p.id === selectedId) ? [...pages, { id: selectedId, pageName: 'Page đã chọn' }] : pages;
+  return { show: pages.length > 1 || !!selectedId, options };
+}
