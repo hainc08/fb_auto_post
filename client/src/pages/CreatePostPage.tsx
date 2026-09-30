@@ -1,10 +1,23 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Check, Sparkles, RefreshCw, ImageIcon, Send, X, Upload, AlertTriangle } from 'lucide-react';
-import { postsApi, pagesApi, domainsApi, assetUrl, MAX_UPLOAD_BYTES, UPLOAD_TYPES, type ContentDomain, type PageInfo, type PostUpdate } from '../api';
+import {
+  postsApi,
+  pagesApi,
+  domainsApi,
+  assetUrl,
+  MAX_UPLOAD_BYTES,
+  UPLOAD_TYPES,
+  EMPTY_VIDEO,
+  type ContentDomain,
+  type PageInfo,
+  type PostUpdate,
+  type VideoState,
+} from '../api';
 import { useToast } from '../components/Toast';
 import { wordCount, pageInitials } from '../components/PostBits';
 import PromptPreview from '../components/PromptPreview';
+import VideoField from '../components/VideoField';
 
 const HOOK_LENGTH = 125;
 
@@ -66,6 +79,8 @@ export default function CreatePostPage() {
   const [busy, setBusy] = useState<Busy>(null);
   const [timings, setTimings] = useState<{ writing?: number; image?: number }>({});
   const [confirmPublish, setConfirmPublish] = useState(false);
+  const [video, setVideo] = useState<VideoState>(EMPTY_VIDEO);
+  const [videoBusy, setVideoBusy] = useState(false);
   const [domains, setDomains] = useState<ContentDomain[]>([]);
   const [domainId, setDomainId] = useState('');
   const [formatId, setFormatId] = useState('');
@@ -212,6 +227,7 @@ export default function CreatePostPage() {
     try {
       const res = await postsApi.generateImage(postId, imagePrompt);
       setPreviewImage(assetUrl(res.data.imageUrl));
+      setVideo(EMPTY_VIDEO);
       setTimings((t) => ({ ...t, image: performance.now() - t0 }));
     } catch (e: any) {
       toast.error(`Chưa tạo được ảnh: ${e.message}`);
@@ -230,6 +246,7 @@ export default function CreatePostPage() {
       const id = postId ?? (await ensurePost());
       const res = await postsApi.uploadImage(id, file);
       setPreviewImage(assetUrl(res.data.imageUrl));
+      setVideo(EMPTY_VIDEO);
       toast.success('Đã tải ảnh lên — ảnh này sẽ được đăng kèm bài.');
     } catch (e: any) {
       toast.error(e.message);
@@ -436,7 +453,7 @@ export default function CreatePostPage() {
                 onKeyDown={(e) => e.key === 'Enter' && !busy && write()}
                 placeholder="VD: Tóm tắt biên bản cuộc họp dài thành danh sách việc cần làm"
               />
-              <button type="button" className="btn btn-dark" onClick={write} disabled={!!busy || !idea.trim() || !selectedPages.length}>
+              <button type="button" className="btn btn-dark" onClick={write} disabled={!!busy || videoBusy || !idea.trim() || !selectedPages.length}>
                 {busy === 'writing' ? <div className="spinner" /> : hasContent ? <RefreshCw size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
                 {hasContent ? 'Viết lại' : 'Viết bài bằng AI'}
               </button>
@@ -476,7 +493,7 @@ export default function CreatePostPage() {
           <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
             <span className="muted" style={{ fontSize: 12.5 }}>Viết lại nhanh:</span>
             {QUICK_REWRITES.map((q) => (
-              <button key={q.label} type="button" className="chip-btn" disabled={!!busy || !hasContent} onClick={() => rewrite(q.instruction)}>
+              <button key={q.label} type="button" className="chip-btn" disabled={!!busy || videoBusy || !hasContent} onClick={() => rewrite(q.instruction)}>
                 {q.label}
               </button>
             ))}
@@ -529,17 +546,30 @@ export default function CreatePostPage() {
               />
             </div>
             <div className="stack" style={{ gap: 8, marginTop: 26 }}>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={makeImage} disabled={!!busy || !postId || !imagePrompt.trim()}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={makeImage} disabled={!!busy || videoBusy || !postId || !imagePrompt.trim() || !!video.videoUrl}>
                 {busy === 'image' ? <div className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />}
                 {previewImage ? 'Tạo lại bằng AI' : 'Tạo ảnh bằng AI'}
               </button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!busy || !selectedPages.length}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!busy || videoBusy || !selectedPages.length || !!video.videoUrl}>
                 {busy === 'upload' ? <div className="spinner" /> : <Upload size={14} aria-hidden="true" />}
                 Tải ảnh lên
               </button>
               <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => uploadImage(e.target.files?.[0])} />
             </div>
           </div>
+          <div className="settings-divider" style={{ margin: '14px 0 10px' }} />
+          <span className="form-label">Hoặc đăng video</span>
+          <VideoField
+            postId={postId}
+            ensurePost={ensurePost}
+            value={video}
+            onChange={(v) => {
+              setVideo(v);
+              if (v.videoUrl) setPreviewImage(null); // the server removed the image
+            }}
+            disabled={!!busy || !selectedPages.length}
+            onBusyChange={setVideoBusy}
+          />
         </section>
       </div>
 
@@ -565,7 +595,9 @@ export default function CreatePostPage() {
               <span style={{ color: '#8a8d91', fontStyle: 'italic' }}>Nội dung bài sẽ hiện ở đây…</span>
             )}
           </div>
-          {previewImage ? (
+          {video.videoUrl ? (
+            <video className="fb-image fb-video" src={assetUrl(video.videoUrl)!} controls muted preload="metadata" />
+          ) : previewImage ? (
             <img className="fb-image" src={previewImage} alt="" />
           ) : (
             <div className="fb-image placeholder">{imagePrompt ? 'Ảnh sẽ được AI tạo khi đăng' : 'Ảnh AI sẽ hiện ở đây'}</div>
@@ -594,15 +626,17 @@ export default function CreatePostPage() {
               </span>
             </div>
           )}
-          <button type="button" className="btn btn-primary btn-lg btn-block" onClick={publish} disabled={!!busy || !hasContent || !selectedPages.length}>
+          <button type="button" className="btn btn-primary btn-lg btn-block" onClick={publish} disabled={!!busy || videoBusy || !hasContent || !selectedPages.length}>
             {busy === 'publishing' ? <div className="spinner" /> : <Send size={16} aria-hidden="true" />}
             {confirmPublish
               ? 'Bấm lần nữa để đăng công khai'
               : selectedPages.length > 1
                 ? `Duyệt & đăng lên ${selectedPages.length} Page`
-                : 'Duyệt & đăng ngay'}
+                : video.videoKind === 'REEL'
+                  ? 'Duyệt & đăng Reels'
+                  : 'Duyệt & đăng ngay'}
           </button>
-          <button type="button" className="btn btn-secondary btn-block" onClick={handleSave} disabled={!!busy || !postId}>
+          <button type="button" className="btn btn-secondary btn-block" onClick={handleSave} disabled={!!busy || videoBusy || !postId}>
             {busy === 'saving' ? <div className="spinner" /> : null}
             Lưu, duyệt sau
           </button>

@@ -50,6 +50,8 @@ node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" #
    ```
 2. `STORAGE_DIR=/home/u123456789/autopost-storage`
 
+Video bài viết nằm ở `STORAGE_DIR/videos` (tối đa 100 MB mỗi video). Theo dõi dung lượng đĩa của gói.
+
 ---
 
 ## 2. Tạo Node.js App từ GitHub
@@ -102,6 +104,7 @@ node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" #
 3. **Cấu hình**: nhập/kiểm tra Gemini, Cloudflare, Facebook App → bấm các nút **Kiểm tra**.
 4. **Pages**: kết nối Page (hoặc "đổi token dài hạn" trong Cấu hình).
 5. Tạo 1 bài → AI viết → tạo ảnh → **Duyệt & đăng** → kiểm tra bài trên Page, và ảnh vẫn hiện sau khi F5.
+6. Tải thử một video khoảng 50–100 MB. Nếu báo "Máy chủ từ chối file quá lớn" (lỗi 413 từ proxy của Hostinger) thì giới hạn tải lên của gói thấp hơn 100 MB — dùng video nhỏ hơn.
 
 ### Facebook App
 developers.facebook.com → App → **Settings → Basic**:
@@ -188,6 +191,7 @@ Không đổi: Cron Job `/cron/tick`, `/health`, UptimeRobot, đồng bộ Page,
 | Build lỗi `P1001 Can't reach database` | Sai host/port trong `DATABASE_URL`; thử host hiển thị trong trang Databases thay cho `localhost` |
 | Build lỗi `db push ... data loss` | Schema đổi làm mất dữ liệu. Backup DB (phpMyAdmin → Export), rồi chạy qua SSH trong thư mục app: `npx prisma db push --accept-data-loss` — **chỉ khi chắc chắn** |
 | Bài đứng mãi ở "Chờ đăng"/"Đang đăng…" | App đang ngủ hoặc sập nên worker không chạy: kiểm tra log app, UptimeRobot (mục 4). Job bị ngắt giữa chừng sẽ tự chạy lại sau 10 phút |
+| Tải video báo "Máy chủ từ chối file quá lớn" | Proxy của Hostinger giới hạn dung lượng tải lên; dùng video nhỏ hơn hoặc nén lại |
 | Ảnh mất sau khi deploy | Chưa đặt `STORAGE_DIR` hoặc thư mục không ghi được — kiểm tra quyền qua SSH |
 | Không đăng nhập được admin | Kiểm tra `ADMIN_EMAIL`/`ADMIN_PASSWORD` rồi **Restart**; log có dòng `[Bootstrap]` cho biết đã đặt mật khẩu hay chưa |
 | App không khởi động, log `JWT_SECRET phải là chuỗi ngẫu nhiên…` | Đặt `JWT_SECRET` ≥ 32 ký tự ngẫu nhiên, Restart |

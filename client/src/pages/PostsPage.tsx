@@ -10,6 +10,8 @@ interface PostData {
   id: string;
   caption: string | null;
   imageUrl: string | null;
+  videoUrl?: string | null;
+  videoKind?: 'FEED' | 'REEL' | null;
   hashtags: string[] | null;
   status: string;
   fbPostId: string | null;
@@ -161,7 +163,7 @@ export default function PostsPage() {
     setExpanded(false);
     if (!selectedId) return setDetail(null);
     postsApi.get(selectedId).then((r) => setDetail(r.data)).catch(() => setDetail(null));
-  }, [selectedId, selected?.status, selected?.caption, selected?.imageUrl, selected?.targets?.map((t) => t.status).join()]);
+  }, [selectedId, selected?.status, selected?.caption, selected?.imageUrl, selected?.videoUrl, selected?.videoKind, selected?.targets?.map((t) => t.status).join()]);
 
   async function publish() {
     if (!selectedId) return;
@@ -279,7 +281,7 @@ export default function PostsPage() {
                 aria-current={p.id === selectedId}
                 onClick={() => setSelectedId(p.id)}
               >
-                <PostThumb src={p.imageUrl} size={56} />
+                <PostThumb src={p.imageUrl} size={56} video={!!p.videoUrl} />
                 <span className="post-main">
                   <span className={`post-title ${p.caption ? '' : 'empty'}`}>{postTitle(p.caption) || 'Chưa có nội dung'}</span>
                   {p.errorMessage && p.status === 'FAILED' ? (
@@ -287,7 +289,7 @@ export default function PostsPage() {
                   ) : (
                     <span className="post-meta">
                       {p.domain && <span className="domain-tag">{p.domain.name}{p.format ? ` · ${p.format.name}` : ''}</span>}
-                      {(p.targets?.length ?? 0) > 1 ? `${p.targets!.length} Page` : p.page?.pageName} · {wordCount(p.caption)} từ
+                      {(p.targets?.length ?? 0) > 1 ? `${p.targets!.length} Page` : p.page?.pageName} · {p.videoKind === 'REEL' ? 'Reels · ' : p.videoUrl ? 'Video · ' : ''}{wordCount(p.caption)} từ
                       {p.hashtags?.length ? ` · ${p.hashtags.map((h) => `#${h.replace(/^#+/, '')}`).join(' ')}` : ''}
                     </span>
                   )}
@@ -355,7 +357,9 @@ export default function PostsPage() {
                   <span className="muted">Chưa có nội dung.</span>
                 )}
               </div>
-              {detail.imageUrl ? (
+              {detail.videoUrl ? (
+                <video className="fb-image fb-video" src={assetUrl(detail.videoUrl)!} controls muted preload="metadata" />
+              ) : detail.imageUrl ? (
                 <img className="fb-image" src={assetUrl(detail.imageUrl)!} alt="Ảnh đăng kèm bài" />
               ) : (
                 <div className="fb-image placeholder">

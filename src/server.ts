@@ -4,6 +4,7 @@ import { createApp } from './app';
 import { startWorkers } from './services/scheduler.service';
 import { checkUncheckedPages } from './lib/page-health';
 import { runBootstrap } from './lib/bootstrap';
+import { sweepVideoTmp } from './lib/video-store';
 
 async function start() {
   try {
@@ -15,6 +16,9 @@ async function start() {
       startWorkers();
       // Pages connected before token health existed: learn which app issued their tokens
       void checkUncheckedPages();
+      // Partial files from aborted video uploads
+      void sweepVideoTmp();
+      setInterval(() => void sweepVideoTmp(), 60 * 60_000).unref();
     }
 
     app.listen(config.port, () => {

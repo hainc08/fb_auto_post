@@ -6,6 +6,7 @@ import { asyncHandler, createError } from '../middleware/error.middleware';
 import { hashPassword, normalizeEmail, passwordSchema } from '../lib/passwords';
 import { accountChangeBlock } from '../lib/admin-guards';
 import { removeImage } from '../lib/image-store';
+import { removeVideo } from '../lib/video-store';
 import { createStarterDomains } from '../lib/domains';
 import { logger } from '../utils/logger';
 
@@ -127,7 +128,10 @@ router.delete(
     if (blocked) throw createError(409, blocked);
 
     const [images, schedules] = await Promise.all([
-      prisma.post.findMany({ where: { userId: target.id, imagePath: { not: null } }, select: { imagePath: true } }),
+      prisma.post.findMany({
+        where: { userId: target.id, OR: [{ imagePath: { not: null } }, { videoPath: { not: null } }] },
+        select: { imagePath: true, videoPath: true },
+      }),
       prisma.postSchedule.findMany({ where: { userId: target.id }, select: { id: true } }),
     ]);
 
@@ -141,7 +145,7 @@ router.delete(
         ],
       },
     });
-    await Promise.all(images.map((i) => removeImage(i.imagePath)));
+    await Promise.all(images.flatMap((i) => [removeImage(i.imagePath), removeVideo(i.videoPath)]));
 
     logger.info('Member deleted', { adminId: req.user!.id, userId: target.id, images: images.length });
     res.json({ success: true });

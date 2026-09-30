@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { X, Save, Wand2, Hash, Lock, RefreshCw, Upload, Trash2, ImageIcon } from 'lucide-react';
-import { postsApi, assetUrl, MAX_UPLOAD_BYTES, UPLOAD_TYPES, type PostUpdate } from '../api';
+import { postsApi, assetUrl, MAX_UPLOAD_BYTES, UPLOAD_TYPES, EMPTY_VIDEO, type PostUpdate, type VideoState } from '../api';
 import { useToast } from './Toast';
+import VideoField from './VideoField';
 
 interface Props {
   postId: string;
@@ -59,6 +60,7 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
   const captionRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [imageBusy, setImageBusy] = useState<null | 'generate' | 'upload' | 'remove'>(null);
+  const [videoBusy, setVideoBusy] = useState(false);
 
   useEffect(() => {
     postsApi
@@ -145,12 +147,20 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
 
   /** Image changes are saved on the server right away; reflect them here and in the list. */
   function applyImage(imageUrl: string | null, imagePrompt?: string) {
-    const next = { ...post, imageUrl, ...(imagePrompt !== undefined && { imagePrompt }) };
+    // A new image replaces the video on the server
+    const next = { ...post, imageUrl, ...(imageUrl ? EMPTY_VIDEO : {}), ...(imagePrompt !== undefined && { imagePrompt }) };
     setPost(next);
     if (imagePrompt !== undefined) {
       setForm((f) => ({ ...f!, imagePrompt }));
       setInitial((i) => ({ ...i!, imagePrompt }));
     }
+    onSaved(next);
+  }
+
+  /** Video changes are saved on the server right away too (a video replaces the image). */
+  function applyVideo(v: VideoState) {
+    const next = { ...post, ...v, ...(v.videoUrl ? { imageUrl: null } : {}) };
+    setPost(next);
     onSaved(next);
   }
 
@@ -225,6 +235,12 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
   const hook = form.caption.slice(0, HOOK_LENGTH);
   const rest = form.caption.slice(HOOK_LENGTH);
   const message = composeMessage(form);
+  const video: VideoState = {
+    videoUrl: post.videoUrl ?? null,
+    videoKind: post.videoKind ?? null,
+    videoMeta: post.videoMeta ?? null,
+    reelsProblem: post.reelsProblem ?? null,
+  };
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
@@ -315,6 +331,13 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
                 onChange={(e) => setForm({ ...form, callToAction: e.target.value })} />
             </div>
 
+            {video.videoUrl ? (
+              <div className="form-group">
+                <span className="form-label">Video đăng kèm</span>
+                <VideoField postId={post.id} value={video} onChange={applyVideo} disabled={!editable || saving} />
+                <p className="field-hint">Bài dùng video — bỏ video để quay lại dùng ảnh.</p>
+              </div>
+            ) : (
             <div className="form-group">
               <span className="form-label">Ảnh đăng kèm</span>
               <div className="image-editor">
@@ -331,11 +354,11 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
                     onChange={(e) => setForm({ ...form, imagePrompt: e.target.value })} />
                   {editable && (
                     <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={generateImage} disabled={!!imageBusy || !form.imagePrompt.trim()}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={generateImage} disabled={!!imageBusy || videoBusy || !form.imagePrompt.trim()}>
                         {imageBusy === 'generate' ? <span className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />}
                         {post.imageUrl ? 'Tạo lại bằng AI' : 'Tạo bằng AI'}
                       </button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!imageBusy}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={!!imageBusy || videoBusy}>
                         {imageBusy === 'upload' ? <span className="spinner" /> : <Upload size={14} aria-hidden="true" />}
                         Tải ảnh từ máy
                       </button>
@@ -355,7 +378,14 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
                   </p>
                 </div>
               </div>
+              {editable && (
+                <>
+                  <span className="form-label" style={{ marginTop: 14 }}>Hoặc đăng video</span>
+                  <VideoField postId={post.id} value={video} onChange={applyVideo} disabled={saving || !!imageBusy} onBusyChange={setVideoBusy} />
+                </>
+              )}
             </div>
+            )}
           </div>
 
           {/* ─── Live preview ─── */}
@@ -374,7 +404,9 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
                 {rest && <span>{rest}</span>}
                 {message.slice(form.caption.length)}
               </div>
-              {post.imageUrl ? (
+              {video.videoUrl ? (
+                <video className="fb-image fb-video" src={assetUrl(video.videoUrl)!} controls muted preload="metadata" />
+              ) : post.imageUrl ? (
                 <img className="fb-image" src={assetUrl(post.imageUrl)!} alt="" />
               ) : (
                 <div className="fb-image placeholder">{form.imagePrompt.trim() ? 'Ảnh sẽ được AI tạo khi đăng' : 'Bài không có ảnh'}</div>
