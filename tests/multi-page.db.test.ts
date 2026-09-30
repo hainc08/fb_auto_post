@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll, beforeAll, beforeEach, afterEach, vi } 
 import '../src/config'; // loads .env (DATABASE_URL)
 import prisma from '../src/utils/prisma';
 import { enqueuePost, startWorkers } from '../src/services/scheduler.service';
-import { upsertKeyedJob } from '../src/lib/job-queue';
+import type { JobType } from '../src/lib/job-queue';
 import { saveSettings } from '../src/lib/settings';
 import { saveUploadedVideo, removeVideo, VIDEO_TMP_DIR } from '../src/lib/video-store';
 import { tinyMp4 } from './helpers/mp4';
@@ -17,8 +17,11 @@ import { CloudflareClient } from '../src/lib/clients/cloudflare';
  * Stop any dev server on the same DB first: its worker would take these jobs
  * and call the real Facebook API (with fake tokens).
  */
-/** Poll fast: the production 3 s poll makes multi-step publishes brush against the 15 s waits under load */
-const TEST_WORKER = { pollMs: 500 };
+/**
+ * Poll fast: the production 3 s poll makes multi-step publishes brush against the 15 s waits under load.
+ * Only the publish jobs: other DB test files queue their own jobs (e.g. prepare_post) in the same database.
+ */
+const TEST_WORKER = { pollMs: 500, only: ['publish_post', 'publish_target'] as JobType[] };
 const TOKEN_CHECK_KEY = 'system:check_page_tokens';
 let tokenCheck: { runAt: Date; status: string } | null = null;
 const PAGE_IDS = ['TEST_MP_1', 'TEST_MP_2', 'TEST_MP_3'];
@@ -149,6 +152,16 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
     await prisma.$disconnect();
   });
 
+  it('leaves the job types it was not started for to other workers', async () => {
+    const job = await prisma.job.create({ data: { type: 'prepare_post', payload: { postId: 'not-for-this-worker' }, runAt: new Date() } });
+    try {
+      await new Promise((r) => setTimeout(r, 1500)); // three polls
+      expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('PENDING');
+    } finally {
+      await prisma.job.delete({ where: { id: job.id } });
+    }
+  });
+
   it('records success and failure per Page, then retries only the failed Page', async () => {
     failPage = 'TEST_MP_2';
     const post = await createPost(3);
@@ -236,34 +249,6 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
     }
   });
 
-  it("a disabled account's schedule creates no posts and waits for the account to come back", async () => {
-    const disabled = await prisma.user.create({ data: { email: `disabled-sch-${Date.now()}@autopost.test`, name: 'Disabled', isActive: false } });
-    const page = await prisma.facebookPage.create({
-      data: { userId: disabled.id, pageId: 'TEST_MP_DISABLED_SCH', pageName: 'Trang khoá', pageAccessToken: 'EAAfaketokendisabledxxxxxxxxxxxxxx' },
-    });
-    const schedule = await prisma.postSchedule.create({
-      data: { userId: disabled.id, pageId: page.id, name: 'Lịch bị khoá', frequency: 'DAILY', startDate: new Date(Date.now() - 86_400_000) },
-    });
-    const key = `schedule:${schedule.id}`;
-    try {
-      const startedAt = new Date();
-      await upsertKeyedJob(key, 'run_schedule', { scheduleId: schedule.id }, startedAt);
-      // Processed = rebooked for a later run
-      const until = Date.now() + 15_000;
-      let job = await prisma.job.findUnique({ where: { key } });
-      while (Date.now() < until && job && job.runAt <= startedAt) {
-        await new Promise((r) => setTimeout(r, 150));
-        job = await prisma.job.findUnique({ where: { key } });
-      }
-      expect(job?.runAt.getTime()).toBeGreaterThan(startedAt.getTime());
-      expect(await prisma.post.count({ where: { userId: disabled.id } })).toBe(0);
-      expect(await prisma.postSchedule.findUnique({ where: { id: schedule.id } })).toMatchObject({ isActive: true });
-    } finally {
-      await prisma.job.deleteMany({ where: { key } });
-      await prisma.user.delete({ where: { id: disabled.id } });
-    }
-  });
-
   it("never publishes to a Page owned by another account, even if a target points at it", async () => {
     const other = await prisma.user.create({ data: { email: `other-${Date.now()}@autopost.test`, name: 'Other' } });
     const foreignPage = await prisma.facebookPage.create({
@@ -318,47 +303,6 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('publish one post to several Pages', 
       expect(cf).not.toHaveBeenCalled();
     } finally {
       await prisma.user.delete({ where: { id: owner.id } });
-    }
-  });
-
-  it("a schedule's posts carry the schedule's domain and format", async () => {
-    const domain = await prisma.contentDomain.create({
-      data: { userId, name: `Lịch ${Date.now()}`, formats: { create: { name: 'F', instructions: 'x', isDefault: true } } },
-      include: { formats: true },
-    });
-    const schedule = await prisma.postSchedule.create({
-      data: {
-        userId,
-        pageId: pages[0].id,
-        name: 'Lịch theo lĩnh vực',
-        frequency: 'DAILY',
-        startDate: new Date(Date.now() - 86_400_000),
-        domainId: domain.id,
-        formatId: domain.formats[0].id,
-      },
-    });
-    const key = `schedule:${schedule.id}`;
-    try {
-      const startedAt = new Date();
-      await upsertKeyedJob(key, 'run_schedule', { scheduleId: schedule.id }, startedAt);
-      const until = Date.now() + 15_000;
-      let post = null;
-      while (Date.now() < until && !post) {
-        await new Promise((r) => setTimeout(r, 150));
-        post = await prisma.post.findFirst({ where: { userId, domainId: domain.id } });
-      }
-      expect(post).toMatchObject({ domainId: domain.id, formatId: domain.formats[0].id });
-      // Let the schedule run and the post's own job finish before cleaning up,
-      // so no job of this test still holds a worker slot during the next test
-      await waitForStatus(post!.id, ['PUBLISHED', 'FAILED']);
-      while (Date.now() < until && ((await prisma.job.findUnique({ where: { key } }))?.runAt ?? new Date(0)) <= startedAt) {
-        await new Promise((r) => setTimeout(r, 150));
-      }
-    } finally {
-      await prisma.job.deleteMany({ where: { key } });
-      await prisma.post.deleteMany({ where: { domainId: domain.id } });
-      await prisma.postSchedule.delete({ where: { id: schedule.id } });
-      await prisma.contentDomain.delete({ where: { id: domain.id } });
     }
   });
 

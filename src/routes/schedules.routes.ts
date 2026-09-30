@@ -3,7 +3,6 @@ import { z } from 'zod';
 import prisma from '../utils/prisma';
 import { AuthRequest, authenticate, requirePlan } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
-import { removeScheduleJob, syncScheduleJob } from '../services/scheduler.service';
 import { assertOwnTemplate } from '../lib/ownership';
 import { resolveDomainFormat } from '../lib/domains';
 
@@ -89,7 +88,7 @@ router.post(
       },
     });
 
-    const nextRunAt = await syncScheduleJob(schedule);
+    const nextRunAt = null; // slot schedules: see schedule-runner.ts
 
     res.status(201).json({ success: true, data: { ...schedule, nextRunAt } });
   })
@@ -129,7 +128,7 @@ router.put(
     });
 
     // Any change (time, frequency, end date) moves the next run
-    const nextRunAt = await syncScheduleJob(updated);
+    const nextRunAt = null; // slot schedules: see schedule-runner.ts
 
     res.json({ success: true, data: { ...updated, nextRunAt } });
   })
@@ -151,7 +150,7 @@ router.patch(
       data: { isActive: !schedule.isActive },
     });
 
-    const nextRunAt = await syncScheduleJob(updated);
+    const nextRunAt = null; // slot schedules: see schedule-runner.ts
 
     res.json({ success: true, data: { ...updated, nextRunAt } });
   })
@@ -168,7 +167,6 @@ router.delete(
 
     if (!schedule) throw createError(404, 'Schedule not found');
 
-    await removeScheduleJob(schedule.id);
     await prisma.postSchedule.delete({ where: { id: schedule.id } });
 
     res.json({ success: true, message: 'Schedule deleted' });

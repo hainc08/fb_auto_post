@@ -7,9 +7,9 @@ import { readImage, saveImage } from '../lib/image-store';
 import { composeMessage } from '../lib/format-post';
 import { FacebookClient } from '../lib/clients/facebook';
 import { classifyFailure, UNCERTAIN_PUBLISH_MESSAGE } from '../lib/job-failure';
-import { enqueue, removeKeyedJob, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobResult, JobWorker, WorkerOptions } from '../lib/job-queue';
+import { enqueue, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobHandler, JobResult, JobType, JobWorker, WorkerOptions } from '../lib/job-queue';
 import { blockMessage, blockReason, checkPages } from '../lib/page-health';
-import { Frequency, nextRunAt } from '../lib/schedule-time';
+import { nextRunAt } from '../lib/schedule-time';
 import { backfillTargets, refreshPostStatus } from '../lib/post-targets';
 import { imageStyleOf, writePost } from './post-writer';
 import { styledImagePrompt } from '../lib/compose-prompt';
@@ -17,13 +17,16 @@ import { openVideo } from '../lib/video-store';
 import { reelsProblem, type VideoInfo } from '../lib/mp4-info';
 import { cloudflareConfigFrom, generateImage } from './image.service';
 import { sendPostNotification } from './email.service';
+import { bookScheduleTick, runPrepareJob, runScheduleTickJob } from './schedule-runner';
 
 /**
  * Scheduler Service - background work on the MariaDB job queue (src/lib/job-queue.ts)
  *
  * - publish_post: prepare one post (content + image), then queue its Pages
  * - publish_target: publish the prepared post to one Page
- * - run_schedule: one keyed job per active schedule, rescheduled after each run
+ * - prepare_post: AI writes a slot-schedule post (schedule-runner.ts)
+ * - schedule_tick: every minute: publish approved due posts, move late ones, write ahead
+ * - run_schedule: old per-schedule jobs, drained without doing anything
  */
 
 // ─── Job Payloads ───────────────────────────────
@@ -43,12 +46,6 @@ export interface TargetJob {
   targetId: string;
   userId: string;
 }
-
-export interface ScheduleCheckJob {
-  scheduleId: string;
-}
-
-const scheduleKey = (scheduleId: string) => `schedule:${scheduleId}`;
 
 // ─── Publish Pipeline ───────────────────────────
 
@@ -362,65 +359,9 @@ async function notifyResult(postId: string): Promise<void> {
 
 // ─── Schedules ──────────────────────────────────
 
-/**
- * One run of a schedule: create a post and queue it, then book the next run.
- * Errors never stop the schedule: they are logged and the next run is still booked.
- */
-async function runScheduleJob(job: Job): Promise<JobResult | void> {
-  const { scheduleId } = job.payload as unknown as ScheduleCheckJob;
-
-  const schedule = await prisma.postSchedule.findUnique({ where: { id: scheduleId } });
-  if (!schedule || !schedule.isActive) return;
-
-  // Disabled account: create nothing, keep the schedule booked for when it is re-enabled
-  if (!(await isAccountActive(schedule.userId))) {
-    const later = nextRunAt(
-      { frequency: schedule.frequency as Frequency, startDate: schedule.startDate, endDate: schedule.endDate, timezone: schedule.timezone },
-      new Date()
-    );
-    logger.info('[Scheduler] Account disabled, skipping schedule run', { scheduleId });
-    return later ? { rescheduleAt: later } : undefined;
-  }
-
-  logger.info('[Scheduler] Processing schedule', { scheduleId, name: schedule.name });
-
-  try {
-    const post = await prisma.post.create({
-      data: {
-        userId: schedule.userId,
-        pageId: schedule.pageId,
-        templateId: schedule.templateId,
-        domainId: schedule.domainId,
-        formatId: schedule.formatId,
-        inputData: schedule.inputData || undefined,
-        status: 'DRAFT',
-        scheduledAt: new Date(),
-        targets: { create: { pageId: schedule.pageId } },
-      },
-    });
-    await enqueuePost(post.id, schedule.userId);
-  } catch (error) {
-    logger.error('[Scheduler] Schedule run failed', { scheduleId, error: (error as Error).message });
-  }
-
-  const now = new Date();
-  const next = nextRunAt(
-    { frequency: schedule.frequency as Frequency, startDate: schedule.startDate, endDate: schedule.endDate, timezone: schedule.timezone },
-    now
-  );
-
-  await prisma.postSchedule.update({
-    where: { id: scheduleId },
-    data: {
-      lastRunAt: now,
-      totalRuns: { increment: 1 },
-      nextRunAt: next,
-      // Nothing left to run (ONCE done, or past endDate)
-      ...(next ? {} : { isActive: false }),
-    },
-  });
-
-  return next ? { rescheduleAt: next } : undefined;
+/** Old per-schedule jobs (before slot schedules): drained without doing anything. */
+async function runScheduleJob(): Promise<void> {
+  return;
 }
 
 // ─── Worker ─────────────────────────────────────
@@ -432,16 +373,22 @@ let worker: JobWorker | null = null;
 export const getWorker = () => worker;
 
 /** `options` lets tests poll faster than the production default (3 s). */
-export function startWorkers(options: WorkerOptions = {}): JobWorker {
+/** `only`: handle just these job types (tests share one database with other test files' jobs). */
+export function startWorkers(options: WorkerOptions & { only?: JobType[] } = {}): JobWorker {
+  const { only, ...workerOptions } = options;
   void backfillTargets().catch((e) => logger.error('[Targets] Backfill failed', { error: (e as Error).message }));
-  void bookMissingScheduleJobs();
+  void bookScheduleTick().catch((e) => logger.error('[Schedules] Could not book the tick', { error: (e as Error).message }));
   void bookTokenCheck();
-  worker = startJobWorker({
+  const handlers: Partial<Record<JobType, JobHandler>> = {
     publish_post: runPublishJob,
     publish_target: runTargetJob,
     run_schedule: runScheduleJob,
+    prepare_post: runPrepareJob,
+    schedule_tick: runScheduleTickJob,
     check_page_tokens: runTokenCheckJob,
-  }, options);
+  };
+  if (only) for (const type of Object.keys(handlers) as JobType[]) if (!only.includes(type)) delete handlers[type];
+  worker = startJobWorker(handlers, workerOptions);
   return worker;
 }
 
@@ -486,26 +433,6 @@ async function runTokenCheckJob(): Promise<JobResult> {
   return { rescheduleAt: nextTokenCheck() };
 }
 
-/**
- * Active schedules without a queued run (e.g. created while jobs lived in Redis)
- * get their next run booked at startup.
- */
-async function bookMissingScheduleJobs(): Promise<void> {
-  try {
-    const schedules = await prisma.postSchedule.findMany({ where: { isActive: true } });
-    const booked = new Set(
-      (await prisma.job.findMany({ where: { key: { in: schedules.map((s) => scheduleKey(s.id)) } }, select: { key: true } })).map(
-        (j) => j.key
-      )
-    );
-    for (const schedule of schedules) {
-      if (!booked.has(scheduleKey(schedule.id))) await syncScheduleJob(schedule);
-    }
-  } catch (error) {
-    logger.error('[Scheduler] Could not book schedule runs at startup', { error: (error as Error).message });
-  }
-}
-
 // ─── Queue Helpers ──────────────────────────────
 
 /**
@@ -526,40 +453,6 @@ export async function enqueuePost(
   };
   const job = await enqueue('publish_post', { ...payload }, { runAt: new Date(Date.now() + (options?.delay ?? 0)) });
   return job.id;
-}
-
-/**
- * Book (or move) the next run of a schedule. Returns the run time, or null
- * when the schedule has no run left — then any pending run is removed.
- */
-export async function syncScheduleJob(schedule: {
-  id: string;
-  isActive: boolean;
-  frequency: string;
-  startDate: Date;
-  endDate: Date | null;
-  timezone: string;
-}): Promise<Date | null> {
-  const next = schedule.isActive
-    ? nextRunAt(
-        { frequency: schedule.frequency as Frequency, startDate: schedule.startDate, endDate: schedule.endDate, timezone: schedule.timezone },
-        new Date()
-      )
-    : null;
-
-  if (next) {
-    await upsertKeyedJob(scheduleKey(schedule.id), 'run_schedule', { scheduleId: schedule.id }, next);
-  } else {
-    await removeKeyedJob(scheduleKey(schedule.id));
-  }
-  await prisma.postSchedule.update({ where: { id: schedule.id }, data: { nextRunAt: next } });
-  logger.info('[Scheduler] Schedule synced', { scheduleId: schedule.id, nextRunAt: next?.toISOString() ?? null });
-  return next;
-}
-
-export async function removeScheduleJob(scheduleId: string): Promise<void> {
-  await removeKeyedJob(scheduleKey(scheduleId));
-  logger.info('[Scheduler] Schedule job removed', { scheduleId });
 }
 
 // ─── Utilities ──────────────────────────────────
