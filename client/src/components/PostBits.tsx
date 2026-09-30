@@ -1,4 +1,4 @@
-import { ImageIcon } from 'lucide-react';
+import { Film, ImageIcon } from 'lucide-react';
 import { assetUrl } from '../api';
 
 /** One place for status wording, so every screen says the same thing. */
@@ -17,7 +17,14 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`badge ${meta.cls}`}>{meta.label}</span>;
 }
 
-export function PostThumb({ src, size = 52 }: { src?: string | null; size?: number }) {
+export function PostThumb({ src, size = 52, video = false }: { src?: string | null; size?: number; video?: boolean }) {
+  if (video) {
+    return (
+      <span className="post-thumb" style={{ width: size, height: size }} role="img" aria-label="Bài có video">
+        <Film size={20} strokeWidth={1.8} aria-hidden="true" />
+      </span>
+    );
+  }
   if (src) return <img className="post-thumb" src={assetUrl(src)!} alt="" style={{ width: size, height: size }} />;
   return (
     <span className="post-thumb" style={{ width: size, height: size }} aria-hidden="true">
