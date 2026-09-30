@@ -31,7 +31,9 @@ async function draft(userId: string) {
   return prisma.post.create({ data: { userId, pageId: page.id, caption: 'x' } });
 }
 
-const tmpLeftovers = async () => (existsSync(VIDEO_TMP_DIR) ? (await readdir(VIDEO_TMP_DIR)).length : 0);
+/** Temp files named like the upload route's (`<uuid>.upload`); other test files use prefixed names */
+const UPLOAD_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.upload$/;
+const tmpLeftovers = async () => (existsSync(VIDEO_TMP_DIR) ? (await readdir(VIDEO_TMP_DIR)).filter((n) => UPLOAD_NAME.test(n)).length : 0);
 
 describe.skipIf(!process.env.RUN_DB_TESTS)('post videos', { timeout: 60_000 }, () => {
   beforeAll(async () => {

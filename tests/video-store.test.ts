@@ -8,7 +8,7 @@ import { tinyMp4 } from './helpers/mp4';
 
 async function tmpFile(content: Buffer) {
   await mkdir(VIDEO_TMP_DIR, { recursive: true });
-  const p = path.join(VIDEO_TMP_DIR, `${randomUUID()}.upload`);
+  const p = path.join(VIDEO_TMP_DIR, `vs-${randomUUID()}.upload`); // prefix: not counted as an upload by videos.db tests
   await writeFile(p, content);
   return p;
 }

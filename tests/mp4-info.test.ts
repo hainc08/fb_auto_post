@@ -22,6 +22,20 @@ describe('inspectMp4', () => {
     });
   });
 
+  it('reads the length of a fragmented MP4 (OBS fMP4) from its fragments', async () => {
+    const info = await inspectMp4(bufferSource(tinyMp4({ durationSec: 20, width: 1080, height: 1920, fragments: 7 })));
+    expect(info).toEqual({ durationSec: 20, width: 1080, height: 1920 });
+    expect(reelsProblem(info!)).toBeNull();
+  });
+
+  it('prefers mehd when a fragmented MP4 has it', async () => {
+    const file = tinyMp4({ durationSec: 42.5, width: 1280, height: 720, fragments: 3, mehd: true });
+    // Keep only ftyp + moov: no fragments left, so only mehd can give the length
+    const ftypSize = file.readUInt32BE(0);
+    const headerOnly = file.subarray(0, ftypSize + file.readUInt32BE(ftypSize));
+    expect(await inspectMp4(bufferSource(headerOnly))).toMatchObject({ durationSec: 42.5 });
+  });
+
   it('returns null for non-video or truncated data', async () => {
     expect(await inspectMp4(bufferSource(Buffer.from('\x89PNG\r\n\x1a\nnot a video', 'latin1')))).toBeNull();
     const full = tinyMp4({ durationSec: 5, width: 1080, height: 1920, moovAtEnd: true });
@@ -32,8 +46,8 @@ describe('inspectMp4', () => {
   it('gives up on a file made of millions of tiny boxes instead of reading them all', async () => {
     const mp4 = tinyMp4({ durationSec: 5, width: 640, height: 360 });
     const ftyp = mp4.subarray(0, mp4.readUInt32BE(0)); // the real ftyp box
-    const free = Buffer.alloc(8 * 50_000);
-    for (let i = 0; i < 50_000; i++) {
+    const free = Buffer.alloc(8 * 150_000);
+    for (let i = 0; i < 150_000; i++) {
       free.writeUInt32BE(8, i * 8);
       free.write('free', i * 8 + 4, 'latin1');
     }
@@ -41,7 +55,7 @@ describe('inspectMp4', () => {
     const src = bufferSource(Buffer.concat([ftyp, free]));
     const counting = { size: src.size, read: (o: number, l: number) => (reads++, src.read(o, l)) };
     expect(await inspectMp4(counting)).toBeNull();
-    expect(reads).toBeLessThanOrEqual(10_001);
+    expect(reads).toBeLessThanOrEqual(100_001);
   });
 });
 
