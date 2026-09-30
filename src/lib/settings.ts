@@ -47,6 +47,9 @@ const DEFAULTS: Record<SettingKey, () => string> = {
 
 const SETTING_KEYS = Object.keys(DEFAULTS) as SettingKey[];
 
+/** Defaults read from the server .env — only the ADMIN account may fall back to them. */
+const ENV_BACKED: ReadonlySet<SettingKey> = new Set(['geminiApiKey', 'cfAccountId', 'cfApiToken', 'fbAppId', 'fbAppSecret']);
+
 /** Facebook App Secrets are 32 hex characters */
 const FB_APP_SECRET = /^[0-9a-f]{32}$/i;
 
@@ -84,10 +87,14 @@ async function loadRaw(userId: string): Promise<Map<string, string>> {
 
 /** Full decrypted settings. SERVER-ONLY — never send this object to the client. */
 export async function getSettings(userId: string): Promise<AppSettings> {
-  const raw = await loadRaw(userId);
+  const [raw, user] = await Promise.all([
+    loadRaw(userId),
+    prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
+  ]);
+  const envFallback = user?.role === 'ADMIN';
   const value = (key: SettingKey): string => {
     const stored = raw.get(key);
-    if (stored === undefined || stored === '') return DEFAULTS[key]();
+    if (stored === undefined || stored === '') return envFallback || !ENV_BACKED.has(key) ? DEFAULTS[key]() : '';
     return isSecret(key) ? decrypt(stored) : stored;
   };
 

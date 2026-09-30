@@ -121,6 +121,10 @@ router.post(
 router.post(
   '/test/:group',
   asyncHandler(async (req: AuthRequest, res: Response) => {
+    const pageId = typeof req.body?.pageId === 'string' ? req.body.pageId : undefined;
+    if (pageId && !(await prisma.facebookPage.findFirst({ where: { id: pageId, userId: req.user!.id }, select: { id: true } }))) {
+      throw createError(404, 'Page not found');
+    }
     const settings = await getSettings(req.user!.id);
     const secrets = [settings.geminiApiKey, settings.cfApiToken, settings.fbAppSecret];
     let result: TestResult;

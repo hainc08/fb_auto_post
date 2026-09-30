@@ -16,6 +16,8 @@ CREATE TABLE `users` (
     `avatar` TEXT NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
     `emailVerified` BOOLEAN NOT NULL DEFAULT false,
+    `role` ENUM('ADMIN', 'USER') NOT NULL DEFAULT 'USER',
+    `tokenVersion` INTEGER NOT NULL DEFAULT 0,
     `plan` ENUM('FREE', 'PRO', 'BUSINESS', 'ENTERPRISE') NOT NULL DEFAULT 'FREE',
     `planExpiresAt` DATETIME(3) NULL,
     `facebookUserId` VARCHAR(191) NULL,
@@ -74,6 +76,7 @@ CREATE TABLE `facebook_pages` (
     `missingScopes` JSON NULL,
     `tokenCheckedAt` DATETIME(3) NULL,
     `tokenError` TEXT NULL,
+    `defaultDomainId` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -105,6 +108,8 @@ CREATE TABLE `posts` (
     `userId` VARCHAR(191) NOT NULL,
     `pageId` VARCHAR(191) NOT NULL,
     `templateId` VARCHAR(191) NULL,
+    `domainId` VARCHAR(191) NULL,
+    `formatId` VARCHAR(191) NULL,
     `topic` VARCHAR(500) NULL,
     `tone` VARCHAR(191) NULL,
     `language` VARCHAR(191) NOT NULL DEFAULT 'vi',
@@ -179,6 +184,8 @@ CREATE TABLE `post_schedules` (
     `startDate` DATETIME(3) NOT NULL,
     `endDate` DATETIME(3) NULL,
     `templateId` VARCHAR(191) NULL,
+    `domainId` VARCHAR(191) NULL,
+    `formatId` VARCHAR(191) NULL,
     `inputData` JSON NULL,
     `autoGenImage` BOOLEAN NOT NULL DEFAULT true,
     `lastRunAt` DATETIME(3) NULL,
@@ -235,6 +242,47 @@ CREATE TABLE `post_targets` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `content_domains` (
+    `id` VARCHAR(191) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `name` VARCHAR(80) NOT NULL,
+    `description` VARCHAR(300) NULL,
+    `audience` TEXT NULL,
+    `voice` TEXT NULL,
+    `rules` TEXT NULL,
+    `defaultHashtags` JSON NULL,
+    `imageStyle` VARCHAR(500) NULL,
+    `language` VARCHAR(191) NOT NULL DEFAULT 'vi',
+    `isArchived` BOOLEAN NOT NULL DEFAULT false,
+    `sortOrder` INTEGER NOT NULL DEFAULT 0,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `content_domains_userId_name_key`(`userId`, `name`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `content_formats` (
+    `id` VARCHAR(191) NOT NULL,
+    `domainId` VARCHAR(191) NOT NULL,
+    `name` VARCHAR(80) NOT NULL,
+    `instructions` TEXT NOT NULL,
+    `example` TEXT NULL,
+    `length` ENUM('SHORT', 'MEDIUM', 'LONG') NOT NULL DEFAULT 'MEDIUM',
+    `withImage` BOOLEAN NOT NULL DEFAULT true,
+    `isDefault` BOOLEAN NOT NULL DEFAULT false,
+    `legacyPrompt` BOOLEAN NOT NULL DEFAULT false,
+    `isArchived` BOOLEAN NOT NULL DEFAULT false,
+    `sortOrder` INTEGER NOT NULL DEFAULT 0,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `content_formats_domainId_name_key`(`domainId`, `name`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `api_keys` ADD CONSTRAINT `api_keys_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -243,6 +291,9 @@ ALTER TABLE `settings` ADD CONSTRAINT `settings_userId_fkey` FOREIGN KEY (`userI
 
 -- AddForeignKey
 ALTER TABLE `facebook_pages` ADD CONSTRAINT `facebook_pages_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `facebook_pages` ADD CONSTRAINT `facebook_pages_defaultDomainId_fkey` FOREIGN KEY (`defaultDomainId`) REFERENCES `content_domains`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `content_templates` ADD CONSTRAINT `content_templates_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -257,6 +308,12 @@ ALTER TABLE `posts` ADD CONSTRAINT `posts_pageId_fkey` FOREIGN KEY (`pageId`) RE
 ALTER TABLE `posts` ADD CONSTRAINT `posts_templateId_fkey` FOREIGN KEY (`templateId`) REFERENCES `content_templates`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `posts` ADD CONSTRAINT `posts_domainId_fkey` FOREIGN KEY (`domainId`) REFERENCES `content_domains`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `posts` ADD CONSTRAINT `posts_formatId_fkey` FOREIGN KEY (`formatId`) REFERENCES `content_formats`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `post_logs` ADD CONSTRAINT `post_logs_postId_fkey` FOREIGN KEY (`postId`) REFERENCES `posts`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -269,8 +326,20 @@ ALTER TABLE `post_schedules` ADD CONSTRAINT `post_schedules_userId_fkey` FOREIGN
 ALTER TABLE `post_schedules` ADD CONSTRAINT `post_schedules_pageId_fkey` FOREIGN KEY (`pageId`) REFERENCES `facebook_pages`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `post_schedules` ADD CONSTRAINT `post_schedules_domainId_fkey` FOREIGN KEY (`domainId`) REFERENCES `content_domains`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `post_schedules` ADD CONSTRAINT `post_schedules_formatId_fkey` FOREIGN KEY (`formatId`) REFERENCES `content_formats`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `post_targets` ADD CONSTRAINT `post_targets_postId_fkey` FOREIGN KEY (`postId`) REFERENCES `posts`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `post_targets` ADD CONSTRAINT `post_targets_pageId_fkey` FOREIGN KEY (`pageId`) REFERENCES `facebook_pages`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `content_domains` ADD CONSTRAINT `content_domains_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `content_formats` ADD CONSTRAINT `content_formats_domainId_fkey` FOREIGN KEY (`domainId`) REFERENCES `content_domains`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 

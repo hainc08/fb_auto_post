@@ -7,11 +7,12 @@ import { readImage, saveImage } from '../lib/image-store';
 import { composeMessage } from '../lib/format-post';
 import { FacebookClient } from '../lib/clients/facebook';
 import { classifyFailure, UNCERTAIN_PUBLISH_MESSAGE } from '../lib/job-failure';
-import { enqueue, removeKeyedJob, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobResult, JobWorker } from '../lib/job-queue';
+import { enqueue, removeKeyedJob, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobResult, JobWorker, WorkerOptions } from '../lib/job-queue';
 import { blockMessage, blockReason, checkPages } from '../lib/page-health';
 import { Frequency, nextRunAt } from '../lib/schedule-time';
 import { backfillTargets, refreshPostStatus } from '../lib/post-targets';
-import { generateFromIdea, generatePostContent } from './ai.service';
+import { imageStyleOf, writePost } from './post-writer';
+import { styledImagePrompt } from '../lib/compose-prompt';
 import { cloudflareConfigFrom, generateImage } from './image.service';
 import { sendPostNotification } from './email.service';
 
@@ -96,6 +97,8 @@ async function runPublishJob(job: Job): Promise<void> {
       logger.warn('[Pipeline] No Page left to publish, skipping', { postId });
       return;
     }
+    // After pendingTargetIds: the failure is recorded on each Page too
+    if (!(await isAccountActive(userId))) throw new UnrecoverableJobError('Tài khoản đã bị khoá, không đăng bài.');
 
     await logStep(postId, 'pipeline_started', { jobId: job.id, attempt, pages: pending.length });
     await prisma.post.update({
@@ -113,13 +116,8 @@ async function runPublishJob(job: Job): Promise<void> {
       await logStep(postId, 'ai_generation_started');
 
       const settings = await getSettings(userId);
-      const gemini = { apiKey: settings.geminiApiKey, model: settings.geminiModel };
-      // Template (legacy) or the idea written with the Settings system prompt
-      const generated = post.template
-        ? await generatePostContent({ gemini, templatePrompt: post.template.promptTemplate, variables })
-        : await generateFromIdea({ gemini, systemPrompt: settings.systemPrompt, idea: idea! });
+      const { generated, aiPrompt, domainId, formatId } = await writePost(post, settings);
 
-      // Update post with generated content
       await prisma.post.update({
         where: { id: postId },
         data: {
@@ -128,6 +126,8 @@ async function runPublishJob(job: Job): Promise<void> {
           imagePrompt: generated.imagePrompt,
           callToAction: generated.callToAction,
           aiResponse: JSON.stringify(generated),
+          aiPrompt,
+          ...(formatId && { domainId, formatId }),
         },
       });
 
@@ -142,6 +142,7 @@ async function runPublishJob(job: Job): Promise<void> {
         hashtags: generated.hashtags,
         imagePrompt: generated.imagePrompt,
         callToAction: generated.callToAction,
+        ...(formatId && { domainId, formatId }),
       });
     }
 
@@ -163,7 +164,7 @@ async function runPublishJob(job: Job): Promise<void> {
       const settings = await getSettings(userId);
       const buffer = await generateImage({
         cloudflare: cloudflareConfigFrom(settings),
-        prompt: post.imagePrompt,
+        prompt: styledImagePrompt(await imageStyleOf(post.domainId), post.imagePrompt),
       });
 
       // Keep what we publish, so the app shows the same image
@@ -254,6 +255,9 @@ async function runTargetJob(job: Job): Promise<void> {
 
     // Scheduled / queued posts: the Page may have become unusable since queueing
     // (App ID changed, token expired, Page disconnected). Never publish through the old app.
+    if (!(await isAccountActive(userId))) throw new UnrecoverableJobError('Tài khoản đã bị khoá, không đăng bài.');
+    // Never publish with another account's Page token, whatever the target row says
+    if (page.userId !== userId) throw new UnrecoverableJobError('Page này không thuộc tài khoản của bạn.');
     const current = await getSettings(userId);
     const blocked = blockReason(page, current.fbAppId);
     if (blocked) throw new UnrecoverableJobError(`Không đăng được lên Page này: ${blockMessage(blocked, page)}`);
@@ -355,6 +359,16 @@ async function runScheduleJob(job: Job): Promise<JobResult | void> {
   const schedule = await prisma.postSchedule.findUnique({ where: { id: scheduleId } });
   if (!schedule || !schedule.isActive) return;
 
+  // Disabled account: create nothing, keep the schedule booked for when it is re-enabled
+  if (!(await isAccountActive(schedule.userId))) {
+    const later = nextRunAt(
+      { frequency: schedule.frequency as Frequency, startDate: schedule.startDate, endDate: schedule.endDate, timezone: schedule.timezone },
+      new Date()
+    );
+    logger.info('[Scheduler] Account disabled, skipping schedule run', { scheduleId });
+    return later ? { rescheduleAt: later } : undefined;
+  }
+
   logger.info('[Scheduler] Processing schedule', { scheduleId, name: schedule.name });
 
   try {
@@ -363,6 +377,8 @@ async function runScheduleJob(job: Job): Promise<JobResult | void> {
         userId: schedule.userId,
         pageId: schedule.pageId,
         templateId: schedule.templateId,
+        domainId: schedule.domainId,
+        formatId: schedule.formatId,
         inputData: schedule.inputData || undefined,
         status: 'DRAFT',
         scheduledAt: new Date(),
@@ -402,7 +418,8 @@ let worker: JobWorker | null = null;
 /** The worker running in this process (for the cron tick), if started. */
 export const getWorker = () => worker;
 
-export function startWorkers(): JobWorker {
+/** `options` lets tests poll faster than the production default (3 s). */
+export function startWorkers(options: WorkerOptions = {}): JobWorker {
   void backfillTargets().catch((e) => logger.error('[Targets] Backfill failed', { error: (e as Error).message }));
   void bookMissingScheduleJobs();
   void bookTokenCheck();
@@ -411,7 +428,7 @@ export function startWorkers(): JobWorker {
     publish_target: runTargetJob,
     run_schedule: runScheduleJob,
     check_page_tokens: runTokenCheckJob,
-  });
+  }, options);
   return worker;
 }
 
@@ -533,6 +550,11 @@ export async function removeScheduleJob(scheduleId: string): Promise<void> {
 }
 
 // ─── Utilities ──────────────────────────────────
+
+async function isAccountActive(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { isActive: true } });
+  return !!user?.isActive;
+}
 
 async function logStep(postId: string, action: string, details?: Prisma.InputJsonObject) {
   await prisma.postLog.create({

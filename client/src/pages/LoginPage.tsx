@@ -1,225 +1,85 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Zap, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
-import { authApi, setToken, setStoredUser } from '../api';
+import { useState, type FormEvent } from 'react';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { LogIn, Eye, EyeOff } from 'lucide-react';
+import { authApi, ApiError } from '../api';
+import { useAuth } from '../auth';
+
+/** Where to go after login: only same-app paths (no open redirect). */
+const safeNext = (next: string | null) => (next && next.startsWith('/') && !next.startsWith('//') ? next : '/');
 
 export default function LoginPage() {
+  const { user, loading, setUser } = useAuth();
+  const [params] = useSearchParams();
   const navigate = useNavigate();
-  const [isLogin, setIsLogin] = useState(true);
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [show, setShow] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const [form, setForm] = useState({
-    email: '',
-    password: '',
-    name: '',
-  });
+  if (!loading && user) return <Navigate to={safeNext(params.get('next'))} replace />;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function submit(e: FormEvent) {
     e.preventDefault();
-    setError('');
-    setLoading(true);
-
+    setBusy(true);
+    setError(null);
     try {
-      const res = isLogin
-        ? await authApi.login({ email: form.email, password: form.password })
-        : await authApi.register(form);
-
-      setToken(res.data.token);
-      setStoredUser(res.data.user);
-      navigate('/');
-    } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+      const res = await authApi.login(email, password);
+      setUser(res.data);
+      navigate(safeNext(params.get('next')), { replace: true });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Không kết nối được máy chủ. Thử lại sau.');
+      setPassword('');
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
-  };
+  }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        {/* Logo */}
-        <div className="logo">
-          <div className="logo-icon-lg">
-            <Zap size={28} color="white" />
+    <main className="auth-screen">
+      <form className="auth-card" onSubmit={submit} aria-labelledby="login-title">
+        <div className="auth-brand">
+          <div className="logo-mark" aria-hidden="true" />
+          <div>
+            <h1 id="login-title">Đăng nhập Auto Post</h1>
+            <p>Dùng email và mật khẩu quản trị viên đã cấp.</p>
           </div>
-          <h1>{isLogin ? 'Chào mừng trở lại' : 'Tạo tài khoản mới'}</h1>
-          <p className="subtitle">
-            {isLogin
-              ? 'Đăng nhập để quản lý bài đăng Facebook của bạn'
-              : 'Bắt đầu tự động hóa Facebook Marketing với AI'}
-          </p>
         </div>
 
-        {/* Error Message */}
-        {error && (
-          <div
-            style={{
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: 'var(--radius-md)',
-              padding: '12px 16px',
-              marginBottom: '20px',
-              color: 'var(--error-400)',
-              fontSize: '0.85rem',
-            }}
-          >
-            {error}
-          </div>
-        )}
+        <label className="form-label" htmlFor="login-email">Email</label>
+        <input
+          id="login-email"
+          className="form-input"
+          type="email"
+          autoComplete="username"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
 
-        {/* Form */}
-        <form onSubmit={handleSubmit}>
-          {!isLogin && (
-            <div className="form-group">
-              <label className="form-label">Tên của bạn</label>
-              <div style={{ position: 'relative' }}>
-                <User
-                  size={16}
-                  style={{
-                    position: 'absolute',
-                    left: 14,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--text-tertiary)',
-                  }}
-                />
-                <input
-                  type="text"
-                  className="form-input"
-                  style={{ paddingLeft: 40 }}
-                  placeholder="Nguyễn Văn A"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  required={!isLogin}
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="form-group">
-            <label className="form-label">Email</label>
-            <div style={{ position: 'relative' }}>
-              <Mail
-                size={16}
-                style={{
-                  position: 'absolute',
-                  left: 14,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-tertiary)',
-                }}
-              />
-              <input
-                type="email"
-                className="form-input"
-                style={{ paddingLeft: 40 }}
-                placeholder="your@email.com"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Mật khẩu</label>
-            <div style={{ position: 'relative' }}>
-              <Lock
-                size={16}
-                style={{
-                  position: 'absolute',
-                  left: 14,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-tertiary)',
-                }}
-              />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                className="form-input"
-                style={{ paddingLeft: 40, paddingRight: 40 }}
-                placeholder="••••••••"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                required
-                minLength={8}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: 'absolute',
-                  right: 14,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-tertiary)',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            className="btn btn-primary btn-lg"
-            disabled={loading}
-            style={{ width: '100%', marginTop: 8 }}
-          >
-            {loading ? (
-              <div className="spinner" />
-            ) : isLogin ? (
-              'Đăng nhập'
-            ) : (
-              'Tạo tài khoản'
-            )}
+        <label className="form-label" htmlFor="login-password">Mật khẩu</label>
+        <div className="password-field">
+          <input
+            id="login-password"
+            className="form-input"
+            type={show ? 'text' : 'password'}
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button type="button" className="icon-btn" onClick={() => setShow((v) => !v)} aria-label={show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>
+            {show ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
           </button>
-        </form>
-
-        <div className="auth-divider">
-          <span>hoặc</span>
         </div>
 
-        <button
-          className="btn btn-secondary btn-lg"
-          style={{
-            width: '100%',
-            gap: 10,
-          }}
-          onClick={() =>
-            window.alert('Facebook OAuth sẽ hoạt động khi cấu hình Facebook App ID')
-          }
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="#1877F2">
-            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-          </svg>
-          Đăng nhập với Facebook
-        </button>
+        {error && <p className="auth-error" role="alert">{error}</p>}
 
-        <p className="auth-footer">
-          {isLogin ? (
-            <>
-              Chưa có tài khoản?{' '}
-              <a href="#" onClick={() => setIsLogin(false)}>
-                Đăng ký ngay
-              </a>
-            </>
-          ) : (
-            <>
-              Đã có tài khoản?{' '}
-              <a href="#" onClick={() => setIsLogin(true)}>
-                Đăng nhập
-              </a>
-            </>
-          )}
-        </p>
-      </div>
-    </div>
+        <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={busy}>
+          {busy ? <div className="spinner" /> : <LogIn size={16} aria-hidden="true" />} Đăng nhập
+        </button>
+        <p className="field-hint auth-foot">Quên mật khẩu? Nhờ quản trị viên đặt lại.</p>
+      </form>
+    </main>
   );
 }

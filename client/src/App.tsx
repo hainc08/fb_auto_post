@@ -10,11 +10,9 @@ import PostsPage from './pages/PostsPage';
 import CreatePostPage from './pages/CreatePostPage';
 import SchedulesPage from './pages/SchedulesPage';
 import SettingsPage from './pages/SettingsPage';
-
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  // Tạm thời bỏ qua đăng nhập
-  return <>{children}</>;
-}
+import DomainsPage from './pages/DomainsPage';
+import UsersPage from './pages/UsersPage';
+import { ProtectedRoute } from './auth';
 
 /** `flush`: the page lays out its own full-height panes (e.g. list + inspector) */
 function AppLayout({ children, flush = false }: { children: React.ReactNode; flush?: boolean }) {
@@ -93,6 +91,26 @@ export default function App() {
             <ProtectedRoute>
               <AppLayout>
                 <SettingsPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/domains"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <DomainsPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <ProtectedRoute adminOnly>
+              <AppLayout>
+                <UsersPage />
               </AppLayout>
             </ProtectedRoute>
           }

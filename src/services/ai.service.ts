@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { GeminiClient } from '../lib/clients/gemini';
 import { formatPostText, splitTrailingHashtags } from '../lib/format-post';
 import { logger } from '../utils/logger';
+import { buildIdeaPrompt, composePrompt, mergeHashtags, type PromptDomain, type PromptFormat } from '../lib/compose-prompt';
+
+export { buildIdeaPrompt };
 
 /**
  * AI Service - Google Gemini Integration
@@ -31,21 +34,6 @@ export interface ContentGenerationInput {
   maxLength?: number;
 }
 
-/**
- * Where the idea goes inside the Settings system prompt: `{{topic}}`, or the
- * n8n-style `{{ $json["nội dung"] }}` carried over from the old workflow.
- */
-const IDEA_PLACEHOLDER = /\{\{\s*(?:topic|\$json\[[^\]]*\])\s*\}\}/g;
-
-/**
- * Build the generation prompt for "basic input" posts (no template):
- * put the idea into the placeholder if the prompt has one, otherwise append it.
- */
-export function buildIdeaPrompt(systemPrompt: string, idea: string): string {
-  const withIdea = systemPrompt.replace(IDEA_PLACEHOLDER, idea.trim());
-  return withIdea !== systemPrompt ? withIdea : `${systemPrompt}\n\nThông tin cơ bản:\n${idea.trim()}`;
-}
-
 const IDEA_POST_SCHEMA = {
   type: Type.OBJECT,
   properties: {
@@ -61,35 +49,47 @@ const ideaPostValidator = z.object({
   image_prompt: z.string().min(1),
 });
 
+const TEXT_ONLY_SCHEMA = {
+  type: Type.OBJECT,
+  properties: { post: { type: Type.STRING } },
+  required: ['post'],
+  propertyOrdering: ['post'],
+};
+
+const textOnlyValidator = z.object({ post: z.string().min(1) });
+
 /**
- * Write a post from an idea using ONLY the Settings system prompt (no extra
- * house rules), output `{ post, image_prompt }`. The post is then cleaned up
- * for Facebook and its trailing hashtags are split off, so publishing puts
- * them on the last line.
+ * Write a post for a content domain + format (spec §5.2). Same Gemini call as the
+ * old idea flow; legacy formats send exactly the old system prompt.
+ * Returns the system prompt used, to store in Post.aiPrompt.
  */
-export async function generateFromIdea(input: {
+export async function generateWithFormat(input: {
   gemini: GeminiCredentials;
-  systemPrompt: string;
+  domain: PromptDomain & { defaultHashtags?: unknown };
+  format: PromptFormat;
   idea: string;
-}): Promise<GeneratedContent> {
-  const { gemini, systemPrompt, idea } = input;
+  pageName?: string | null;
+}): Promise<GeneratedContent & { prompt: string }> {
+  const prompt = composePrompt(input);
+  const request = { systemInstruction: prompt, prompt: `Viết bài Facebook cho ý tưởng: ${input.idea.trim()}`, temperature: 0.7 };
 
   try {
-    const client = new GeminiClient(gemini);
-    const result = await client.generateJson({
-      systemInstruction: buildIdeaPrompt(systemPrompt, idea),
-      prompt: `Viết bài Facebook cho ý tưởng: ${idea.trim()}`,
-      responseSchema: IDEA_POST_SCHEMA,
-      validator: ideaPostValidator,
-      temperature: 0.7,
-    });
+    const client = new GeminiClient(input.gemini);
+    const result = input.format.withImage
+      ? await client.generateJson({ ...request, responseSchema: IDEA_POST_SCHEMA, validator: ideaPostValidator })
+      : { ...(await client.generateJson({ ...request, responseSchema: TEXT_ONLY_SCHEMA, validator: textOnlyValidator })), image_prompt: '' };
 
     const { body, hashtags } = splitTrailingHashtags(formatPostText(result.post));
-    logger.debug('Gemini generated post from idea', { length: body.length, hashtags: hashtags.length });
-
-    return { caption: body, hashtags, imagePrompt: result.image_prompt.trim(), callToAction: '' };
+    logger.debug('Gemini generated post from format', { length: body.length, hashtags: hashtags.length });
+    return {
+      caption: body,
+      hashtags: mergeHashtags(hashtags, input.domain.defaultHashtags),
+      imagePrompt: result.image_prompt.trim(),
+      callToAction: '',
+      prompt,
+    };
   } catch (error) {
-    logger.error('Failed to generate post from idea:', { error: (error as Error).message });
+    logger.error('Failed to generate post from format:', { error: (error as Error).message });
     throw new Error(`AI content generation failed: ${(error as Error).message}`);
   }
 }

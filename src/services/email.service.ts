@@ -32,6 +32,12 @@ export interface PostNotification {
  * Send post publishing result notification
  */
 export async function sendPostNotification(data: PostNotification): Promise<void> {
+  // No SMTP account configured: skip instead of a slow failing connection
+  if (!config.email.user || !config.email.pass) {
+    logger.debug('Email notification skipped: SMTP not configured', { to: data.to });
+    return;
+  }
+
   const isSuccess = data.status === 'success';
 
   const subject = isSuccess

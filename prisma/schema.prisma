@@ -20,6 +20,18 @@ enum SubscriptionPlan {
   ENTERPRISE
 }
 
+enum UserRole {
+  ADMIN
+  USER
+}
+
+/// Target length of a post format: SHORT 80–120 · MEDIUM 150–250 · LONG 300–450 words
+enum FormatLength {
+  SHORT
+  MEDIUM
+  LONG
+}
+
 enum PostStatus {
   DRAFT
   GENERATING
@@ -85,6 +97,11 @@ model User {
   isActive      Boolean @default(true)
   emailVerified Boolean @default(false)
 
+  // Access
+  role         UserRole @default(USER)
+  /// Bumped when the account is disabled or an admin changes its password / email / role => every session ends
+  tokenVersion Int      @default(0)
+
   // Subscription
   plan          SubscriptionPlan @default(FREE)
   planExpiresAt DateTime?
@@ -106,6 +123,7 @@ model User {
   schedules PostSchedule[]
   apiKeys   ApiKey[]
   settings  Setting[]
+  domains   ContentDomain[]
 
   @@map("users")
 }
@@ -162,14 +180,18 @@ model FacebookPage {
   tokenCheckedAt DateTime?
   tokenError     String?     @db.Text
 
+  /// Domain preselected when creating a post for this Page
+  defaultDomainId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  posts     Post[]
-  schedules PostSchedule[]
-  targets   PostTarget[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  posts         Post[]
+  schedules     PostSchedule[]
+  targets       PostTarget[]
+  defaultDomain ContentDomain? @relation(fields: [defaultDomainId], references: [id], onDelete: SetNull)
 
   @@unique([userId, pageId])
   @@map("facebook_pages")
@@ -210,6 +232,8 @@ model Post {
   userId     String
   pageId     String
   templateId String?
+  domainId   String?
+  formatId   String?
 
   // Input (Create Post form)
   topic      String?  @db.VarChar(500)
@@ -254,6 +278,8 @@ model Post {
   user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   page     FacebookPage     @relation(fields: [pageId], references: [id], onDelete: Cascade)
   template ContentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  domain   ContentDomain?   @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  format   ContentFormat?   @relation(fields: [formatId], references: [id], onDelete: SetNull)
   logs     PostLog[]
   steps    PostStep[]
   targets  PostTarget[]
@@ -312,6 +338,8 @@ model PostSchedule {
 
   // Content config
   templateId   String?
+  domainId     String?
+  formatId     String?
   inputData    Json? // Default input data for template
   autoGenImage Boolean @default(true)
 
@@ -324,8 +352,10 @@ model PostSchedule {
   updatedAt DateTime @updatedAt
 
   // Relations
-  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page   FacebookPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  domain ContentDomain? @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  format ContentFormat? @relation(fields: [formatId], references: [id], onDelete: SetNull)
 
   @@map("post_schedules")
 }
@@ -390,4 +420,56 @@ model PostTarget {
   @@unique([postId, pageId])
   @@index([pageId])
   @@map("post_targets")
+}
+
+// ─── Content domains & formats (how AI writes, per user) ───
+
+model ContentDomain {
+  id              String   @id @default(uuid())
+  userId          String
+  name            String   @db.VarChar(80)
+  description     String?  @db.VarChar(300)
+  audience        String?  @db.Text
+  voice           String?  @db.Text
+  rules           String?  @db.Text
+  defaultHashtags Json? // string[] ≤ 10, stored without "#"
+  imageStyle      String?  @db.VarChar(500) // English
+  language        String   @default("vi")
+  isArchived      Boolean  @default(false)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  formats   ContentFormat[]
+  pages     FacebookPage[]
+  posts     Post[]
+  schedules PostSchedule[]
+
+  @@unique([userId, name])
+  @@map("content_domains")
+}
+
+model ContentFormat {
+  id           String       @id @default(uuid())
+  domainId     String
+  name         String       @db.VarChar(80)
+  instructions String       @db.Text
+  example      String?      @db.Text
+  length       FormatLength @default(MEDIUM)
+  withImage    Boolean      @default(true)
+  isDefault    Boolean      @default(false) // exactly one default per domain
+  /// "Bài chuẩn" migrated from the old Settings system prompt: used verbatim (buildIdeaPrompt)
+  legacyPrompt Boolean      @default(false)
+  isArchived   Boolean      @default(false)
+  sortOrder    Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  domain    ContentDomain  @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  posts     Post[]
+  schedules PostSchedule[]
+
+  @@unique([domainId, name])
+  @@map("content_formats")
 }

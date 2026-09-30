@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { RefreshCw, ExternalLink, PlugZap, Unplug, ShieldCheck } from 'lucide-react';
 import { FacebookIcon } from '../components/Icons';
-import { pagesApi, type PageInfo } from '../api';
+import { pagesApi, domainsApi, type ContentDomain, type PageInfo } from '../api';
 import { useToast } from '../components/Toast';
 import PageSync from '../components/PageSync';
 import { PageStatusBadge, notifyPagesChanged, staleAppPages } from '../components/PageStatus';
@@ -18,6 +18,7 @@ export default function PagesPage() {
   const [appId, setAppId] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [domains, setDomains] = useState<ContentDomain[]>([]);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const syncOpen = params.get('sync') === '1';
@@ -42,7 +43,18 @@ export default function PagesPage() {
 
   useEffect(() => {
     load();
+    domainsApi.list().then((r) => setDomains(r.data)).catch(() => {});
   }, []);
+
+  async function setDefaultDomain(id: string, domainId: string | null) {
+    try {
+      await pagesApi.setDefaultDomain(id, domainId);
+      setPages((list) => list.map((p) => (p.id === id ? { ...p, defaultDomainId: domainId } : p)));
+      toast.success(domainId ? 'Đã đặt lĩnh vực mặc định cho Page.' : 'Đã bỏ lĩnh vực mặc định.');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  }
 
   async function checkAll() {
     setBusy('check-all');
@@ -165,6 +177,7 @@ export default function PagesPage() {
                   <tr>
                     <th scope="col">Page</th>
                     <th scope="col">Trạng thái</th>
+                    <th scope="col">Lĩnh vực mặc định</th>
                     <th scope="col">Token do app</th>
                     <th scope="col">Hạn token</th>
                     <th scope="col">Kiểm tra</th>
@@ -179,12 +192,14 @@ export default function PagesPage() {
                       appId={appId}
                       busy={busy}
                       confirming={confirmId === p.id}
+                      domains={domains}
+                      onDomain={(domainId) => setDefaultDomain(p.id, domainId)}
                       onCheck={() => checkOne(p.id)}
                       onDisconnect={() => disconnect(p.id)}
                     />
                   ))}
                   {active.length === 0 && (
-                    <tr><td colSpan={6} className="muted" style={{ textAlign: 'center', padding: 24 }}>Không có Page nào đang kết nối.</td></tr>
+                    <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}>Không có Page nào đang kết nối.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -222,11 +237,13 @@ interface RowProps {
   appId: string;
   busy: string | null;
   confirming: boolean;
+  domains: ContentDomain[];
+  onDomain: (domainId: string | null) => void;
   onCheck: () => void;
   onDisconnect: () => void;
 }
 
-function PageRow({ page: p, appId, busy, confirming, onCheck, onDisconnect }: RowProps) {
+function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onCheck, onDisconnect }: RowProps) {
   const expiresSoon = p.tokenExpiresAt && new Date(p.tokenExpiresAt).getTime() - Date.now() < 7 * DAY;
   return (
     <tr className={p.postable ? '' : 'blocked'}>
@@ -243,6 +260,19 @@ function PageRow({ page: p, appId, busy, confirming, onCheck, onDisconnect }: Ro
         <PageStatusBadge page={p} />
         {p.blockMessage && <div className="cell-note error">{p.blockMessage}</div>}
         {!p.blockMessage && p.tokenStatus === 'ERROR' && p.tokenError && <div className="cell-note">{p.tokenError}</div>}
+      </td>
+      <td>
+        <select
+          className="form-select select-sm"
+          aria-label={`Lĩnh vực mặc định của ${p.pageName}`}
+          value={p.defaultDomainId ?? ''}
+          onChange={(e) => onDomain(e.target.value || null)}
+        >
+          <option value="">— Không —</option>
+          {domains.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </select>
       </td>
       <td className="mono">
         {p.tokenAppId ? (

@@ -4,6 +4,8 @@ import prisma from '../utils/prisma';
 import { AuthRequest, authenticate, requirePlan } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
 import { removeScheduleJob, syncScheduleJob } from '../services/scheduler.service';
+import { assertOwnTemplate } from '../lib/ownership';
+import { resolveDomainFormat } from '../lib/domains';
 
 const router = Router();
 router.use(authenticate);
@@ -19,6 +21,8 @@ const createScheduleSchema = z.object({
   startDate: z.string().datetime(),
   endDate: z.string().datetime().optional(),
   templateId: z.string().uuid().optional(),
+  domainId: z.string().uuid().optional(),
+  formatId: z.string().uuid().optional(),
   inputData: z.record(z.string()).optional(),
   autoGenImage: z.boolean().optional().default(true),
 });
@@ -54,6 +58,9 @@ router.post(
       where: { id: data.pageId, userId, isActive: true },
     });
     if (!page) throw createError(404, 'Page not found');
+    await assertOwnTemplate(userId, data.templateId);
+    const picked =
+      data.domainId || data.formatId ? await resolveDomainFormat(userId, { domainId: data.domainId, formatId: data.formatId, pageId: data.pageId }) : null;
 
     const startDate = new Date(data.startDate);
     const endDate = data.endDate ? new Date(data.endDate) : undefined;
@@ -72,6 +79,8 @@ router.post(
         startDate,
         endDate,
         templateId: data.templateId,
+        domainId: picked?.domain.id,
+        formatId: picked?.format.id,
         inputData: data.inputData || undefined,
         autoGenImage: data.autoGenImage!,
       },
@@ -99,12 +108,23 @@ router.put(
 
     if (!schedule) throw createError(404, 'Schedule not found');
 
+    // Ids in the body must belong to the caller too
+    if (data.pageId && !(await prisma.facebookPage.findFirst({ where: { id: data.pageId, userId: req.user!.id, isActive: true } }))) {
+      throw createError(404, 'Page not found');
+    }
+    await assertOwnTemplate(req.user!.id, data.templateId);
+    const picked =
+      data.domainId || data.formatId
+        ? await resolveDomainFormat(req.user!.id, { domainId: data.domainId, formatId: data.formatId, pageId: data.pageId ?? schedule.pageId })
+        : null;
+
     const updated = await prisma.postSchedule.update({
       where: { id: req.params.id },
       data: {
         ...data,
         startDate: data.startDate ? new Date(data.startDate) : undefined,
         endDate: data.endDate ? new Date(data.endDate) : undefined,
+        ...(picked && { domainId: picked.domain.id, formatId: picked.format.id }),
       },
     });
 

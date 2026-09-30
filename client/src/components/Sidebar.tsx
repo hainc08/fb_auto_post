@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown } from 'lucide-react';
-import { pagesApi, postsApi, settingsApi, getStoredUser, type PublicSettings } from '../api';
+import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown, LogOut, Users, Shapes } from 'lucide-react';
+import { pagesApi, postsApi, settingsApi, type PublicSettings } from '../api';
+import { useAuth } from '../auth';
 
 type Health = 'ok' | 'warn' | 'bad';
 
@@ -41,7 +42,8 @@ const initials = (name: string) =>
 
 export default function Sidebar() {
   const location = useLocation();
-  const user = getStoredUser();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [pages, setPages] = useState<any[]>([]);
   const [pending, setPending] = useState(0);
   const [settings, setSettings] = useState<PublicSettings | null>(null);
@@ -114,6 +116,10 @@ export default function Sidebar() {
             <span className="nav-label">Lịch đăng</span>
             <span className="nav-tag">Beta</span>
           </NavLink>
+          <NavLink to="/domains" className={navClass}>
+            <Shapes className="nav-icon" strokeWidth={1.8} />
+            <span className="nav-label">Lĩnh vực</span>
+          </NavLink>
         </div>
 
         <div className="nav-group">
@@ -126,6 +132,12 @@ export default function Sidebar() {
             <SlidersHorizontal className="nav-icon" strokeWidth={1.8} />
             <span className="nav-label">Cài đặt</span>
           </NavLink>
+          {user?.role === 'ADMIN' && (
+            <NavLink to="/admin/users" className={navClass}>
+              <Users className="nav-icon" strokeWidth={1.8} />
+              <span className="nav-label">Người dùng</span>
+            </NavLink>
+          )}
         </div>
       </nav>
 
@@ -144,11 +156,23 @@ export default function Sidebar() {
         )}
 
         <div className="user-profile">
-          <span className="avatar ink">{user?.name?.charAt(0)?.toUpperCase() || 'A'}</span>
+          <span className="avatar ink">{user?.name?.charAt(0)?.toUpperCase() || '?'}</span>
           <div className="user-info">
-            <span className="user-name">{user?.name || 'Admin'}</span>
-            <span className="user-plan">Quản trị viên</span>
+            <span className="user-name">{user?.name}</span>
+            <span className="user-plan" title={user?.email}>{user?.role === 'ADMIN' ? 'Quản trị viên' : user?.email}</span>
           </div>
+          <button
+            type="button"
+            className="icon-btn logout-btn"
+            aria-label="Đăng xuất"
+            title="Đăng xuất"
+            onClick={async () => {
+              await logout();
+              navigate('/login', { replace: true });
+            }}
+          >
+            <LogOut size={16} aria-hidden="true" />
+          </button>
         </div>
       </div>
     </aside>
