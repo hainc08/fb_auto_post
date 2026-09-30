@@ -7,6 +7,10 @@ import { fetchWithRetry, redactSecrets } from '../http';
 
 const GRAPH_BASE = 'https://graph.facebook.com';
 const TIMEOUT_MS = 60_000;
+const GRAPH_VIDEO_BASE = 'https://graph-video.facebook.com';
+const RUPLOAD_BASE = 'https://rupload.facebook.com/video-upload';
+/** Uploading up to 100 MB from a shared host can take minutes */
+const VIDEO_TIMEOUT_MS = 15 * 60_000;
 
 export const REQUIRED_SCOPES = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'];
 
@@ -206,11 +210,11 @@ export class FacebookClient {
    * we never saw the response, and a blind retry would publish it twice.
    */
   private async postOnce<T>(path: string, body: FormData | URLSearchParams, pageToken: string): Promise<T> {
-    const response = await fetchWithRetry(
-      this.url(path),
-      { method: 'POST', body },
-      { timeoutMs: TIMEOUT_MS, retries: 0, retryOnTimeout: false }
-    );
+    return this.postOnceTo<T>(this.url(path), { method: 'POST', body }, pageToken);
+  }
+
+  private async postOnceTo<T>(url: string, init: RequestInit, pageToken: string, timeoutMs = TIMEOUT_MS): Promise<T> {
+    const response = await fetchWithRetry(url, init, { timeoutMs, retries: 0, retryOnTimeout: false });
     return this.parse<T>(response, [pageToken]);
   }
 
@@ -235,11 +239,61 @@ export class FacebookClient {
     return { postId: res.id };
   }
 
+  /** Normal Page video post (video + caption in the feed). */
+  async publishVideo(pageId: string, pageToken: string, video: { blob: Blob; mime: string }, message: string): Promise<PublishedPost> {
+    const form = new FormData();
+    form.append('source', video.blob, `post-video.${video.mime === 'video/quicktime' ? 'mov' : 'mp4'}`);
+    form.append('description', message);
+    form.append('access_token', pageToken);
+    const res = await this.postOnceTo<{ id: string }>(
+      `${GRAPH_VIDEO_BASE}/${this.config.graphVersion}/${pageId}/videos`,
+      { method: 'POST', body: form },
+      pageToken,
+      VIDEO_TIMEOUT_MS
+    );
+    return { postId: res.id, videoId: res.id };
+  }
+
+  /** Page Reel: start an upload session, send the bytes, then publish. */
+  async publishReel(pageId: string, pageToken: string, video: { blob: Blob; size: number }, message: string): Promise<PublishedPost> {
+    const start = await this.postOnce<{ video_id: string }>(
+      `${pageId}/video_reels`,
+      new URLSearchParams({ upload_phase: 'start', access_token: pageToken }),
+      pageToken
+    );
+    const uploaded = await this.postOnceTo<{ success?: boolean }>(
+      `${RUPLOAD_BASE}/${this.config.graphVersion}/${start.video_id}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `OAuth ${pageToken}`, offset: '0', file_size: String(video.size) },
+        body: video.blob,
+      },
+      pageToken,
+      VIDEO_TIMEOUT_MS
+    );
+    // Nothing is public until "finish", so a failed upload can simply be retried
+    if (!uploaded.success) throw new Error('Facebook không nhận được video Reels. Hãy thử lại.');
+    await this.postOnce(
+      `${pageId}/video_reels`,
+      new URLSearchParams({
+        upload_phase: 'finish',
+        video_id: start.video_id,
+        video_state: 'PUBLISHED',
+        description: message,
+        access_token: pageToken,
+      }),
+      pageToken
+    );
+    return { postId: start.video_id, videoId: start.video_id };
+  }
+
   /** Permalink of a published post; optional, so failures return undefined. */
   async getPermalink(postId: string, pageToken: string): Promise<string | undefined> {
     try {
       const res = await this.get<{ permalink_url?: string }>(postId, { fields: 'permalink_url', access_token: pageToken }, [pageToken]);
-      return res.permalink_url;
+      const link = res.permalink_url;
+      // Video nodes return a site-relative path
+      return link?.startsWith('/') ? `https://www.facebook.com${link}` : link;
     } catch {
       return undefined;
     }
@@ -249,6 +303,7 @@ export class FacebookClient {
 export interface PublishedPost {
   postId: string;
   photoId?: string;
+  videoId?: string;
 }
 
 function toDebugInfo(raw: RawDebugData | undefined, inputToken: string): TokenDebugInfo {
