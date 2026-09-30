@@ -66,6 +66,12 @@ enum ScheduleFrequency {
   WEEKLY
   MONTHLY
   CUSTOM_CRON // legacy, no longer accepted by the API
+  SLOTS // weekdays + times of day (Phase 2); every schedule is converted to this
+}
+
+enum IdeaStatus {
+  QUEUED
+  USED
 }
 
 enum TokenStatus {
@@ -197,6 +203,7 @@ model FacebookPage {
   posts         Post[]
   schedules     PostSchedule[]
   targets       PostTarget[]
+  schedulePages SchedulePage[]
   defaultDomain ContentDomain? @relation(fields: [defaultDomainId], references: [id], onDelete: SetNull)
 
   @@unique([userId, pageId])
@@ -280,6 +287,11 @@ model Post {
   publishedAt  DateTime?
   scheduledAt  DateTime?
 
+  // Posts written ahead by a slot schedule (scheduledAt = the slot it holds)
+  scheduleId     String?
+  scheduleQueued Boolean   @default(false) // still holds a slot of its schedule
+  approvedAt     DateTime? // approved for its slot (status SCHEDULED)
+
   // Input variables (JSON) - data used to fill template
   inputData Json?
 
@@ -292,12 +304,14 @@ model Post {
   template ContentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   domain   ContentDomain?   @relation(fields: [domainId], references: [id], onDelete: SetNull)
   format   ContentFormat?   @relation(fields: [formatId], references: [id], onDelete: SetNull)
+  schedule PostSchedule?    @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   logs     PostLog[]
   steps    PostStep[]
   targets  PostTarget[]
 
   @@index([userId, status])
   @@index([scheduledAt])
+  @@index([scheduleId, scheduleQueued])
   @@map("posts")
 }
 
@@ -355,6 +369,12 @@ model PostSchedule {
   inputData    Json? // Default input data for template
   autoGenImage Boolean @default(true)
 
+  // Slot schedules: 0 = Sunday … 6 = Saturday and "HH:mm" (Vietnam time), 1–3 slots
+  weekdays   Json?
+  slots      Json?
+  /// Posts kept written ahead for the next slots
+  bufferSize Int   @default(3)
+
   // Tracking
   lastRunAt DateTime?
   nextRunAt DateTime?
@@ -368,8 +388,40 @@ model PostSchedule {
   page   FacebookPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
   domain ContentDomain? @relation(fields: [domainId], references: [id], onDelete: SetNull)
   format ContentFormat? @relation(fields: [formatId], references: [id], onDelete: SetNull)
+  pages  SchedulePage[]
+  ideas  ScheduleIdea[]
+  posts  Post[]
 
   @@map("post_schedules")
+}
+
+/// Pages a schedule publishes to (post_schedules.pageId = the first one)
+model SchedulePage {
+  scheduleId String
+  pageId     String
+
+  schedule PostSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  page     FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@id([scheduleId, pageId])
+  @@map("schedule_pages")
+}
+
+/// Ideas a schedule writes posts from, in order
+model ScheduleIdea {
+  id         String     @id @default(uuid())
+  scheduleId String
+  text       String     @db.VarChar(500)
+  position   Int
+  status     IdeaStatus @default(QUEUED)
+  postId     String? // post written from this idea
+  usedAt     DateTime?
+  createdAt  DateTime   @default(now())
+
+  schedule PostSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId, status, position])
+  @@map("schedule_ideas")
 }
 
 // ─── Job Queue ──────────────────────────────────
