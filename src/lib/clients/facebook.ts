@@ -17,6 +17,9 @@ const RUPLOAD_BASE = 'https://rupload.facebook.com/video-upload';
 export const VIDEO_TIMEOUT_MS = 6 * 60_000;
 
 export const REQUIRED_SCOPES = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'];
+/** Optional: without them the Page still posts; the comments panel asks for a re-sync */
+export const COMMENT_READ_SCOPE = 'pages_read_user_content';
+export const COMMENT_REPLY_SCOPE = 'pages_manage_engagement';
 
 /** A Page token belongs to the app that issued it; after switching App ID it must be re-issued. */
 export const OTHER_APP_TOKEN_MESSAGE =
@@ -292,6 +295,56 @@ export class FacebookClient {
   }
 
   /** Permalink of a published post; optional, so failures return undefined. */
+  /**
+   * Reactions / comments / shares of many posts, 50 per call (Graph "ids" batch).
+   * One bad id fails the whole batch (a deleted post; "shares" does not exist on videos),
+   * so a failed batch is retried id by id and only the ids Facebook refuses are left out.
+   * A token error still fails the call: the whole Page needs a re-sync.
+   */
+  async getEngagement(postIds: string[], pageToken: string): Promise<Record<string, PostEngagement>> {
+    const out: Record<string, PostEngagement> = {};
+    const toCounts = (r: RawEngagement): PostEngagement => ({
+      reactions: r.reactions?.summary?.total_count ?? 0,
+      comments: r.comments?.summary?.total_count ?? 0,
+      shares: r.shares?.count ?? 0,
+    });
+    for (let i = 0; i < postIds.length; i += 50) {
+      const ids = postIds.slice(i, i + 50);
+      try {
+        const res = await this.get<Record<string, RawEngagement>>('', { ids: ids.join(','), fields: ENGAGEMENT_FIELDS, access_token: pageToken }, [pageToken]);
+        for (const id of ids) if (res[id]) out[id] = toCounts(res[id]);
+      } catch (error) {
+        if (!(error instanceof FacebookApiError) || error.code === 190) throw error;
+        for (const id of ids) {
+          for (const fields of [ENGAGEMENT_FIELDS, ENGAGEMENT_FIELDS_NO_SHARES]) {
+            try {
+              out[id] = toCounts(await this.get<RawEngagement>(id, { fields, access_token: pageToken }, [pageToken]));
+              break;
+            } catch (one) {
+              if (!(one instanceof FacebookApiError) || one.code === 190) throw one;
+            }
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Latest 50 top-level comments (newest first), each with its 25 newest replies. */
+  async getComments(postId: string, pageToken: string): Promise<GraphComment[]> {
+    const res = await this.get<{ data?: GraphComment[] }>(
+      `${postId}/comments`,
+      { filter: 'toplevel', order: 'reverse_chronological', limit: '50', fields: `${COMMENT_FIELDS},comments.order(reverse_chronological).limit(25){${COMMENT_FIELDS}}`, access_token: pageToken },
+      [pageToken]
+    );
+    return res.data ?? [];
+  }
+
+  /** Reply as the Page. Once, never retried (a blind retry could post the reply twice). */
+  async replyToComment(commentId: string, pageToken: string, message: string): Promise<{ id: string }> {
+    return this.postOnce<{ id: string }>(`${commentId}/comments`, new URLSearchParams({ message, access_token: pageToken }), pageToken);
+  }
+
   async getPermalink(postId: string, pageToken: string): Promise<string | undefined> {
     try {
       const res = await this.get<{ permalink_url?: string }>(postId, { fields: 'permalink_url', access_token: pageToken }, [pageToken]);
@@ -309,6 +362,37 @@ export interface PublishedPost {
   photoId?: string;
   videoId?: string;
 }
+
+export interface PostEngagement {
+  reactions: number;
+  comments: number;
+  shares: number;
+}
+
+interface RawEngagement {
+  reactions?: { summary?: { total_count?: number } };
+  comments?: { summary?: { total_count?: number } };
+  shares?: { count?: number };
+}
+
+export interface GraphComment {
+  id: string;
+  message?: string;
+  created_time: string;
+  from?: { id: string; name?: string };
+  /** Replies, newest first; paging.next = more replies than were returned */
+  comments?: { data: GraphComment[]; paging?: { next?: string } };
+}
+
+/** Graph "permission" errors: code 10 and 200–299 */
+export function isPermissionError(error: unknown): boolean {
+  return error instanceof FacebookApiError && (error.code === 10 || (typeof error.code === 'number' && error.code >= 200 && error.code < 300));
+}
+
+const ENGAGEMENT_FIELDS = 'reactions.summary(total_count).limit(0),comments.filter(stream).summary(total_count).limit(0),shares';
+/** Video / Reel nodes have no "shares" field */
+const ENGAGEMENT_FIELDS_NO_SHARES = 'reactions.summary(total_count).limit(0),comments.filter(stream).summary(total_count).limit(0)';
+const COMMENT_FIELDS = 'id,message,created_time,from{id,name}';
 
 function toDebugInfo(raw: RawDebugData | undefined, inputToken: string): TokenDebugInfo {
   const d = raw ?? ({} as RawDebugData);

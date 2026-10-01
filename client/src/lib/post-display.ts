@@ -6,6 +6,11 @@ export interface TargetSummary {
   status: TargetStatus;
   errorMessage?: string | null;
   page?: { id: string; pageName: string } | null;
+  /** Engagement (hourly sync); null = never synced */
+  reactionCount?: number | null;
+  commentCount?: number | null;
+  shareCount?: number | null;
+  unansweredCount?: number;
 }
 
 export interface ListPost {
@@ -114,4 +119,16 @@ export function pageFilterOptions(
 ): { show: boolean; options: Array<{ id: string; pageName: string }> } {
   const options = selectedId && !pages.some((p) => p.id === selectedId) ? [...pages, { id: selectedId, pageName: 'Page đã chọn' }] : pages;
   return { show: pages.length > 1 || !!selectedId, options };
+}
+
+/** Engagement of a post over all its Pages; synced = at least one Page has counts */
+export function engagementTotals(targets: TargetSummary[] | undefined) {
+  const t = targets ?? [];
+  return {
+    reactions: t.reduce((s, x) => s + (x.reactionCount ?? 0), 0),
+    comments: t.reduce((s, x) => s + (x.commentCount ?? 0), 0),
+    shares: t.reduce((s, x) => s + (x.shareCount ?? 0), 0),
+    unanswered: t.reduce((s, x) => s + (x.unansweredCount ?? 0), 0),
+    synced: t.some((x) => x.reactionCount != null),
+  };
 }

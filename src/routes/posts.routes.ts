@@ -157,7 +157,17 @@ router.get(
           ...domainFormatSelect,
           // Per-Page progress in the list (name + short error in a popover)
           targets: {
-            select: { status: true, errorMessage: true, page: { select: { id: true, pageName: true } } },
+            select: {
+              status: true,
+              errorMessage: true,
+              page: { select: { id: true, pageName: true } },
+              // Engagement (hourly sync)
+              reactionCount: true,
+              commentCount: true,
+              shareCount: true,
+              unansweredCount: true,
+              statsSyncedAt: true,
+            },
             orderBy: { createdAt: 'asc' },
           },
           scheduleQueued: true,

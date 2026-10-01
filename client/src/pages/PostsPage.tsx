@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye } from 'lucide-react';
+import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye, MessageCircle } from 'lucide-react';
 import { postsApi, domainsApi, assetUrl, type ContentDomain } from '../api';
 import EditPostModal from '../components/EditPostModal';
 import { useToast } from '../components/Toast';
 import { formatWhen, pageInitials } from '../components/PostBits';
 import PostListItem from '../components/PostListItem';
 import PostFilters from '../components/PostFilters';
+import CommentsPanel from '../components/CommentsPanel';
 import type { MenuAction } from '../components/PostActionsMenu';
-import { matchesFilters, statusCounts, type TimeRange, type TargetSummary } from '../lib/post-display';
+import { matchesFilters, statusCounts, engagementTotals, type TimeRange, type TargetSummary } from '../lib/post-display';
 import { slotLabel } from '../components/ScheduleBits';
 
 interface PostData {
@@ -117,6 +118,7 @@ export default function PostsPage() {
   const [retrying, setRetrying] = useState<string | null>(null);
   /** Inline "Duyệt & đăng" waiting for its second click */
   const [armed, setArmed] = useState<string | null>(null);
+  const [commentsFor, setCommentsFor] = useState<string | null>(null);
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -155,6 +157,7 @@ export default function PostsPage() {
   // Every filter but the status tab (tab counts and the overview follow search/Page/time)
   const filtered = useMemo(() => posts.filter((p) => matchesFilters(p, { q, pageId: pageFilter, time })), [posts, q, pageFilter, time]);
   const counts = useMemo(() => statusCounts(filtered), [filtered]);
+  const pendingComments = useMemo(() => filtered.reduce((s, p) => s + engagementTotals(p.targets).unanswered, 0), [filtered]);
   const visible = useMemo(() => filtered.filter((p) => !status || p.status === status), [filtered, status]);
   const pageOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -251,6 +254,7 @@ export default function PostsPage() {
     const a: MenuAction[] = [{ key: 'open', label: 'Xem chi tiết', icon: <Eye size={15} aria-hidden="true" />, onSelect: () => setSelectedId(p.id) }];
     if (EDITABLE.includes(p.status) && !live) a.push({ key: 'edit', label: 'Sửa bài', icon: <PenLine size={15} aria-hidden="true" />, onSelect: () => setEditingId(p.id) });
     if (p.fbPermalink) a.push({ key: 'fb', label: 'Xem trên Facebook', icon: <ExternalLink size={15} aria-hidden="true" />, href: p.fbPermalink });
+    if (live) a.push({ key: 'comments', label: 'Xem bình luận', icon: <MessageCircle size={15} aria-hidden="true" />, onSelect: () => setCommentsFor(p.id) });
     if (p.status === 'READY' && p.scheduleQueued) {
       a.push({ key: 'approve', label: 'Duyệt (đăng theo lịch)', icon: <CalendarClock size={15} aria-hidden="true" />, onSelect: () => void approve(p.id) });
     }
@@ -330,6 +334,7 @@ export default function PostsPage() {
             <span className={counts.READY ? 'attention' : ''}><strong>{counts.READY ?? 0}</strong> chờ duyệt</span>
             {!!counts.SCHEDULED && <span><strong>{counts.SCHEDULED}</strong> đã lên lịch</span>}
             {!!counts.FAILED && <span className="danger"><strong>{counts.FAILED}</strong> lỗi</span>}
+            {pendingComments > 0 && <span className="attention"><strong>{pendingComments}</strong> bình luận cần trả lời</span>}
           </p>
         )}
 
@@ -373,6 +378,7 @@ export default function PostsPage() {
                 onSelect={() => setSelectedId(p.id)}
                 actions={rowActions(p)}
                 inline={rowInline(p)}
+                onComments={() => setCommentsFor(p.id)}
               />
             ))}
           </section>
@@ -557,6 +563,7 @@ export default function PostsPage() {
         )}
       </aside>
 
+      {commentsFor && <CommentsPanel postId={commentsFor} onClose={() => setCommentsFor(null)} onChanged={() => void load()} />}
       {editingId && <EditPostModal postId={editingId} onClose={() => setEditingId(null)} onSaved={handleSaved} />}
     </div>
   );

@@ -54,6 +54,7 @@ const refSchema = z.object({
     tokenAppId: z.string().nullable(),
     tokenExpiresAt: z.string().nullable(),
     missingScopes: z.array(z.string()),
+    grantedScopes: z.array(z.string()).default([]),
     tokenError: z.string().nullable(),
   }),
   userId: z.string(),
@@ -193,6 +194,7 @@ export async function applySync(userId: string, refs: string[], disconnectIds: s
         tokenAppId: p.check.tokenAppId,
         tokenExpiresAt: p.check.tokenExpiresAt ? new Date(p.check.tokenExpiresAt) : null,
         missingScopes: p.check.missingScopes,
+        grantedScopes: p.check.grantedScopes,
         tokenError: p.check.tokenError,
         tokenCheckedAt: now,
       };

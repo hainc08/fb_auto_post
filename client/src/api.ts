@@ -321,6 +321,35 @@ export interface PostUpdate {
   videoKind?: VideoKind;
 }
 
+export interface PostCommentRow {
+  id: string;
+  fbCommentId: string;
+  authorName: string | null;
+  message: string;
+  commentedAt: string;
+  fromPage: boolean;
+  handledAt: string | null;
+}
+
+export interface CommentThread extends PostCommentRow {
+  needsReply: boolean;
+  replies: PostCommentRow[];
+}
+
+export interface CommentsPage {
+  targetId: string;
+  page: { id: string; pageName: string };
+  canRead: boolean;
+  canReply: boolean;
+  commentsError: string | null;
+  statsSyncedAt: string | null;
+  reactionCount: number | null;
+  commentCount: number | null;
+  shareCount: number | null;
+  unansweredCount: number;
+  threads: CommentThread[];
+}
+
 export const postsApi = {
   list: (params?: { status?: string; pageId?: string; domainId?: string; page?: string; limit?: string }) => {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -394,6 +423,13 @@ export const postsApi = {
     apiFetch(`/posts/${id}/improve`, { method: 'POST', body: JSON.stringify({ instruction, caption }) }),
 
   /** Publish to `pageIds` (default: the post's Pages), `intervalMinutes` apart. */
+  comments: (id: string) => apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments`),
+  refreshComments: (id: string) => apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments/refresh`, { method: 'POST' }),
+  replyComment: (id: string, commentId: string, message: string) =>
+    apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments/${commentId}/reply`, { method: 'POST', body: JSON.stringify({ message }) }),
+  markHandled: (id: string, commentId: string, handled: boolean) =>
+    apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments/${commentId}`, { method: 'PATCH', body: JSON.stringify({ handled }) }),
+
   /** Approve a schedule post for its slot. */
   approve: (id: string) => apiFetch<{ id: string; status: string; scheduledAt: string | null }>(`/posts/${id}/approve`, { method: 'POST' }),
 

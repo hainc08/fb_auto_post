@@ -189,6 +189,7 @@ model FacebookPage {
   tokenStatus    TokenStatus @default(UNCHECKED)
   tokenExpiresAt DateTime?
   missingScopes  Json? // string[]
+  grantedScopes  Json? // string[] — token scopes at the last check (optional comment scopes live here)
   tokenCheckedAt DateTime?
   tokenError     String?     @db.Text
 
@@ -478,12 +479,42 @@ model PostTarget {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  post Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
-  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  // Engagement (hourly sync, src/services/engagement-sync.ts); null = never synced
+  reactionCount   Int?
+  commentCount    Int?
+  shareCount      Int?
+  unansweredCount Int       @default(0)
+  statsSyncedAt   DateTime?
+  commentsError   String?   @db.Text
+
+  post     Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  page     FacebookPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  comments PostComment[]
 
   @@unique([postId, pageId])
   @@index([pageId])
   @@map("post_targets")
+}
+
+/// Comments of one published post on one Page (latest 50 top-level + their replies)
+model PostComment {
+  id          String    @id @default(uuid())
+  targetId    String
+  fbCommentId String    @unique
+  parentFbId  String? // null = top-level
+  authorId    String?
+  authorName  String?   @db.VarChar(200)
+  message     String    @db.Text
+  commentedAt DateTime
+  fromPage    Boolean   @default(false)
+  pageReplied Boolean   @default(false) // top-level: the Page has replied (in the app or on Facebook)
+  handledAt   DateTime? // marked "Đã xử lý" without a reply
+  syncedAt    DateTime  @default(now())
+
+  target PostTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([targetId, parentFbId])
+  @@map("post_comments")
 }
 
 // ─── Content domains & formats (how AI writes, per user) ───
