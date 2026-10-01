@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
  * AES-256-GCM encryption for secrets stored in the DB.
@@ -39,6 +39,11 @@ export function decrypt(payload: string): string {
 
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
 }
+
+const sha256 = (value: string) => createHash('sha256').update(value).digest();
+
+/** Constant-time comparison (hashing first makes lengths equal). */
+export const safeEqual = (a: string, b: string) => timingSafeEqual(sha256(a), sha256(b));
 
 /** True if the value looks like our `iv:authTag:ciphertext` format. */
 export function isEncrypted(value: string): boolean {

@@ -32,7 +32,7 @@ Deploy: Hostinger Node.js app builds from the generated **`deploy` branch** (`np
 
 ## Architecture
 
-**One process.** `src/app.ts` `createApp()` builds the Express app (Basic Auth gate if `BASIC_AUTH_*` set, CORS with credentials, `/health`, `/cron/tick`, CSRF guard, every router in `API_ROUTERS`, then the built SPA from `client/dist`). `src/server.ts` runs `runBootstrap()` (`src/lib/bootstrap.ts`: refuse a weak `JWT_SECRET` in production, ensure an ADMIN exists via `ADMIN_EMAIL`/`ADMIN_PASSWORD`, migrate content domains), starts the job worker, then listens. Tests import `createApp()` and hit it over real HTTP (`tests/helpers/http.ts`).
+**One process.** `src/app.ts` `createApp()` builds the Express app (CORS with credentials, `/health`, `/cron/tick`, CSRF guard, every router in `API_ROUTERS`, then the built SPA from `client/dist`). `src/server.ts` runs `runBootstrap()` (`src/lib/bootstrap.ts`: refuse a weak `JWT_SECRET` in production, ensure an ADMIN exists via `ADMIN_EMAIL`/`ADMIN_PASSWORD`, migrate content domains), starts the job worker, then listens. Tests import `createApp()` and hit it over real HTTP (`tests/helpers/http.ts`).
 
 **Job queue in MariaDB, no Redis.** `src/lib/job-queue.ts` stores jobs in the `jobs` table (`enqueue`, keyed `upsertKeyedJob`, `claimNextJob` with an UPDATE-lock, retries, `UnrecoverableJobError`, stale-job recovery). `src/services/scheduler.service.ts` registers the handlers:
 - `publish_post` (`runPublishJob`): write text with AI if needed → generate/reuse the image → queue one `publish_target` per Page, staggered by `intervalMs`.

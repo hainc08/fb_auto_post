@@ -5,8 +5,8 @@ import { existsSync } from 'node:fs';
 import { config } from './config';
 import { logger } from './utils/logger';
 import { asyncHandler, createError, errorHandler, notFoundHandler } from './middleware/error.middleware';
-import { basicAuthGate, safeEqual } from './middleware/basic-auth.middleware';
 import { csrfGuard } from './middleware/auth.middleware';
+import { safeEqual } from './lib/crypto';
 import authRoutes from './routes/auth.routes';
 import adminRoutes from './routes/admin.routes';
 import pagesRoutes from './routes/pages.routes';
@@ -45,13 +45,6 @@ export function createApp() {
 
   // Behind the hosting proxy (HTTPS terminated upstream)
   app.set('trust proxy', 1);
-
-  const gate = basicAuthGate(process.env.BASIC_AUTH_USER, process.env.BASIC_AUTH_PASS);
-  if (gate) {
-    app.use(gate);
-  } else if (config.env === 'production') {
-    logger.warn('⚠️  BASIC_AUTH_USER/BASIC_AUTH_PASS not set: the app is only protected by its own login');
-  }
 
   app.use(cors({ origin: [config.clientUrl, 'http://localhost:5173', 'http://localhost:3000'], credentials: true }));
   app.use(express.json({ limit: '10mb' }));

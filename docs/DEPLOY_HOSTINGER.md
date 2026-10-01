@@ -36,7 +36,7 @@ Chạy trên máy (mỗi lệnh 1 giá trị):
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # ENCRYPTION_KEY
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"      # JWT_SECRET
-node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" # ADMIN_PASSWORD (hoặc BASIC_AUTH_PASS nếu dùng)
+node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))" # ADMIN_PASSWORD
 ```
 - **ENCRYPTION_KEY** mã hoá API key + Page token trong DB. **Lưu lại cẩn thận**; đổi khoá = mất khả năng giải mã dữ liệu cũ (phải nhập lại cấu hình).
 - Nếu định chuyển dữ liệu từ máy local lên (mục 6) thì dùng **đúng ENCRYPTION_KEY đang có trong `.env` local**.
@@ -82,7 +82,6 @@ Video bài viết nằm ở `STORAGE_DIR/videos` (tối đa 100 MB mỗi video).
 | `ENCRYPTION_KEY` | mục 1.2 |
 | `JWT_SECRET` | mục 1.2 — **bắt buộc**, ≥ 32 ký tự ngẫu nhiên (thiếu/yếu thì app không khởi động) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | lần deploy đầu: tài khoản quản trị (mật khẩu ≥ 8 ký tự). Xoá `ADMIN_PASSWORD` sau khi đăng nhập được |
-| `BASIC_AUTH_USER`, `BASIC_AUTH_PASS` | **tuỳ chọn** — lớp mật khẩu thứ hai cho cả trang; app đã có đăng nhập riêng |
 | `STORAGE_DIR` | mục 1.3 |
 | `CRON_SECRET` | chuỗi ngẫu nhiên — cho Cron Job ở mục 4 |
 | `VITE_FB_APP_ID` | Facebook App ID (dùng lúc build giao diện, cho nút "Kết nối Page") |
@@ -125,7 +124,7 @@ Worker đăng bài chạy **chung tiến trình** với web. Nếu Hostinger cho
    ```bash
    curl -fsS -m 55 "https://ten-mien-cua-ban.com/cron/tick?key=CRON_SECRET_CUA_BAN" > /dev/null
    ```
-   Mỗi lần gọi: đánh thức app, chạy hết job tới hạn (tối đa ~45 giây) rồi trả `{"ok":true,"processed":N}`. Không cần mật khẩu Basic Auth; sai/thiếu key → 401.
+   Mỗi lần gọi: đánh thức app, chạy hết job tới hạn (tối đa ~45 giây) rồi trả `{"ok":true,"processed":N}`. Không cần đăng nhập; sai/thiếu key → 401.
    Lịch đăng được xử lý mỗi phút (đăng bài đã duyệt, dời bài chưa duyệt, AI viết sẵn bài), nên cron nên chạy **mỗi phút**. Nếu gói chỉ cho mỗi 5 phút thì giờ đăng có thể trễ tới 5 phút.
 
 **4.2 Theo dõi**
@@ -184,7 +183,7 @@ Làm **một lần** khi đưa bản có đăng nhập + lĩnh vực lên host �
    - Page và bài cũ vẫn còn;
    - **Lĩnh vực** có "Mặc định / Bài chuẩn" (chính là System prompt cũ);
    - tạo 1 bài → nội dung giống cách viết trước đây.
-4. Xoá `ADMIN_PASSWORD` (và `BASIC_AUTH_USER`, `BASIC_AUTH_PASS` nếu không muốn giữ lớp mật khẩu thứ hai) khỏi hPanel → **Redeploy**.
+4. Xoá `ADMIN_PASSWORD`, `BASIC_AUTH_USER` và `BASIC_AUTH_PASS` khỏi hPanel → **Redeploy**. (Lớp mật khẩu Basic Auth đã bị gỡ từ 2026-10-01: app chỉ còn đăng nhập bằng tài khoản do admin cấp, hai biến `BASIC_AUTH_*` không còn tác dụng.)
 5. **Người dùng** → Thêm member cho từng người (đặt mật khẩu, gửi riêng cho họ). Mỗi member tự nhập key trong **Cài đặt** và đồng bộ Page của mình.
 
 Không đổi: Cron Job `/cron/tick`, `/health`, UptimeRobot, đồng bộ Page, branch `deploy`.
@@ -203,4 +202,4 @@ Không đổi: Cron Job `/cron/tick`, `/health`, UptimeRobot, đồng bộ Page,
 | Ảnh mất sau khi deploy | Chưa đặt `STORAGE_DIR` hoặc thư mục không ghi được — kiểm tra quyền qua SSH |
 | Không đăng nhập được admin | Kiểm tra `ADMIN_EMAIL`/`ADMIN_PASSWORD` rồi **Restart**; log có dòng `[Bootstrap]` cho biết đã đặt mật khẩu hay chưa |
 | App không khởi động, log `JWT_SECRET phải là chuỗi ngẫu nhiên…` | Đặt `JWT_SECRET` ≥ 32 ký tự ngẫu nhiên, Restart |
-| Trình duyệt hỏi user/mật khẩu (hộp thoại của trình duyệt) | Đang bật `BASIC_AUTH_USER/PASS` — nhập đúng, hoặc xoá 2 biến này rồi **Redeploy** |
+| Trình duyệt hỏi user/mật khẩu (hộp thoại của trình duyệt) | Host đang chạy bản cũ còn lớp Basic Auth — deploy bản mới (mục 5); app hiện chỉ dùng trang **Đăng nhập** |
