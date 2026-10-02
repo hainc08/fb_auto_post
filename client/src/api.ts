@@ -433,6 +433,13 @@ export const postsApi = {
   /** Approve a schedule post for its slot. */
   approve: (id: string) => apiFetch<{ id: string; status: string; scheduledAt: string | null }>(`/posts/${id}/approve`, { method: 'POST' }),
 
+  /** Publish at a chosen time ("Hẹn giờ đăng"); calling it again moves the time. */
+  schedule: (id: string, body: { scheduledAt: string; pageIds?: string[]; intervalMinutes?: number }) =>
+    apiFetch<{ id: string; status: string; scheduledAt: string; pages: number }>(`/posts/${id}/schedule`, { method: 'POST', body: JSON.stringify(body) }),
+
+  /** Cancel the time: the post waits for approval again. */
+  cancelSchedule: (id: string) => apiFetch<{ id: string; status: string; scheduledAt: null }>(`/posts/${id}/schedule`, { method: 'DELETE' }),
+
   publish: (id: string, body?: { pageIds?: string[]; intervalMinutes?: number }) =>
     apiFetch<{ pages: number; intervalMinutes: number }>(`/posts/${id}/publish`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
 

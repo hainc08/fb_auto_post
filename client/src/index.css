@@ -1180,6 +1180,15 @@ tbody tr:hover { background: var(--bg-secondary); }
 .comment-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 8px; }
 .comment-actions .form-textarea { flex: 1 1 260px; min-height: 56px; }
 
+/* ─── Timed post ("Hẹn giờ đăng") ─── */
+.timed-picker { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--bg-secondary); animation: rise-in 0.2s ease-out; }
+.timed-picker .form-label, .timed-picker .field-hint, .timed-picker .field-warning { margin: 0; }
+.timed-picker .form-input { background: var(--bg-card); }
+.timed-picker-actions { gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.timed-picker-actions .btn-primary { flex: 1; }
+.timed-note { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: var(--radius-md); background: var(--info-bg); color: var(--info-text); font-size: 13.5px; }
+@media (prefers-reduced-motion: reduce) { .timed-picker { animation: none; } }
+
 /* ─── Phones & small tablets ───────────────── */
 /* Wide screens: the menu button, the menu's close button and backdrop, and the sheet's back button do not exist */
 .topbar-menu, .sidebar-close, .sidebar-backdrop, .inspector-close { display: none; }
