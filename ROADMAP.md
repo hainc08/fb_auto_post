@@ -78,6 +78,7 @@ Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `
 5. Đến giờ mà bài chưa duyệt → dời sang khung giờ trống kế tiếp, các bài sau lùi theo.
 
 - ✅ (2026-09-30) Lịch theo thứ + 1–3 khung giờ (giờ VN), nhiều Page, hàng chờ ý tưởng + AI gợi ý 10 ý tưởng, giữ sẵn N bài, duyệt trước khi đăng, bài chưa duyệt dời sang khung sau; lịch cũ tự chuyển đổi — plan docs/superpowers/plans/2026-09-30-schedule-slots.md
+- ✅ (2026-10-02) Hẹn giờ đăng cho bài lẻ (không cần tạo lịch): chọn ngày giờ ở trang Tạo bài hoặc trong chi tiết bài; đổi giờ, huỷ hẹn giờ, đăng ngay — plan docs/superpowers/plans/2026-10-02-timed-posts.md
 
 ## Phase 3 — "Bộ não marketing" ⬜
 - **Brand Profile theo Page**: giọng văn, chân dung khách hàng, USP, từ cấm, CTA mặc định, emoji level
