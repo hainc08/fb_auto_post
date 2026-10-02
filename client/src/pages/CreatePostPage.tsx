@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Check, Sparkles, RefreshCw, ImageIcon, Send, X, Upload, AlertTriangle } from 'lucide-react';
+import { Check, Sparkles, RefreshCw, ImageIcon, Send, X, Upload, AlertTriangle, CalendarClock } from 'lucide-react';
 import {
   postsApi,
   pagesApi,
@@ -18,6 +18,8 @@ import { useToast } from '../components/Toast';
 import { wordCount, pageInitials } from '../components/PostBits';
 import PromptPreview from '../components/PromptPreview';
 import VideoField from '../components/VideoField';
+import SchedulePicker from '../components/SchedulePicker';
+import { slotLabel } from '../components/ScheduleBits';
 
 const HOOK_LENGTH = 125;
 
@@ -57,7 +59,7 @@ function formatDuration(minutes: number): string {
   return minutes % 60 ? `${h} giờ ${minutes % 60} phút` : `${h} giờ`;
 }
 
-type Busy = null | 'writing' | 'rewriting' | 'image' | 'upload' | 'saving' | 'publishing';
+type Busy = null | 'writing' | 'rewriting' | 'image' | 'upload' | 'saving' | 'publishing' | 'scheduling';
 
 export default function CreatePostPage() {
   const navigate = useNavigate();
@@ -77,6 +79,8 @@ export default function CreatePostPage() {
   const [imagePrompt, setImagePrompt] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
+  /** The "Hẹn giờ đăng" picker is open */
+  const [timing, setTiming] = useState(false);
   const [timings, setTimings] = useState<{ writing?: number; image?: number }>({});
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [video, setVideo] = useState<VideoState>(EMPTY_VIDEO);
@@ -297,6 +301,23 @@ export default function CreatePostPage() {
     } finally {
       setBusy(null);
       setConfirmPublish(false);
+    }
+  }
+
+  /** Save what is on screen, then let the server publish it at `iso`. */
+  async function scheduleAt(iso: string) {
+    if (!postId) return;
+    if (!selectedPages.length) return toast.error('Chọn ít nhất 1 Page để đăng.');
+    setBusy('scheduling');
+    try {
+      if (!(await save(true))) return;
+      const res = await postsApi.schedule(postId, { scheduledAt: iso, pageIds: selectedPages.map((p) => p.id), intervalMinutes });
+      toast.success(`Đã hẹn giờ — bài sẽ đăng lúc ${slotLabel(res.data.scheduledAt)}.`);
+      navigate(`/posts?selected=${postId}`);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -636,6 +657,13 @@ export default function CreatePostPage() {
                   ? 'Duyệt & đăng Reels'
                   : 'Duyệt & đăng ngay'}
           </button>
+          {timing ? (
+            <SchedulePicker busy={busy === 'scheduling'} onConfirm={(iso) => void scheduleAt(iso)} onCancel={() => setTiming(false)} />
+          ) : (
+            <button type="button" className="btn btn-secondary btn-block" onClick={() => setTiming(true)} disabled={!!busy || videoBusy || !hasContent || !selectedPages.length || !postId}>
+              <CalendarClock size={16} aria-hidden="true" /> Hẹn giờ đăng
+            </button>
+          )}
           <button type="button" className="btn btn-secondary btn-block" onClick={handleSave} disabled={!!busy || videoBusy || !postId}>
             {busy === 'saving' ? <div className="spinner" /> : null}
             Lưu, duyệt sau
