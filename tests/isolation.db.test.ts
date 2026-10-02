@@ -96,6 +96,12 @@ const ROUTE_CASES: Record<string, Case> = {
   'POST /api/posts/:id/comments/:commentId/reply': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/${b.commentId}/reply`, body: { message: 'hack' } },
   'PATCH /api/posts/:id/comments/:commentId': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/${b.commentId}`, body: { handled: true } },
   'POST /api/posts/:id/approve': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/approve` },
+  'POST /api/posts/:id/schedule': {
+    kind: 'foreign-id',
+    path: (b) => `/api/posts/${b.postId}/schedule`,
+    body: { scheduledAt: new Date(Date.now() + 3 * 3600_000).toISOString() },
+  },
+  'DELETE /api/posts/:id/schedule': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/schedule` },
   'POST /api/posts/:id/publish': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/publish`, body: {} },
   'POST /api/posts/:id/targets/:targetId/retry': {
     kind: 'foreign-id',
