@@ -1182,6 +1182,8 @@ tbody tr:hover { background: var(--bg-secondary); }
 
 /* ─── Reel maker ─── */
 .reel-maker { max-width: 560px; }
+/* The body scrolls; its children keep their height (else the script box is squashed once the video shows) */
+.reel-maker .member-body > * { flex-shrink: 0; }
 .reel-voice { width: auto; }
 .reel-preview { align-self: center; width: min(240px, 100%); aspect-ratio: 9 / 16; border-radius: var(--radius-lg); background: #000; }
 

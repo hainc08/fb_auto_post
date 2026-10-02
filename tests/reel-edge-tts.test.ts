@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { buildSsml, parseWordMarks, secMsGec } from '../src/lib/reel/edge-tts';
+import { describe, it, expect, vi } from 'vitest';
+import { buildSsml, parseWordMarks, secMsGec, withRetries } from '../src/lib/reel/edge-tts';
 
 describe('secMsGec', () => {
   it('is the SHA-256 of the 5-minute Windows tick and the client token', () => {
@@ -38,5 +38,25 @@ describe('parseWordMarks', () => {
 
   it('returns nothing for a reply without marks', () => {
     expect(parseWordMarks('{}')).toEqual([]);
+  });
+});
+
+describe('withRetries', () => {
+  it('tries again when the service drops the connection, and returns the first success', async () => {
+    const run = vi.fn().mockRejectedValueOnce(new Error('ngắt')).mockResolvedValue('audio');
+    expect(await withRetries(run, 3, 0)).toBe('audio');
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up after the last attempt with the last reason', async () => {
+    const run = vi.fn().mockRejectedValueOnce(new Error('lần 1')).mockRejectedValueOnce(new Error('lần 2')).mockRejectedValue(new Error('lần 3'));
+    await expect(withRetries(run, 3, 0)).rejects.toThrow('lần 3');
+    expect(run).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not run again after a success', async () => {
+    const run = vi.fn().mockResolvedValue('audio');
+    await withRetries(run, 3, 0);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });
