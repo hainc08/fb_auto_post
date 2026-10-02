@@ -350,6 +350,11 @@ export interface CommentsPage {
   threads: CommentThread[];
 }
 
+export const REEL_VOICES = [
+  { value: 'vi-VN-HoaiMyNeural', label: 'Hoài My (nữ)' },
+  { value: 'vi-VN-NamMinhNeural', label: 'Nam Minh (nam)' },
+] as const;
+
 export const postsApi = {
   list: (params?: { status?: string; pageId?: string; domainId?: string; page?: string; limit?: string }) => {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -417,6 +422,13 @@ export const postsApi = {
     }),
 
   removeVideo: (id: string) => apiFetch<{ videoUrl: null }>(`/posts/${id}/video`, { method: 'DELETE' }),
+
+  /** AI writes a short spoken script from the post's text (not saved). */
+  reelScript: (id: string) => apiFetch<{ script: string }>(`/posts/${id}/reel/script`, { method: 'POST' }),
+
+  /** Voice + subtitles rendered to a Reel; it becomes the post's video. Takes 20–60 seconds. */
+  makeReel: (id: string, body: { script: string; voice: string }) =>
+    apiFetch<VideoState & { reelScript: string }>(`/posts/${id}/reel`, { method: 'POST', body: JSON.stringify(body) }),
 
   /** Pass `caption` to rewrite an unsaved draft (result is not persisted). */
   improve: (id: string, instruction: string, caption?: string) =>
