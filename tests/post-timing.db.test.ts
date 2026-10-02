@@ -11,7 +11,7 @@ let pageId: string;
 const AT = new Date('2031-05-06T02:00:00.000Z');
 const OTHER = new Date('2031-05-07T02:00:00.000Z');
 
-const timed = (data: { status?: 'SCHEDULED' | 'READY' | 'GENERATING'; scheduleQueued?: boolean } = {}) =>
+const timed = (data: { status?: 'SCHEDULED' | 'READY' | 'GENERATING' | 'PUBLISHING'; scheduleQueued?: boolean } = {}) =>
   prisma.post.create({
     data: { userId, pageId, caption: 'Bài hẹn giờ', status: data.status ?? 'SCHEDULED', scheduleQueued: data.scheduleQueued ?? false, scheduledAt: AT, targets: { create: { pageId } } },
   });
@@ -53,6 +53,10 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('timed posts: the claim', { timeout: 
     expect(await timedJobMayRun(post, AT, 2)).toBe(true);
     // the first attempt never skips the claim
     expect(await timedJobMayRun(post, AT, 1)).toBe(false);
+    // stopped while queueing the Pages: the retry finishes the job instead of leaving the post "Đang đăng"
+    const queueing = await timed({ status: 'PUBLISHING' });
+    expect(await timedJobMayRun(queueing, AT, 2)).toBe(true);
+    expect(await statusOf(queueing.id)).toBe('PUBLISHING');
   });
 
   it('enqueuePost books the job at the chosen time and records it', async () => {

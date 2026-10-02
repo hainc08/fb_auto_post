@@ -658,7 +658,7 @@ export default function CreatePostPage() {
                   : 'Duyệt & đăng ngay'}
           </button>
           {timing ? (
-            <SchedulePicker busy={busy === 'scheduling'} onConfirm={(iso) => void scheduleAt(iso)} onCancel={() => setTiming(false)} />
+            <SchedulePicker busy={busy === 'scheduling'} disabled={!!busy || videoBusy || !hasContent || !selectedPages.length} onConfirm={(iso) => void scheduleAt(iso)} onCancel={() => setTiming(false)} />
           ) : (
             <button type="button" className="btn btn-secondary btn-block" onClick={() => setTiming(true)} disabled={!!busy || videoBusy || !hasContent || !selectedPages.length || !postId}>
               <CalendarClock size={16} aria-hidden="true" /> Hẹn giờ đăng

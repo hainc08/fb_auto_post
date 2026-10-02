@@ -29,7 +29,8 @@ export async function claimTimedPost(postId: string, scheduledFor: Date): Promis
 
 /** May this timed job publish the post? `attempt` is 1 on the first run. */
 export async function timedJobMayRun(post: { id: string; status: PostStatus }, scheduledFor: Date, attempt: number): Promise<boolean> {
-  // A retry of a run that already took the post
-  if (attempt > 1 && post.status === 'GENERATING') return true;
+  // A retry of a run that already took the post (PUBLISHING: it stopped while queueing the Pages).
+  // Skipping it would leave the post in progress for ever; a Page is never published twice (runTargetJob's own claim).
+  if (attempt > 1 && (post.status === 'GENERATING' || post.status === 'PUBLISHING')) return true;
   return claimTimedPost(post.id, scheduledFor);
 }

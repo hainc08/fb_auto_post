@@ -13,7 +13,9 @@ let userId: string;
 let pageId: string;
 let expiredPageId: string;
 
-const inHours = (h: number) => new Date(Math.floor(Date.now() / 60_000) * 60_000 + h * 3600_000);
+/** Three weeks ahead: if a run is killed before afterAll, no worker picks these jobs up for weeks (they carry fake tokens) */
+const FAR_MS = 21 * 86_400_000;
+const inHours = (h: number) => new Date(Math.floor(Date.now() / 60_000) * 60_000 + FAR_MS + h * 3600_000);
 const draft = (data: Record<string, unknown> = {}, page = pageId) =>
   prisma.post.create({ data: { userId, pageId: page, caption: 'Bài viết tay', status: 'READY', targets: { create: { pageId: page } }, ...data } });
 const row = (id: string) => prisma.post.findUniqueOrThrow({ where: { id } });
@@ -54,7 +56,8 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('timed posts: API', { timeout: 60_000
     const jobs = await jobsOf(post.id);
     expect(jobs).toHaveLength(1);
     expect(jobs[0].runAt.toISOString()).toBe(at.toISOString());
-    expect(jobs[0].payload).toMatchObject({ scheduledFor: at.toISOString(), intervalMs: 180_000 });
+    // skipAiGeneration: the user approved what is on screen; AI never writes at the time
+    expect(jobs[0].payload).toMatchObject({ scheduledFor: at.toISOString(), intervalMs: 180_000, skipAiGeneration: true });
     expect(await prisma.postLog.count({ where: { postId: post.id, action: 'scheduled' } })).toBe(1);
   });
 
@@ -90,10 +93,10 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('timed posts: API', { timeout: 60_000
 
   it('refuses a time in the past, too far ahead, or malformed', async () => {
     const post = await draft();
-    const past = await setTime(post.id, inHours(-1));
+    const past = await setTime(post.id, new Date(Date.now() - 3600_000));
     expect(past.status).toBe(400);
     expect(past.json.error).toMatch(/ít nhất 1 phút/);
-    expect((await setTime(post.id, inHours(91 * 24))).json.error).toMatch(/90 ngày/);
+    expect((await setTime(post.id, new Date(Date.now() + 91 * 86_400_000))).json.error).toMatch(/90 ngày/);
     expect((await api(server.baseUrl, 'POST', `/api/posts/${post.id}/schedule`, { cookie, body: { scheduledAt: 'mai' } })).status).toBe(400);
     expect((await row(post.id)).status).toBe('READY');
     expect(await jobsOf(post.id)).toHaveLength(0);
@@ -108,6 +111,16 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('timed posts: API', { timeout: 60_000
     expect((await setTime(empty.id, inHours(5))).json.error).toMatch(/chưa có nội dung/);
     const busy = await draft({ status: 'PUBLISHING' });
     expect((await setTime(busy.id, inHours(5))).status).toBe(409);
+    // …and its Pages are left alone, even when the request names other Pages
+    const before = await prisma.postTarget.findMany({ where: { postId: busy.id }, select: { id: true } });
+    const swap = await setTime(busy.id, inHours(5), { pageIds: [expiredPageId] });
+    expect(swap.status).toBe(409);
+    expect(swap.json.error).toMatch(/đang được xử lý/);
+    expect(await prisma.postTarget.findMany({ where: { postId: busy.id }, select: { id: true } })).toEqual(before);
+    const live = await draft({ status: 'PUBLISHED' });
+    const again = await setTime(live.id, inHours(5));
+    expect(again.status).toBe(400);
+    expect(again.json.error).toMatch(/đã được đăng/);
     expect((await api(server.baseUrl, 'DELETE', `/api/posts/${owned.id}/schedule`, { cookie })).status).toBe(400);
   });
 

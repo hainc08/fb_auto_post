@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { timedProblem } from '../src/lib/post-timing';
+import { timedJobMayRun, timedProblem } from '../src/lib/post-timing';
 
 const now = new Date('2026-10-03T01:00:00.000Z');
 const plus = (ms: number) => new Date(now.getTime() + ms);
@@ -21,5 +21,14 @@ describe('timedProblem', () => {
 
   it('refuses an invalid date', () => {
     expect(timedProblem(new Date('nope'), now)).toMatch(/không hợp lệ/);
+  });
+});
+
+describe('timedJobMayRun', () => {
+  // Decided from the post alone (no database): the first attempt already took the post
+  it('lets a retry go on while the post is being written or its Pages are being queued', async () => {
+    expect(await timedJobMayRun({ id: 'no-such-post', status: 'GENERATING' }, now, 2)).toBe(true);
+    expect(await timedJobMayRun({ id: 'no-such-post', status: 'PUBLISHING' }, now, 2)).toBe(true);
+    expect(await timedJobMayRun({ id: 'no-such-post', status: 'PUBLISHING' }, now, 3)).toBe(true);
   });
 });

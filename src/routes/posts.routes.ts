@@ -722,6 +722,9 @@ router.post(
     if (!post.caption?.trim() && !post.imagePath && !post.videoPath) {
       throw createError(400, 'Bài chưa có nội dung để hẹn giờ đăng.');
     }
+    // Before touching its Pages: a post in progress keeps the targets its jobs were queued for
+    if (post.status === 'PUBLISHED') throw createError(400, 'Bài đã được đăng, không hẹn giờ được nữa.');
+    if (!TIMEABLE.includes(post.status)) throw createError(409, 'Bài đang được xử lý hoặc đang đăng, hãy chờ xong rồi thử lại.');
 
     // Same Page checks as "Đăng": a post that cannot go out would fail silently at its time
     if (pageIds) await syncTargets(post.id, await assertOwnPages(req.user!.id, pageIds));
@@ -736,7 +739,8 @@ router.post(
     if (count === 0) throw createError(409, 'Bài đang được xử lý hoặc đang đăng, hãy chờ xong rồi thử lại.');
 
     // A job booked for an earlier time stays in the queue and does nothing (see claimTimedPost)
-    await enqueuePost(post.id, req.user!.id, { scheduledFor: at, intervalMs: intervalMinutes * 60_000 });
+    // skipAi: the user approved what they saw; nothing is written by AI at the time
+    await enqueuePost(post.id, req.user!.id, { scheduledFor: at, skipAi: true, intervalMs: intervalMinutes * 60_000 });
     await prisma.postLog.create({
       data: { postId: post.id, action: 'scheduled', details: { scheduledAt: at.toISOString(), pages: targets.length } },
     });

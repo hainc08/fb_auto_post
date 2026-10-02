@@ -6,13 +6,15 @@ interface Props {
   /** Time of a post that is already timed (ISO); without it the next full hour is suggested */
   initial?: string | null;
   busy?: boolean;
+  /** The post cannot be timed right now (e.g. its text was emptied, or another action is running) */
+  disabled?: boolean;
   confirmLabel?: string;
   onConfirm: (iso: string) => void;
   onCancel: () => void;
 }
 
 /** Date and time for "Hẹn giờ đăng" (Vietnam time); says why a time cannot be used. */
-export default function SchedulePicker({ initial, busy = false, confirmLabel = 'Hẹn giờ đăng', onConfirm, onCancel }: Props) {
+export default function SchedulePicker({ initial, busy = false, disabled = false, confirmLabel = 'Hẹn giờ đăng', onConfirm, onCancel }: Props) {
   const [value, setValue] = useState(() => toInputValue(initial ? new Date(initial) : suggestedTime()));
   const now = new Date();
   const problem = inputProblem(value, now);
@@ -35,7 +37,7 @@ export default function SchedulePicker({ initial, busy = false, confirmLabel = '
         {problem ?? 'Giờ Việt Nam. Đến giờ bài tự đăng, không cần duyệt lại.'}
       </p>
       <div className="row timed-picker-actions">
-        <button type="button" className="btn btn-primary" disabled={busy || !!problem} onClick={() => onConfirm(fromInputValue(value)!.toISOString())}>
+        <button type="button" className="btn btn-primary" disabled={busy || disabled || !!problem} onClick={() => onConfirm(fromInputValue(value)!.toISOString())}>
           {busy ? <div className="spinner" /> : <CalendarClock size={16} aria-hidden="true" />} {confirmLabel}
         </button>
         <button type="button" className="btn btn-ghost" disabled={busy} onClick={onCancel}>Thôi</button>
