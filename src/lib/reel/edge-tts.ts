@@ -51,9 +51,10 @@ const jsDate = () =>
   new Date().toUTCString().replace(/^(\w+), (\d+) (\w+) (\d+) (.*) GMT$/, '$1 $3 $2 $4 $5 GMT+0000 (Coordinated Universal Time)');
 const hexId = () => randomUUID().replace(/-/g, '');
 
-function synthesizeOnce(text: string, voice: EdgeVoice): Promise<{ audio: Buffer; words: ReelWord[] }> {
+/** One attempt. The rejection carries `retryable`: true only when the connection was lost, which the next try usually survives. */
+export function synthesizeOnce(text: string, voice: EdgeVoice, endpoint = ENDPOINT): Promise<{ audio: Buffer; words: ReelWord[] }> {
   return new Promise((resolve, reject) => {
-    const url = `${ENDPOINT}?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&ConnectionId=${hexId()}&Sec-MS-GEC=${secMsGec()}&Sec-MS-GEC-Version=1-${CHROMIUM_VERSION}`;
+    const url = `${endpoint}?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&ConnectionId=${hexId()}&Sec-MS-GEC=${secMsGec()}&Sec-MS-GEC-Version=1-${CHROMIUM_VERSION}`;
     const ws = new WebSocket(url, {
       headers: {
         Pragma: 'no-cache',
@@ -68,12 +69,12 @@ function synthesizeOnce(text: string, voice: EdgeVoice): Promise<{ audio: Buffer
     const audio: Buffer[] = [];
     const words: ReelWord[] = [];
     let settled = false;
-    const finish = (error?: string) => {
+    const finish = (error?: string, retryable = false) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       ws.close();
-      if (error) reject(new Error(error));
+      if (error) reject(Object.assign(new Error(error), { retryable }));
       else resolve({ audio: Buffer.concat(audio), words });
     };
     const timer = setTimeout(() => finish('Dịch vụ giọng đọc không phản hồi (quá 45 giây).'), TIMEOUT_MS);
@@ -105,28 +106,32 @@ function synthesizeOnce(text: string, voice: EdgeVoice): Promise<{ audio: Buffer
       }
     });
     ws.on('unexpected-response', (_req, res) => finish(`Dịch vụ giọng đọc từ chối kết nối (HTTP ${res.statusCode}).`));
-    ws.on('error', () => finish('Không kết nối được dịch vụ giọng đọc.'));
-    ws.on('close', () => finish('Dịch vụ giọng đọc ngắt kết nối giữa chừng.'));
+    ws.on('error', () => finish('Không kết nối được dịch vụ giọng đọc.', true));
+    ws.on('close', () => finish('Dịch vụ giọng đọc ngắt kết nối giữa chừng.', true));
   });
 }
 
 const ATTEMPTS = 3;
 const RETRY_WAIT_MS = 1000;
 
-/** Run again after a failure, up to `attempts` times; rejects with the last reason. */
-export async function withRetries<T>(run: () => Promise<T>, attempts: number, waitMs: number): Promise<T> {
+/** Run again after a failure worth retrying, up to `attempts` times; rejects with the last reason. */
+export async function withRetries<T>(run: () => Promise<T>, attempts: number, waitMs: number, retryable: (error: unknown) => boolean = () => true): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await run();
     } catch (error) {
-      if (attempt >= attempts) throw error;
+      if (attempt >= attempts || !retryable(error)) throw error;
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
   }
 }
 
-/** The service often drops a connection part-way and works on the next try (seen 1 time in 4 on 2026-10-02) */
-const synthesize = (text: string, voice: EdgeVoice) => withRetries(() => synthesizeOnce(text, voice), ATTEMPTS, RETRY_WAIT_MS);
+/**
+ * The service often drops a connection part-way and works on the next try (seen 1 time in 4 on 2026-10-02).
+ * A timeout or a refusal is not retried: the user would wait minutes for the same answer.
+ */
+const synthesize = (text: string, voice: EdgeVoice) =>
+  withRetries(() => synthesizeOnce(text, voice), ATTEMPTS, RETRY_WAIT_MS, (error) => (error as { retryable?: boolean }).retryable === true);
 
 /** An object, so tests (and other providers) replace `synthesize` */
 export const edgeTts = { synthesize };

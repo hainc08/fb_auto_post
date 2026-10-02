@@ -5,6 +5,7 @@ import { asyncHandler, createError } from '../middleware/error.middleware';
 import { getSettings } from '../lib/settings';
 import { EDGE_VOICES } from '../lib/reel/edge-tts';
 import { countSpokenWords } from '../lib/reel/subtitles';
+import * as renderer from '../lib/reel/render';
 import { makeReel, ReelError, writeReelScript } from '../services/reel.service';
 import { findImageEditablePost, videoState } from './posts.routes';
 
@@ -22,10 +23,22 @@ const reelSchema = z.object({
   voice: z.enum(EDGE_VOICES).default('vi-VN-HoaiMyNeural'),
 });
 
+const NO_FFMPEG = 'Máy chủ chưa có FFmpeg nên chưa dựng được Reel. Cài FFmpeg hoặc đặt biến FFMPEG_PATH.';
+
+/** Can this host make Reels? The client hides the feature when it cannot (e.g. on the production host). */
+router.get(
+  '/reel/status',
+  asyncHandler(async (_req: AuthRequest, res: Response) => {
+    res.json({ success: true, data: { available: await renderer.ffmpegAvailable() } });
+  })
+);
+
 router.post(
   '/:id/reel/script',
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const post = await findImageEditablePost(req);
+    // No AI call (it costs the user's quota) for a Reel this host cannot render
+    if (!(await renderer.ffmpegAvailable())) throw createError(503, NO_FFMPEG);
     if (!post.caption?.trim()) throw createError(400, 'Bài chưa có nội dung để viết kịch bản.');
     const settings = await getSettings(req.user!.id);
     let script: string;

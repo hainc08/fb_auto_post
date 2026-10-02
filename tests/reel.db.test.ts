@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { writeFile } from 'node:fs/promises';
+import { readdir, unlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { existsSync } from 'node:fs';
 import '../src/config';
 import prisma from '../src/utils/prisma';
@@ -8,10 +9,10 @@ import { GeminiClient } from '../src/lib/clients/gemini';
 import { edgeTts } from '../src/lib/reel/edge-tts';
 import { reelRenderer } from '../src/lib/reel/render';
 import * as renderModule from '../src/lib/reel/render';
-import { readReelBackground } from '../src/lib/reel/background-store';
-import { saveImage } from '../src/lib/image-store';
+import { readReelBackground, REEL_DIR } from '../src/lib/reel/background-store';
+import { IMAGE_DIR, saveImage } from '../src/lib/image-store';
 import { saveSettings } from '../src/lib/settings';
-import { resolveVideo } from '../src/lib/video-store';
+import { resolveVideo, VIDEO_DIR } from '../src/lib/video-store';
 import { startTestServer, api } from './helpers/http';
 import { cleanupTestUsers, createTestUser } from './helpers/users';
 import { tinyMp4 } from './helpers/mp4';
@@ -31,10 +32,16 @@ function fakePipeline(durationSec = 20) {
   return { voice, render };
 }
 
+/** Posts made by this file: their files are removed at the end (deleting the test users removes rows only) */
+const made: string[] = [];
+const filesOf = async (dir: string, postId: string) => (existsSync(dir) ? (await readdir(dir)).filter((n) => n.startsWith(postId)) : []);
+const videoFilesOf = (postId: string) => filesOf(VIDEO_DIR, postId);
+
 async function setup(withImage = true) {
   const { user, cookie } = await createTestUser();
   const page = await prisma.facebookPage.create({ data: { userId: user.id, pageId: `REEL_${Date.now()}_${Math.random()}`, pageName: 'P', pageAccessToken: 'EAAfaketokenreelxxxxxxxxxxxxxxxxxxx' } });
   let post = await prisma.post.create({ data: { userId: user.id, pageId: page.id, caption: 'Bài viết dài về email.', status: 'READY', inputData: { basicInfo: 'ý tưởng' } } });
+  made.push(post.id);
   if (withImage) {
     const saved = await saveImage(post.id, PNG);
     post = await prisma.post.update({ where: { id: post.id }, data: { imagePath: saved.imagePath, imageUrl: saved.imageUrl } });
@@ -49,6 +56,11 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     server = await startTestServer(createApp());
   });
   afterAll(async () => {
+    for (const id of made) {
+      for (const dir of [VIDEO_DIR, IMAGE_DIR, REEL_DIR]) {
+        for (const name of await filesOf(dir, id)) await unlink(path.join(dir, name)).catch(() => {});
+      }
+    }
     await server.close();
     await cleanupTestUsers();
     await prisma.$disconnect();
@@ -113,6 +125,57 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     expect(res.status).toBe(400);
     expect(res.json.error).toMatch(/3–90 giây/);
     expect(await row(post.id)).toMatchObject({ videoPath: null, imagePath: post.imagePath });
+    expect(await videoFilesOf(post.id)).toEqual([]);
+  });
+
+  it('a post that starts publishing while its Reel is rendered is left alone', async () => {
+    const { cookie, post } = await setup();
+    fakePipeline();
+    // e.g. its timed job fires during the 20–60 seconds of rendering
+    vi.spyOn(edgeTts, 'synthesize').mockImplementation(async () => {
+      await prisma.post.update({ where: { id: post.id }, data: { status: 'PUBLISHING' } });
+      return { audio: Buffer.from('mp3'), words: WORDS };
+    });
+    const res = await make(cookie, post.id);
+    expect(res.status).toBe(409);
+    expect(res.json.error).toMatch(/vừa thay đổi/);
+    expect(await row(post.id)).toMatchObject({ status: 'PUBLISHING', videoPath: null, videoKind: null, imagePath: post.imagePath });
+    expect(await videoFilesOf(post.id)).toEqual([]);
+  });
+
+  it('a post deleted while its Reel is rendered leaves no file behind', async () => {
+    const { cookie, post } = await setup();
+    fakePipeline();
+    vi.spyOn(edgeTts, 'synthesize').mockImplementation(async () => {
+      await prisma.post.delete({ where: { id: post.id } });
+      return { audio: Buffer.from('mp3'), words: WORDS };
+    });
+    const res = await make(cookie, post.id);
+    expect(res.status).toBe(409);
+    expect(await videoFilesOf(post.id)).toEqual([]);
+    expect(await readReelBackground(post.id)).toBeNull();
+  });
+
+  it('refuses a post that is live on one of its Pages', async () => {
+    const { cookie, post } = await setup();
+    const { voice } = fakePipeline();
+    await prisma.postTarget.create({ data: { postId: post.id, pageId: post.pageId, status: 'PUBLISHED', fbPostId: 'live_1' } });
+    expect((await make(cookie, post.id)).status).toBe(409);
+    expect(voice).not.toHaveBeenCalled();
+  });
+
+  it('says whether Reels can be made here, and writes no script when they cannot', async () => {
+    const { cookie, post, userId } = await setup();
+    await saveSettings(userId, { geminiApiKey: 'AIzaFakeKeyReelTest000000000000000000' });
+    const gemini = vi.spyOn(GeminiClient.prototype, 'generateJson').mockResolvedValue({ script: 'x' } as never);
+    const available = vi.spyOn(renderModule, 'ffmpegAvailable').mockResolvedValue(true);
+    expect((await api(server.baseUrl, 'GET', '/api/posts/reel/status', { cookie })).json.data).toEqual({ available: true });
+    available.mockResolvedValue(false);
+    expect((await api(server.baseUrl, 'GET', '/api/posts/reel/status', { cookie })).json.data).toEqual({ available: false });
+    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/reel/script`, { cookie });
+    expect(res.status).toBe(503);
+    expect(res.json.error).toMatch(/FFmpeg/);
+    expect(gemini).not.toHaveBeenCalled();
   });
 
   it('a second render while one is running is refused', async () => {
@@ -153,6 +216,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
   it('AI writes a short script from the post text', async () => {
     const { cookie, post, userId } = await setup();
     await saveSettings(userId, { geminiApiKey: 'AIzaFakeKeyReelTest000000000000000000' });
+    vi.spyOn(renderModule, 'ffmpegAvailable').mockResolvedValue(true);
     const spy = vi.spyOn(GeminiClient.prototype, 'generateJson').mockResolvedValue({ script: '  Bạn có biết? AI viết email trong mười giây.  ' } as never);
     const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/reel/script`, { cookie });
     expect(res.status).toBe(200);

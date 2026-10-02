@@ -128,6 +128,8 @@ export default function PostsPage() {
   const [timing, setTiming] = useState(false);
   /** The "Tạo Reel từ bài" dialog is open for the selected post */
   const [reelOpen, setReelOpen] = useState(false);
+  /** Reels need FFmpeg on the server; the button is hidden where there is none */
+  const [reelAvailable, setReelAvailable] = useState(false);
   /** Phones: the inspector is a full-screen sheet, opened by choosing a post */
   const [sheetOpen, setSheetOpen] = useState(!!params.get('selected'));
   const openPost = (id: string) => {
@@ -155,6 +157,7 @@ export default function PostsPage() {
 
   useEffect(() => {
     domainsApi.list(true).then((r) => setDomains(r.data)).catch(() => {});
+    postsApi.reelStatus().then((r) => setReelAvailable(r.data.available)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -630,7 +633,7 @@ export default function PostsPage() {
                   Huỷ hẹn giờ
                 </button>
               )}
-              {EDITABLE.includes(detail.status) && !liveSomewhere && (
+              {reelAvailable && EDITABLE.includes(detail.status) && !liveSomewhere && (
                 <button type="button" className="btn btn-secondary btn-block" onClick={() => setReelOpen(true)} disabled={acting}>
                   <Clapperboard size={15} aria-hidden="true" /> {detail.inputData?.reelScript ? 'Sửa Reel' : 'Tạo Reel từ bài'}
                 </button>

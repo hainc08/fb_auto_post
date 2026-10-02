@@ -423,6 +423,9 @@ export const postsApi = {
 
   removeVideo: (id: string) => apiFetch<{ videoUrl: null }>(`/posts/${id}/video`, { method: 'DELETE' }),
 
+  /** Can this server make Reels (it needs FFmpeg)? */
+  reelStatus: () => apiFetch<{ available: boolean }>('/posts/reel/status'),
+
   /** AI writes a short spoken script from the post's text (not saved). */
   reelScript: (id: string) => apiFetch<{ script: string }>(`/posts/${id}/reel/script`, { method: 'POST' }),
 

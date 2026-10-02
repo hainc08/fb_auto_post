@@ -10,7 +10,7 @@ import { GeminiClient } from '../lib/clients/gemini';
 import { edgeTts, type EdgeVoice } from '../lib/reel/edge-tts';
 import * as renderer from '../lib/reel/render';
 import { buildAss, buildLines, displayWords } from '../lib/reel/subtitles';
-import { readReelBackground, saveReelBackground } from '../lib/reel/background-store';
+import { readReelBackground, removeReelBackground, saveReelBackground } from '../lib/reel/background-store';
 import { readImage, removeImage } from '../lib/image-store';
 import { removeVideo, saveUploadedVideo, VIDEO_TMP_DIR } from '../lib/video-store';
 import { reelsProblem } from '../lib/mp4-info';
@@ -88,12 +88,20 @@ export async function makeReel(post: Post, input: { script: string; voice: EdgeV
       throw new ReelError(400, `${problem} Hãy sửa kịch bản cho ngắn hoặc dài hơn.`);
     }
 
-    // Keep the picture before the post lets go of it
-    if (post.imagePath && picture) await saveReelBackground(post.id, picture.buffer);
-    let updated: Post;
+    // The render took 20 seconds or more: the post may have been published, edited or deleted since it was checked.
+    // Commit only if it is still editable, not live on any Page, and has the same media as when the render started.
+    let updated: Post | null = null;
     try {
-      updated = await prisma.post.update({
-        where: { id: post.id },
+      // Keep the picture before the post lets go of it
+      if (post.imagePath && picture) await saveReelBackground(post.id, picture.buffer);
+      const { count } = await prisma.post.updateMany({
+        where: {
+          id: post.id,
+          status: { in: ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'] },
+          videoPath: post.videoPath,
+          imagePath: post.imagePath,
+          targets: { none: { status: { in: ['PUBLISHED', 'PUBLISHING'] } } },
+        },
         data: {
           videoPath: stored.videoPath,
           videoUrl: stored.videoUrl,
@@ -105,9 +113,16 @@ export async function makeReel(post: Post, input: { script: string; voice: EdgeV
           inputData: { ...((post.inputData as Record<string, string> | null) ?? {}), reelScript: input.script, reelVoice: input.voice },
         },
       });
+      if (count) updated = await prisma.post.findUnique({ where: { id: post.id } });
     } catch (error) {
-      await removeVideo(stored.videoPath); // e.g. the post was deleted meanwhile
+      await removeVideo(stored.videoPath);
       throw error;
+    }
+    if (!updated) {
+      await removeVideo(stored.videoPath);
+      // Deleted meanwhile: nothing will ever clean its kept picture
+      if (!(await prisma.post.count({ where: { id: post.id } }))) await removeReelBackground(post.id);
+      throw new ReelError(409, 'Bài vừa thay đổi hoặc đang được đăng trong lúc dựng Reel. Hãy tải lại rồi thử lại.');
     }
     await removeVideo(post.videoPath);
     await removeImage(post.imagePath);
