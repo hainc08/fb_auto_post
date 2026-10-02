@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import './index.css';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
@@ -17,11 +18,16 @@ import { ProtectedRoute } from './auth';
 
 /** `flush`: the page lays out its own full-height panes (e.g. list + inspector) */
 function AppLayout({ children, flush = false }: { children: React.ReactNode; flush?: boolean }) {
+  const location = useLocation();
+  /** Phones: the sidebar is a slide-in menu opened from the top bar */
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => setNavOpen(false), [location.pathname]);
+
   return (
     <div className="app-layout">
-      <Sidebar />
+      <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
       <div className="main-column">
-        <Topbar />
+        <Topbar navOpen={navOpen} onMenu={() => setNavOpen(true)} />
         <main className={`main-content ${flush ? 'flush' : ''}`}>
           <FacebookAppBanner />
           {children}

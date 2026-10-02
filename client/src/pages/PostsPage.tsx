@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye, MessageCircle } from 'lucide-react';
+import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye, MessageCircle, ArrowLeft } from 'lucide-react';
 import { postsApi, domainsApi, assetUrl, type ContentDomain } from '../api';
 import EditPostModal from '../components/EditPostModal';
 import { useToast } from '../components/Toast';
@@ -119,6 +119,12 @@ export default function PostsPage() {
   /** Inline "Duyệt & đăng" waiting for its second click */
   const [armed, setArmed] = useState<string | null>(null);
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
+  /** Phones: the inspector is a full-screen sheet, opened by choosing a post */
+  const [sheetOpen, setSheetOpen] = useState(!!params.get('selected'));
+  const openPost = (id: string) => {
+    setSelectedId(id);
+    setSheetOpen(true);
+  };
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -235,7 +241,10 @@ export default function PostsPage() {
       await postsApi.delete(id);
       toast.success('Đã xoá bài đăng.');
       setPosts((list) => list.filter((p) => p.id !== id));
-      if (selectedId === id) setSelectedId(null);
+      if (selectedId === id) {
+        setSelectedId(null);
+        setSheetOpen(false);
+      }
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -251,7 +260,7 @@ export default function PostsPage() {
   /** ⋯ menu: only actions the app supports today (plan Decision 4) */
   function rowActions(p: PostData): MenuAction[] {
     const live = (p.targets ?? []).some((t) => t.status === 'PUBLISHED');
-    const a: MenuAction[] = [{ key: 'open', label: 'Xem chi tiết', icon: <Eye size={15} aria-hidden="true" />, onSelect: () => setSelectedId(p.id) }];
+    const a: MenuAction[] = [{ key: 'open', label: 'Xem chi tiết', icon: <Eye size={15} aria-hidden="true" />, onSelect: () => openPost(p.id) }];
     if (EDITABLE.includes(p.status) && !live) a.push({ key: 'edit', label: 'Sửa bài', icon: <PenLine size={15} aria-hidden="true" />, onSelect: () => setEditingId(p.id) });
     if (p.fbPermalink) a.push({ key: 'fb', label: 'Xem trên Facebook', icon: <ExternalLink size={15} aria-hidden="true" />, href: p.fbPermalink });
     if (live) a.push({ key: 'comments', label: 'Xem bình luận', icon: <MessageCircle size={15} aria-hidden="true" />, onSelect: () => setCommentsFor(p.id) });
@@ -375,7 +384,7 @@ export default function PostsPage() {
                 key={p.id}
                 post={p}
                 selected={p.id === selectedId}
-                onSelect={() => setSelectedId(p.id)}
+                onSelect={() => openPost(p.id)}
                 actions={rowActions(p)}
                 inline={rowInline(p)}
                 onComments={() => setCommentsFor(p.id)}
@@ -388,7 +397,10 @@ export default function PostsPage() {
         )}
       </div>
 
-      <aside className="inspector" aria-label="Chi tiết bài đang chọn">
+      <aside className={`inspector ${sheetOpen ? 'open' : ''}`} aria-label="Chi tiết bài đang chọn">
+        <button type="button" className="btn btn-ghost btn-sm inspector-close" onClick={() => setSheetOpen(false)}>
+          <ArrowLeft size={16} aria-hidden="true" /> Danh sách bài
+        </button>
         {!detail ? (
           <p className="inspector-empty">Chọn một bài trong danh sách để xem trước và thao tác.</p>
         ) : (

@@ -256,12 +256,12 @@ function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onCheck,
           </div>
         </div>
       </td>
-      <td>
+      <td data-label="Trạng thái">
         <PageStatusBadge page={p} />
         {p.blockMessage && <div className="cell-note error">{p.blockMessage}</div>}
         {!p.blockMessage && p.tokenStatus === 'ERROR' && p.tokenError && <div className="cell-note">{p.tokenError}</div>}
       </td>
-      <td>
+      <td data-label="Lĩnh vực mặc định">
         <select
           className="form-select select-sm"
           aria-label={`Lĩnh vực mặc định của ${p.pageName}`}
@@ -274,14 +274,14 @@ function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onCheck,
           ))}
         </select>
       </td>
-      <td className="mono">
+      <td className="mono" data-label="Token do app">
         {p.tokenAppId ? (
           p.tokenAppId === appId ? <span className="ok-text">✓ App hiện tại</span> : <span className="warn-text">{p.tokenAppId}</span>
         ) : (
           <span className="muted">—</span>
         )}
       </td>
-      <td>
+      <td data-label="Hạn token">
         {p.tokenExpiresAt ? (
           <span className={expiresSoon ? 'warn-text' : ''}>{dateOnly(p.tokenExpiresAt)}</span>
         ) : p.tokenStatus === 'VALID' ? (
@@ -290,7 +290,7 @@ function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onCheck,
           <span className="muted">—</span>
         )}
       </td>
-      <td className="muted">{p.tokenCheckedAt ? formatWhen(p.tokenCheckedAt) : 'Chưa'}</td>
+      <td className="muted" data-label="Kiểm tra">{p.tokenCheckedAt ? formatWhen(p.tokenCheckedAt) : 'Chưa'}</td>
       <td>
         <div className="row-actions">
           <button type="button" className="btn btn-secondary btn-sm" onClick={onCheck} disabled={!!busy} aria-label={`Kiểm tra lại ${p.pageName}`}>
