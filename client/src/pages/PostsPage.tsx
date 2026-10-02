@@ -8,6 +8,7 @@ import { formatWhen, pageInitials } from '../components/PostBits';
 import PostListItem from '../components/PostListItem';
 import PostFilters from '../components/PostFilters';
 import CommentsPanel from '../components/CommentsPanel';
+import SchedulePicker from '../components/SchedulePicker';
 import type { MenuAction } from '../components/PostActionsMenu';
 import { matchesFilters, statusCounts, engagementTotals, type TimeRange, type TargetSummary } from '../lib/post-display';
 import { slotLabel } from '../components/ScheduleBits';
@@ -96,6 +97,8 @@ const LOG_LABEL: Record<string, string> = {
   image_uploaded: 'Tải ảnh lên',
   image_removed: 'Gỡ ảnh',
   image_reused: 'Dùng ảnh đã lưu',
+  scheduled: 'Hẹn giờ đăng',
+  schedule_cancelled: 'Huỷ hẹn giờ',
 };
 
 export default function PostsPage() {
@@ -119,6 +122,8 @@ export default function PostsPage() {
   /** Inline "Duyệt & đăng" waiting for its second click */
   const [armed, setArmed] = useState<string | null>(null);
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
+  /** The "Hẹn giờ đăng" picker is open in the inspector */
+  const [timing, setTiming] = useState(false);
   /** Phones: the inspector is a full-screen sheet, opened by choosing a post */
   const [sheetOpen, setSheetOpen] = useState(!!params.get('selected'));
   const openPost = (id: string) => {
@@ -185,9 +190,10 @@ export default function PostsPage() {
   useEffect(() => {
     setConfirming(null);
     setExpanded(false);
+    setTiming(false);
     if (!selectedId) return setDetail(null);
     postsApi.get(selectedId).then((r) => setDetail(r.data)).catch(() => setDetail(null));
-  }, [selectedId, selected?.status, selected?.caption, selected?.imageUrl, selected?.videoUrl, selected?.videoKind, selected?.targets?.map((t) => t.status).join()]);
+  }, [selectedId, selected?.status, selected?.scheduledAt, selected?.caption, selected?.imageUrl, selected?.videoUrl, selected?.videoKind, selected?.targets?.map((t) => t.status).join()]);
 
   async function publish(id: string) {
     setActing(true);
@@ -207,6 +213,33 @@ export default function PostsPage() {
     try {
       const res = await postsApi.approve(id);
       toast.success(`Đã duyệt — bài sẽ đăng lúc ${slotLabel(res.data.scheduledAt)}.`);
+      await load();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setActing(false);
+    }
+  }
+
+  async function scheduleAt(id: string, iso: string) {
+    setActing(true);
+    try {
+      const res = await postsApi.schedule(id, { scheduledAt: iso });
+      toast.success(`Đã hẹn giờ — bài sẽ đăng lúc ${slotLabel(res.data.scheduledAt)}.`);
+      setTiming(false);
+      await load();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setActing(false);
+    }
+  }
+
+  async function cancelTimed(id: string) {
+    setActing(true);
+    try {
+      await postsApi.cancelSchedule(id);
+      toast.success('Đã huỷ hẹn giờ — bài quay lại "Chờ duyệt".');
       await load();
     } catch (e: any) {
       toast.error(e.message);
@@ -324,6 +357,9 @@ export default function PostsPage() {
     : detail.status === 'PUBLISHED' || liveSomewhere
       ? (detail.message ?? detail.caption ?? '')
       : composeMessage(detail);
+  /** A post waiting for a time the user picked (not a slot of a schedule) */
+  const timed = !!detail && detail.status === 'SCHEDULED' && !detail.scheduleQueued;
+  const canTime = !!detail && PUBLISHABLE.includes(detail.status) && !detail.scheduleQueued && !!detail.caption;
 
   return (
     <div className="split-view">
@@ -554,14 +590,40 @@ export default function PostsPage() {
                   <CalendarClock size={16} aria-hidden="true" /> Duyệt — đăng lúc {slotLabel(detail.scheduledAt)}
                 </button>
               )}
-              {PUBLISHABLE.includes(detail.status) && (
-                <button type="button" className={detail.scheduleQueued ? 'btn btn-secondary btn-block' : 'btn btn-primary btn-lg btn-block'} onClick={confirmPublish} disabled={acting || !detail.caption}>
+              {timed && (
+                <div className="timed-note">
+                  <CalendarClock size={15} aria-hidden="true" />
+                  <span>Hẹn giờ đăng: <strong>{slotLabel(detail.scheduledAt)}</strong></span>
+                </div>
+              )}
+              {(PUBLISHABLE.includes(detail.status) || timed) && (
+                <button type="button" className={detail.scheduleQueued || timed ? 'btn btn-secondary btn-block' : 'btn btn-primary btn-lg btn-block'} onClick={confirmPublish} disabled={acting || !detail.caption}>
                   {acting && confirming === 'publish' ? <div className="spinner" /> : <Send size={16} aria-hidden="true" />}
                   {confirming === 'publish'
                     ? 'Bấm lần nữa để đăng công khai'
                     : detail.status === 'FAILED'
                       ? tally.total > 1 ? `Đăng lại ${tally.total - tally.published} Page chưa lên` : 'Đăng lại'
-                      : detail.scheduleQueued ? 'Đăng ngay (bỏ khung giờ)' : tally.total > 1 ? `Duyệt & đăng lên ${tally.total} Page` : 'Duyệt & đăng ngay'}
+                      : timed ? 'Đăng ngay (bỏ hẹn giờ)'
+                        : detail.scheduleQueued ? 'Đăng ngay (bỏ khung giờ)' : tally.total > 1 ? `Duyệt & đăng lên ${tally.total} Page` : 'Duyệt & đăng ngay'}
+                </button>
+              )}
+              {(canTime || timed) &&
+                (timing ? (
+                  <SchedulePicker
+                    initial={timed ? detail.scheduledAt : null}
+                    busy={acting}
+                    confirmLabel={timed ? 'Đổi giờ đăng' : 'Hẹn giờ đăng'}
+                    onConfirm={(iso) => void scheduleAt(detail.id, iso)}
+                    onCancel={() => setTiming(false)}
+                  />
+                ) : (
+                  <button type="button" className="btn btn-secondary btn-block" onClick={() => setTiming(true)} disabled={acting}>
+                    <CalendarClock size={15} aria-hidden="true" /> {timed ? 'Đổi giờ đăng' : 'Hẹn giờ đăng'}
+                  </button>
+                ))}
+              {timed && (
+                <button type="button" className="btn btn-ghost btn-block" onClick={() => void cancelTimed(detail.id)} disabled={acting}>
+                  Huỷ hẹn giờ
                 </button>
               )}
               {detail.status !== 'PUBLISHING' && (
