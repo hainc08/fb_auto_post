@@ -443,7 +443,7 @@ export default function CreatePostPage() {
           )}
           <div>
             <label htmlFor="idea" className="form-label">Ý tưởng bài viết</label>
-            <div className="row" style={{ alignItems: 'stretch' }}>
+            <div className="row idea-row">
               <input
                 id="idea"
                 className="form-input"
@@ -527,13 +527,13 @@ export default function CreatePostPage() {
         </section>
 
         <section className="card">
-          <div className="row" style={{ alignItems: 'flex-start', gap: 16 }}>
+          <div className="image-row">
             {previewImage ? (
               <img src={previewImage} alt="Ảnh sẽ đăng kèm bài" style={{ width: 96, height: 96, borderRadius: 9, objectFit: 'cover', flexShrink: 0 }} />
             ) : (
               <span className="post-thumb" style={{ width: 96, height: 96 }} aria-hidden="true"><ImageIcon size={24} strokeWidth={1.6} /></span>
             )}
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="image-row-text">
               <label htmlFor="image-prompt" className="form-label">Ảnh minh hoạ · image prompt (tiếng Anh)</label>
               <textarea
                 id="image-prompt"
@@ -545,7 +545,7 @@ export default function CreatePostPage() {
                 placeholder="AI sẽ đề xuất prompt ảnh khi viết bài"
               />
             </div>
-            <div className="stack" style={{ gap: 8, marginTop: 26 }}>
+            <div className="image-row-actions">
               <button type="button" className="btn btn-secondary btn-sm" onClick={makeImage} disabled={!!busy || videoBusy || !postId || !imagePrompt.trim() || !!video.videoUrl}>
                 {busy === 'image' ? <div className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />}
                 {previewImage ? 'Tạo lại bằng AI' : 'Tạo ảnh bằng AI'}

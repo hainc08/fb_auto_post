@@ -229,7 +229,7 @@ export default function SettingsPage() {
                         <div key={p.id} className="page-row">
                           <div className="page-row-main">
                             <div className="page-avatar">{p.pageName?.[0] ?? 'P'}</div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="page-row-text">
                               <div className="page-name">{p.pageName} <PageStatusBadge page={p} /></div>
                               <div className="page-meta">{p.pageId}{p.pageCategory ? ` · ${p.pageCategory}` : ''}</div>
                               {p.blockMessage && <div className="field-warning" style={{ margin: '4px 0 0' }}>{p.blockMessage}</div>}

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown, LogOut, Users, Shapes } from 'lucide-react';
+import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown, LogOut, Users, Shapes, X } from 'lucide-react';
 import { pagesApi, postsApi, settingsApi, type PublicSettings } from '../api';
 import { useAuth } from '../auth';
 
@@ -40,7 +40,13 @@ const initials = (name: string) =>
     .join('')
     .toUpperCase();
 
-export default function Sidebar() {
+interface Props {
+  /** Phones: the menu is slid in */
+  open?: boolean;
+  onClose?: () => void;
+}
+
+export default function Sidebar({ open = false, onClose }: Props) {
   const location = useLocation();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -58,18 +64,34 @@ export default function Sidebar() {
     settingsApi.get().then((r) => setSettings(r.data)).catch(() => {});
   }, [location.pathname]);
 
+  // Phone menu: Esc closes it; focus moves in so keyboard and screen-reader users land on it
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose?.();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
   const page = pages[0];
   const health = healthFrom(settings, pages.length, pages.filter((p) => p.postable).length);
   const navClass = ({ isActive }: { isActive: boolean }) => `nav-item ${isActive ? 'active' : ''}`;
 
   return (
-    <aside className="sidebar">
+    <>
+    {open && <button type="button" className="sidebar-backdrop" aria-label="Đóng menu" tabIndex={-1} onClick={onClose} />}
+    {/* A link to the page already open does not change the route: close the menu on any link */}
+    <aside id="app-sidebar" className={`sidebar ${open ? 'open' : ''}`} onClick={(e) => (e.target as HTMLElement).closest('a') && onClose?.()}>
       <div className="sidebar-logo">
         <div className="logo-mark" aria-hidden="true" />
         <div className="logo-text">
           <strong>Auto Post</strong>
           <span>Nội dung Fanpage bằng AI</span>
         </div>
+        <button ref={closeRef} type="button" className="icon-btn sidebar-close" aria-label="Đóng menu" onClick={onClose}>
+          <X size={18} aria-hidden="true" />
+        </button>
       </div>
 
       <Link to="/pages" className="page-switcher" aria-label="Quản lý Fanpage đang kết nối">
@@ -175,5 +197,6 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }

@@ -117,8 +117,8 @@ export default function UsersPage() {
                         </div>
                         <div className="muted member-email">{u.email}</div>
                       </td>
-                      <td>{u.role === 'ADMIN' ? 'Quản trị viên' : 'Member'}</td>
-                      <td>
+                      <td data-label="Vai trò">{u.role === 'ADMIN' ? 'Quản trị viên' : 'Member'}</td>
+                      <td data-label="Đăng nhập">
                         {self ? (
                           <span className="badge badge-published">Hoạt động</span>
                         ) : (
@@ -135,9 +135,9 @@ export default function UsersPage() {
                           </label>
                         )}
                       </td>
-                      <td className="mono">{u.pages}</td>
-                      <td className="mono">{u.posts30d}</td>
-                      <td className="muted">{u.lastLoginAt ? formatWhen(u.lastLoginAt) : 'Chưa'}</td>
+                      <td className="mono" data-label="Page">{u.pages}</td>
+                      <td className="mono" data-label="Bài 30 ngày">{u.posts30d}</td>
+                      <td className="muted" data-label="Lần cuối">{u.lastLoginAt ? formatWhen(u.lastLoginAt) : 'Chưa'}</td>
                       <td>
                         <div className="row-actions">
                           <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDialog({ member: u })} aria-label={`Sửa ${u.email}`}>

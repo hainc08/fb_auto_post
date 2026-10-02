@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChevronRight, Plus, Search } from 'lucide-react';
+import { ChevronRight, Menu, Plus, Search } from 'lucide-react';
 
 /** Breadcrumb trail per route: [section, page?, subpage?] */
 const CRUMBS: Array<[RegExp, string[]]> = [
@@ -8,11 +8,19 @@ const CRUMBS: Array<[RegExp, string[]]> = [
   [/^\/posts\/create/, ['Nội dung', 'Bài đăng', 'Tạo bài mới']],
   [/^\/posts/, ['Nội dung', 'Bài đăng']],
   [/^\/schedules/, ['Nội dung', 'Lịch đăng']],
+  [/^\/domains/, ['Nội dung', 'Lĩnh vực']],
   [/^\/pages/, ['Hệ thống', 'Kênh Facebook']],
   [/^\/settings/, ['Hệ thống', 'Cài đặt']],
+  [/^\/admin\/users/, ['Hệ thống', 'Người dùng']],
 ];
 
-export default function Topbar() {
+interface Props {
+  /** Phones: opens the slide-in menu (the button is hidden on wide screens) */
+  navOpen?: boolean;
+  onMenu?: () => void;
+}
+
+export default function Topbar({ navOpen = false, onMenu }: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -41,6 +49,9 @@ export default function Topbar() {
 
   return (
     <header className="topbar">
+      <button type="button" className="icon-btn topbar-menu" aria-label="Mở menu" aria-expanded={navOpen} aria-controls="app-sidebar" onClick={onMenu}>
+        <Menu size={20} aria-hidden="true" />
+      </button>
       <nav className="topbar-crumbs" aria-label="Vị trí hiện tại">
         {crumbs.map((c, i) => (
           <span key={c} className="row" style={{ gap: 8 }}>
@@ -73,7 +84,7 @@ export default function Topbar() {
 
       {!onCompose && (
         <Link to="/posts/create" className="btn btn-primary">
-          <Plus size={16} strokeWidth={2.4} aria-hidden="true" /> Tạo bài mới
+          <Plus size={16} strokeWidth={2.4} aria-hidden="true" /> Tạo bài<span className="topbar-new-long"> mới</span>
         </Link>
       )}
     </header>
