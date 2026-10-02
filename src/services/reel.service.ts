@@ -1,0 +1,120 @@
+import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { Type } from '@google/genai';
+import { z } from 'zod';
+import type { Post } from '@prisma/client';
+import prisma from '../utils/prisma';
+import { logger } from '../utils/logger';
+import { GeminiClient } from '../lib/clients/gemini';
+import { edgeTts, type EdgeVoice } from '../lib/reel/edge-tts';
+import * as renderer from '../lib/reel/render';
+import { buildAss, buildLines, displayWords } from '../lib/reel/subtitles';
+import { readReelBackground, saveReelBackground } from '../lib/reel/background-store';
+import { readImage, removeImage } from '../lib/image-store';
+import { removeVideo, saveUploadedVideo, VIDEO_TMP_DIR } from '../lib/video-store';
+import { reelsProblem } from '../lib/mp4-info';
+
+/** "Tạo Reel từ bài": a voice reads a short script, subtitles follow it, the video becomes the post's video. */
+
+export class ReelError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+const SCRIPT_SCHEMA = { type: Type.OBJECT, properties: { script: { type: Type.STRING } }, required: ['script'] };
+const scriptValidator = z.object({ script: z.string().min(1) });
+
+const SCRIPT_SYSTEM = `Bạn viết kịch bản lời đọc cho video Reels dọc trên Facebook, bằng tiếng Việt.
+Quy tắc:
+- 40 đến 100 từ, đọc lên trong 20–40 giây.
+- Câu đầu là một câu hỏi hoặc một ý gây tò mò; sau đó một ý chính; câu cuối kêu gọi hành động.
+- Câu ngắn, văn nói tự nhiên. Không hashtag, không emoji, không đường link, không gạch đầu dòng.
+- Chỉ dùng thông tin có trong bài viết được cung cấp.`;
+
+/** A short spoken script (40–100 words) from the post's text. */
+export async function writeReelScript(gemini: { apiKey: string; model: string }, caption: string): Promise<string> {
+  const client = new GeminiClient(gemini);
+  const result = await client.generateJson({
+    systemInstruction: SCRIPT_SYSTEM,
+    prompt: `Bài viết:\n${caption}\n\nViết kịch bản lời đọc cho Reels.`,
+    responseSchema: SCRIPT_SCHEMA,
+    validator: scriptValidator,
+    temperature: 0.8,
+  });
+  return result.script.trim();
+}
+
+/** Posts being rendered by this process (a second request for the same post is refused) */
+const rendering = new Set<string>();
+
+/** Voice → subtitles → video → the post's video (REEL). Throws ReelError; on failure the post is unchanged. */
+export async function makeReel(post: Post, input: { script: string; voice: EdgeVoice }): Promise<Post> {
+  if (rendering.has(post.id)) throw new ReelError(409, 'Reel của bài này đang được dựng, hãy chờ xong rồi thử lại.');
+  rendering.add(post.id);
+  try {
+    if (!(await renderer.ffmpegAvailable())) {
+      throw new ReelError(503, 'Máy chủ chưa có FFmpeg nên chưa dựng được Reel. Cài FFmpeg hoặc đặt biến FFMPEG_PATH.');
+    }
+    const picture = post.imagePath ? await readImage(post.imagePath) : await readReelBackground(post.id);
+
+    let speech;
+    try {
+      speech = await edgeTts.synthesize(input.script, input.voice);
+    } catch (error) {
+      throw new ReelError(502, `Chưa tạo được giọng đọc: ${(error as Error).message}`);
+    }
+    if (!speech.words.length) throw new ReelError(502, 'Chưa tạo được giọng đọc: dịch vụ không trả về mốc thời gian của từng từ.');
+
+    const ass = buildAss(buildLines(displayWords(input.script, speech.words)), { withImage: !!picture, font: process.env.REEL_FONT });
+    await mkdir(VIDEO_TMP_DIR, { recursive: true });
+    const tmp = path.join(VIDEO_TMP_DIR, `reel-${randomUUID()}.mp4`);
+    try {
+      await renderer.reelRenderer.render({ audio: speech.audio, ass, image: picture, outPath: tmp });
+    } catch (error) {
+      throw new ReelError(500, (error as Error).message);
+    }
+
+    let stored;
+    try {
+      stored = await saveUploadedVideo(post.id, tmp); // removes `tmp` whatever happens
+    } catch (error) {
+      throw new ReelError(500, `Dựng video thất bại: ${(error as Error).message}`);
+    }
+    const problem = reelsProblem(stored.meta);
+    if (problem) {
+      await removeVideo(stored.videoPath);
+      throw new ReelError(400, `${problem} Hãy sửa kịch bản cho ngắn hoặc dài hơn.`);
+    }
+
+    // Keep the picture before the post lets go of it
+    if (post.imagePath && picture) await saveReelBackground(post.id, picture.buffer);
+    let updated: Post;
+    try {
+      updated = await prisma.post.update({
+        where: { id: post.id },
+        data: {
+          videoPath: stored.videoPath,
+          videoUrl: stored.videoUrl,
+          videoMime: stored.mime,
+          videoMeta: { ...stored.meta },
+          videoKind: 'REEL',
+          imagePath: null,
+          imageUrl: null,
+          inputData: { ...((post.inputData as Record<string, string> | null) ?? {}), reelScript: input.script, reelVoice: input.voice },
+        },
+      });
+    } catch (error) {
+      await removeVideo(stored.videoPath); // e.g. the post was deleted meanwhile
+      throw error;
+    }
+    await removeVideo(post.videoPath);
+    await removeImage(post.imagePath);
+    await prisma.postLog.create({ data: { postId: post.id, action: 'reel_rendered', details: { ...stored.meta, voice: input.voice, words: speech.words.length } } });
+    logger.info('Reel rendered', { postId: post.id, durationSec: stored.meta.durationSec, bytes: stored.meta.bytes });
+    return updated;
+  } finally {
+    rendering.delete(post.id);
+  }
+}

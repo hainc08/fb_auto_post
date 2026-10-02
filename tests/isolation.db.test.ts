@@ -156,6 +156,8 @@ const ROUTE_CASES: Record<string, Case> = {
   'POST /api/formats/:id/preview': { kind: 'foreign-id', path: (b) => `/api/formats/${b.formatId}/preview`, body: { idea: 'x' } },
   'POST /api/posts/:id/video/upload': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/video/upload`, body: {} },
   'DELETE /api/posts/:id/video': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/video` },
+  'POST /api/posts/:id/reel/script': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/reel/script` },
+  'POST /api/posts/:id/reel': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/reel`, body: { script: 'Một kịch bản thử có đủ năm từ.' } },
   'GET /api/videos/:postId': { kind: 'foreign-id', path: (b) => `/api/videos/${b.postId}` },
   'GET /api/images/:postId': { kind: 'foreign-id', path: (b) => `/api/images/${b.postId}` },
 };

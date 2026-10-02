@@ -15,6 +15,7 @@ import domainsRoutes from './routes/domains.routes';
 import formatsRoutes from './routes/formats.routes';
 import postsRoutes from './routes/posts.routes';
 import commentsRoutes from './routes/comments.routes';
+import reelRoutes from './routes/reel.routes';
 import schedulesRoutes from './routes/schedules.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import settingsRoutes from './routes/settings.routes';
@@ -33,6 +34,7 @@ export const API_ROUTERS: ReadonlyArray<readonly [string, Router]> = [
   ['/api/formats', formatsRoutes],
   ['/api/posts', postsRoutes],
   ['/api/posts', commentsRoutes],
+  ['/api/posts', reelRoutes],
   ['/api/schedules', schedulesRoutes],
   ['/api/analytics', analyticsRoutes],
   ['/api/settings', settingsRoutes],
