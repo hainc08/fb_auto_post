@@ -15,6 +15,7 @@ import { logger } from '../utils/logger';
 import { getSettings } from '../lib/settings';
 import { DEFAULT_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES, isLiveOnAnyPage, syncTargets } from '../lib/post-targets';
 import { blockMessage, blockReason } from '../lib/page-health';
+import { timedProblem } from '../lib/post-timing';
 
 import { assertOwnTemplate } from '../lib/ownership';
 import { randomUUID } from 'node:crypto';
@@ -289,8 +290,7 @@ router.post(
     // Scheduled: queue a delayed publish. The worker skips it if the post was
     // deleted or already published by then.
     if (post.scheduledAt) {
-      const delay = Math.max(0, post.scheduledAt.getTime() - Date.now());
-      await enqueuePost(post.id, userId, { delay, intervalMs: DEFAULT_INTERVAL_MINUTES * 60_000 });
+      await enqueuePost(post.id, userId, { scheduledFor: post.scheduledAt, intervalMs: DEFAULT_INTERVAL_MINUTES * 60_000 });
       await prisma.postLog.create({
         data: { postId: post.id, action: 'scheduled', details: { scheduledAt: post.scheduledAt.toISOString() } },
       });
@@ -690,6 +690,78 @@ router.post(
     await prisma.postLog.create({ data: { postId: post.id, action: 'approved', details: { slot: post.scheduledAt?.toISOString() ?? null } } });
     const saved = await prisma.post.findUniqueOrThrow({ where: { id: post.id }, select: { id: true, status: true, approvedAt: true, scheduledAt: true } });
     res.json({ success: true, data: saved });
+  })
+);
+
+// ─── Timed post: publish at a chosen time ("Hẹn giờ đăng") ───
+
+const timedSchema = z.object({
+  scheduledAt: z.string().datetime(),
+  /** Pages to publish to (replaces the unpublished selection); default: current targets */
+  pageIds: pageIdsSchema.optional(),
+  /** Gap between two Pages, in minutes */
+  intervalMinutes: z.number().int().min(0).max(MAX_INTERVAL_MINUTES).default(DEFAULT_INTERVAL_MINUTES),
+});
+
+const TIMEABLE: PostStatus[] = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'];
+
+/** Set or move the time. Setting a time is the approval: the post goes out then without another click. */
+router.post(
+  '/:id/schedule',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { scheduledAt, pageIds, intervalMinutes } = timedSchema.parse(req.body ?? {});
+    const at = new Date(scheduledAt);
+    const problem = timedProblem(at);
+    if (problem) throw createError(400, problem);
+
+    const post = await prisma.post.findFirst({ where: { id: req.params.id, userId: req.user!.id } });
+    if (!post) throw createError(404, 'Post not found');
+    if (post.scheduleQueued) {
+      throw createError(400, 'Bài này thuộc một lịch đăng: hãy duyệt để đăng theo khung giờ của lịch, hoặc đăng ngay.');
+    }
+    if (!post.caption?.trim() && !post.imagePath && !post.videoPath) {
+      throw createError(400, 'Bài chưa có nội dung để hẹn giờ đăng.');
+    }
+    // Before touching its Pages: a post in progress keeps the targets its jobs were queued for
+    if (post.status === 'PUBLISHED') throw createError(400, 'Bài đã được đăng, không hẹn giờ được nữa.');
+    if (!TIMEABLE.includes(post.status)) throw createError(409, 'Bài đang được xử lý hoặc đang đăng, hãy chờ xong rồi thử lại.');
+
+    // Same Page checks as "Đăng": a post that cannot go out would fail silently at its time
+    if (pageIds) await syncTargets(post.id, await assertOwnPages(req.user!.id, pageIds));
+    const targets = await prisma.postTarget.findMany({ where: { postId: post.id, status: { not: 'PUBLISHED' } } });
+    if (targets.length === 0) throw createError(400, 'Bài đã được đăng trên tất cả Page đã chọn.');
+    if (!pageIds) await assertOwnPages(req.user!.id, targets.map((t) => t.pageId));
+
+    const { count } = await prisma.post.updateMany({
+      where: { id: post.id, status: { in: TIMEABLE }, scheduleQueued: false },
+      data: { status: 'SCHEDULED', scheduledAt: at, approvedAt: new Date(), errorMessage: null, errorStep: null, errorCode: null },
+    });
+    if (count === 0) throw createError(409, 'Bài đang được xử lý hoặc đang đăng, hãy chờ xong rồi thử lại.');
+
+    // A job booked for an earlier time stays in the queue and does nothing (see claimTimedPost)
+    // skipAi: the user approved what they saw; nothing is written by AI at the time
+    await enqueuePost(post.id, req.user!.id, { scheduledFor: at, skipAi: true, intervalMs: intervalMinutes * 60_000 });
+    await prisma.postLog.create({
+      data: { postId: post.id, action: 'scheduled', details: { scheduledAt: at.toISOString(), pages: targets.length } },
+    });
+    res.json({ success: true, data: { id: post.id, status: 'SCHEDULED', scheduledAt: at.toISOString(), pages: targets.length } });
+  })
+);
+
+/** Cancel the time: the post waits for approval again. */
+router.delete(
+  '/:id/schedule',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const post = await prisma.post.findFirst({ where: { id: req.params.id, userId: req.user!.id } });
+    if (!post) throw createError(404, 'Post not found');
+    const status: PostStatus = post.caption?.trim() ? 'READY' : 'DRAFT';
+    const { count } = await prisma.post.updateMany({
+      where: { id: post.id, status: 'SCHEDULED', scheduleQueued: false },
+      data: { status, scheduledAt: null, approvedAt: null },
+    });
+    if (count === 0) throw createError(400, 'Bài này không đang hẹn giờ đăng.');
+    await prisma.postLog.create({ data: { postId: post.id, action: 'schedule_cancelled' } });
+    res.json({ success: true, data: { id: post.id, status, scheduledAt: null } });
   })
 );
 

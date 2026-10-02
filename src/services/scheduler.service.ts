@@ -11,6 +11,7 @@ import { enqueue, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobHand
 import { blockMessage, blockReason, checkPages } from '../lib/page-health';
 import { nextRunAt } from '../lib/schedule-time';
 import { backfillTargets, refreshPostStatus } from '../lib/post-targets';
+import { timedJobMayRun } from '../lib/post-timing';
 import { imageStyleOf, writePost } from './post-writer';
 import { styledImagePrompt } from '../lib/compose-prompt';
 import { openVideo } from '../lib/video-store';
@@ -42,6 +43,8 @@ export interface PostPipelineJob {
   targetIds?: string[];
   /** Gap between two Pages */
   intervalMs?: number;
+  /** Timed post: ISO time this job was booked for. The job only runs while the post still waits for it. */
+  scheduledFor?: string;
 }
 
 export interface TargetJob {
@@ -68,8 +71,9 @@ export interface TargetJob {
  * Retry rules: a target that already has fbPostId is never published again, and
  * a target/post is only marked FAILED once no retry is left.
  */
-async function runPublishJob(job: Job): Promise<void> {
-  const { postId, userId, skipAiGeneration, skipImageGeneration, targetIds, intervalMs = 0 } =
+/** Exported for tests */
+export async function runPublishJob(job: Job): Promise<void> {
+  const { postId, userId, skipAiGeneration, skipImageGeneration, targetIds, intervalMs = 0, scheduledFor } =
     job.payload as unknown as PostPipelineJob;
   const attempt = job.attempts;
   const maxAttempts = job.maxAttempts;
@@ -90,6 +94,12 @@ async function runPublishJob(job: Job): Promise<void> {
       return;
     }
     if (post.userId !== userId) throw new UnrecoverableJobError('Unauthorized');
+
+    // Timed post: the time was moved or cancelled, or the post was published by hand since this job was booked
+    if (scheduledFor && !(await timedJobMayRun(post, new Date(scheduledFor), attempt))) {
+      logger.info('[Pipeline] Timed job is out of date, skipping', { postId, scheduledFor });
+      return;
+    }
 
     // Pages still to publish (never re-publish a Page that has the post)
     const pending = post.targets.filter((t) => t.status !== 'PUBLISHED' && !t.fbPostId && (!targetIds || targetIds.includes(t.id)));
@@ -445,7 +455,15 @@ async function runTokenCheckJob(): Promise<JobResult> {
 export async function enqueuePost(
   postId: string,
   userId: string,
-  options?: { delay?: number; skipAi?: boolean; skipImage?: boolean; targetIds?: string[]; intervalMs?: number }
+  options?: {
+    delay?: number;
+    skipAi?: boolean;
+    skipImage?: boolean;
+    targetIds?: string[];
+    intervalMs?: number;
+    /** Timed post: run at this time, and only while the post still waits for it */
+    scheduledFor?: Date;
+  }
 ): Promise<string> {
   const payload: PostPipelineJob = {
     postId,
@@ -454,8 +472,10 @@ export async function enqueuePost(
     ...(options?.skipImage !== undefined && { skipImageGeneration: options.skipImage }),
     ...(options?.targetIds && { targetIds: options.targetIds }),
     ...(options?.intervalMs !== undefined && { intervalMs: options.intervalMs }),
+    ...(options?.scheduledFor && { scheduledFor: options.scheduledFor.toISOString() }),
   };
-  const job = await enqueue('publish_post', { ...payload }, { runAt: new Date(Date.now() + (options?.delay ?? 0)) });
+  const runAt = options?.scheduledFor ?? new Date(Date.now() + (options?.delay ?? 0));
+  const job = await enqueue('publish_post', { ...payload }, { runAt });
   return job.id;
 }
 

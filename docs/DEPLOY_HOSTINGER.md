@@ -105,6 +105,7 @@ Video bài viết nằm ở `STORAGE_DIR/videos` (tối đa 100 MB mỗi video).
 5. Tạo 1 bài → AI viết → tạo ảnh → **Duyệt & đăng** → kiểm tra bài trên Page, và ảnh vẫn hiện sau khi F5.
 6. Tải thử một video khoảng 50–100 MB. Nếu báo "Máy chủ từ chối file quá lớn" (lỗi 413 từ proxy của Hostinger) thì giới hạn tải lên của gói thấp hơn 100 MB — dùng video nhỏ hơn.
 7. **Lịch đăng**: tạo một lịch có khung giờ gần nhất và 1 ý tưởng → trong 1–2 phút trang lịch có bài "AI đang viết" rồi "Chờ duyệt". Duyệt bài; đến giờ bài được đăng. Lịch cũ (trước bản này) tự chuyển sang lịch theo khung giờ; lịch "Một lần"/"Hàng tháng" bị tạm dừng, tên có "(cần xem lại)".
+8. **Hẹn giờ đăng**: mở một bài "Chờ duyệt" → **Hẹn giờ đăng** → chọn giờ sau hiện tại vài phút → bài chuyển sang "Đã lên lịch" và tự đăng đúng giờ (cần Cron Job ở mục 4). Thử **Đổi giờ đăng** và **Huỷ hẹn giờ** trên một bài khác.
 
 ### Facebook App
 developers.facebook.com → App → **Settings → Basic**:
