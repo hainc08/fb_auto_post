@@ -8,7 +8,11 @@ import { ffmpegAvailable, reelRenderer } from '../src/lib/reel/render';
 import { buildAss, buildLines } from '../src/lib/reel/subtitles';
 import { inspectMp4, reelsProblem } from '../src/lib/mp4-info';
 
-const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
+import ffmpegStatic from 'ffmpeg-static';
+import { existsSync } from 'node:fs';
+import { ffmpegVersion, probeSubtitleFont, REEL_FONT_FILE } from '../src/lib/reel/render';
+
+const FFMPEG = process.env.FFMPEG_PATH || ffmpegStatic || 'ffmpeg';
 const hasFfmpeg = spawnSync(FFMPEG, ['-version']).status === 0;
 const dir = mkdtempSync(path.join(os.tmpdir(), 'reel-render-test-'));
 
@@ -44,6 +48,16 @@ describe.skipIf(!hasFfmpeg)('reelRenderer (needs FFmpeg)', { timeout: 120_000 },
 
   it('finds FFmpeg', async () => {
     expect(await ffmpegAvailable()).toBe(true);
+  });
+
+  it('uses the FFmpeg the app ships with', async () => {
+    expect(ffmpegStatic).toBeTruthy();
+    expect(await ffmpegVersion()).toMatch(/^ffmpeg version \S+/);
+  });
+
+  it('finds the bundled font and uses it for Vietnamese subtitles', async () => {
+    expect(existsSync(REEL_FONT_FILE)).toBe(true);
+    expect(await probeSubtitleFont()).toBe('BeVietnamPro-Bold');
   });
 
   it('renders a vertical video as long as the voice, with and without a picture', async () => {

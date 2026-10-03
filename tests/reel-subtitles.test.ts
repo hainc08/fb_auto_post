@@ -62,10 +62,10 @@ describe('buildAss', () => {
     expect(ass).toContain('Dialogue: 0,0:00:02.00,0:00:02.90,K,,0,0,0,,{\\k90}C');
   });
 
-  it('puts the text under the picture, or in the middle without one', () => {
-    expect(buildAss(two, { withImage: true })).toMatch(/^Style: K,Arial,.*,2,80,80,430,1$/m);
-    expect(buildAss(two, { withImage: false })).toMatch(/^Style: K,Arial,.*,5,80,80,0,1$/m);
-    expect(buildAss(two, { withImage: false, font: 'Be Vietnam Pro' })).toMatch(/^Style: K,Be Vietnam Pro,/m);
+  it('puts the text under the picture, or in the middle without one, in the bundled font', () => {
+    expect(buildAss(two, { withImage: true })).toMatch(/^Style: K,Be Vietnam Pro,.*,2,80,80,430,1$/m);
+    expect(buildAss(two, { withImage: false })).toMatch(/^Style: K,Be Vietnam Pro,.*,5,80,80,0,1$/m);
+    expect(buildAss(two, { withImage: false, font: 'Arial' })).toMatch(/^Style: K,Arial,/m);
   });
 
   it('removes subtitle syntax from the words', () => {

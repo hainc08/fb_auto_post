@@ -1,5 +1,8 @@
 /** Karaoke subtitles for a Reel: pure text work, no I/O (tested from tests/reel-subtitles.test.ts). */
 
+/** Bundled in assets/fonts (SIL OFL); covers Vietnamese on every host */
+export const DEFAULT_REEL_FONT = 'Be Vietnam Pro';
+
 export interface ReelWord {
   text: string;
   /** From the start of the audio */
@@ -81,7 +84,7 @@ export function buildAss(lines: ReelWord[][], opts: { withImage: boolean; font?:
     return `Dialogue: 0,${assTime(start)},${assTime(end)},K,,0,0,0,,${text}`;
   });
   // Colours are &HAABBGGRR: sung = yellow, not yet sung = white, dark outline
-  const style = `Style: K,${opts.font ?? 'Arial'},78,&H0000E5FF,&H00FFFFFF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,${opts.withImage ? '2,80,80,430' : '5,80,80,0'},1`;
+  const style = `Style: K,${opts.font || DEFAULT_REEL_FONT},78,&H0000E5FF,&H00FFFFFF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,${opts.withImage ? '2,80,80,430' : '5,80,80,0'},1`;
   return [
     '[Script Info]',
     'ScriptType: v4.00+',

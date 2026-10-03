@@ -28,6 +28,7 @@ const DEPLOY_PATHS = [
   'prisma/schema.prisma',
   'prisma/hostinger-schema.sql',
   'src',
+  'assets',
   'client/.gitignore',
   'client/.env.example',
   'client/index.html',
