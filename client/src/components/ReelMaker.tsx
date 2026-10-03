@@ -31,25 +31,55 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
   const [script, setScript] = useState(initialScript);
   const [voice, setVoice] = useState(initialVoice ?? REEL_VOICES[0].value);
   const [busy, setBusy] = useState<'script' | 'render' | null>(null);
+  /** A second click while the request is on its way */
+  const [starting, setStarting] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   /** Step and percentage reported by the server while the Reel is made */
   const [progress, setProgress] = useState<{ stage: keyof typeof STAGE_LABEL; percent: number }>({ stage: 'voice', percent: 3 });
 
-  // Ask the server how far it is, once a second, while rendering
+  // A render started earlier (the tab was closed or reloaded) is picked up again
+  useEffect(() => {
+    postsApi
+      .reelProgress(postId)
+      .then((r) => (r.data.state === 'queued' || r.data.state === 'running') && setBusy('render'))
+      .catch(() => {});
+  }, [postId]);
+
+  // Follow the job once a second until it is done or failed
   useEffect(() => {
     if (busy !== 'render') return;
+    let stopped = false;
     const timer = setInterval(() => {
       postsApi
         .reelProgress(postId)
-        // never backwards: a late answer must not pull the bar back
-        .then((r) => r.data && setProgress((p) => (r.data!.percent >= p.percent ? r.data! : p)))
-        .catch(() => {});
+        .then(({ data }) => {
+          if (stopped) return;
+          if (data.state === 'done') {
+            setVideoUrl(assetUrl(data.video.videoUrl));
+            if (data.reelScript) setScript(data.reelScript);
+            toast.success('Đã dựng xong Reel — xem thử rồi duyệt đăng như bài thường.');
+            setBusy(null);
+            onDone();
+          } else if (data.state === 'failed') {
+            toast.error(data.error);
+            setBusy(null);
+          } else if (data.state === 'idle') {
+            setBusy(null);
+          } else {
+            // never backwards: a late answer must not pull the bar back
+            setProgress((p) => (data.percent >= p.percent ? { stage: data.stage, percent: data.percent } : p));
+          }
+        })
+        .catch(() => {}); // a missed poll: the next one answers
     }, 1000);
-    return () => clearInterval(timer);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }, [busy, postId]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !busy && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && busy !== 'script' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [busy, onClose]);
@@ -72,28 +102,28 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
 
   async function render() {
     setProgress({ stage: 'voice', percent: 3 });
-    setBusy('render');
+    setStarting(true);
     try {
-      const res = await postsApi.makeReel(postId, { script: script.trim(), voice });
-      setVideoUrl(assetUrl(res.data.videoUrl));
-      toast.success('Đã dựng xong Reel — xem thử rồi duyệt đăng như bài thường.');
-      onDone();
+      await postsApi.makeReel(postId, { script: script.trim(), voice });
+      setVideoUrl(null);
+      // only now: polling before the job is booked would read the previous Reel's "done"
+      setBusy('render');
     } catch (e: any) {
       toast.error(e.message);
     } finally {
-      setBusy(null);
+      setStarting(false);
     }
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && busy !== 'script' && onClose()}>
       <div className="modal-panel reel-maker" role="dialog" aria-modal="true" aria-labelledby="reel-title">
         <header className="modal-head">
           <div>
             <h2 id="reel-title">Tạo Reel từ bài</h2>
             <p className="field-hint" style={{ margin: 0 }}>Giọng đọc kịch bản, phụ đề chạy theo lời. Reel sẽ thay ảnh của bài.</p>
           </div>
-          <button type="button" className="btn btn-ghost btn-icon" onClick={onClose} disabled={!!busy} aria-label="Đóng">
+          <button type="button" className="btn btn-ghost btn-icon" onClick={onClose} disabled={busy === 'script'} aria-label="Đóng">
             <X size={20} />
           </button>
         </header>
@@ -137,7 +167,7 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
               </div>
               <p className="field-hint" role="status">
                 {STAGE_LABEL[progress.stage]}
-                {progress.stage === 'voice' ? ' Bước này lâu nhất (thường 5–30 giây) và không đo được phần trăm.' : ''} Đừng đóng cửa sổ này.
+                {progress.stage === 'voice' ? ' Bước này lâu nhất (thường 5–30 giây) và không đo được phần trăm.' : ''} Bạn có thể đóng cửa sổ này; Reel vẫn được dựng tiếp.
               </p>
             </div>
           )}
@@ -145,8 +175,8 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
         </div>
 
         <footer className="modal-foot">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={!!busy}>{videoUrl ? 'Xong' : 'Đóng'}</button>
-          <button type="button" className="btn btn-primary" onClick={render} disabled={!!busy || !!problem}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy === 'script'}>{videoUrl ? 'Xong' : 'Đóng'}</button>
+          <button type="button" className="btn btn-primary" onClick={render} disabled={!!busy || starting || !!problem}>
             {busy === 'render' ? <div className="spinner" /> : <Clapperboard size={16} aria-hidden="true" />}
             {videoUrl ? 'Dựng lại' : 'Dựng Reel'}
           </button>
