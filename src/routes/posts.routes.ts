@@ -17,6 +17,8 @@ import { DEFAULT_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES, isLiveOnAnyPage, syncTa
 import { blockMessage, blockReason } from '../lib/page-health';
 import { timedProblem } from '../lib/post-timing';
 import { removeReelBackground } from '../lib/reel/background-store';
+import { removeKeyedJob } from '../lib/job-queue';
+import { reelJobKey } from '../services/reel.service';
 
 import { assertOwnTemplate } from '../lib/ownership';
 import { randomUUID } from 'node:crypto';
@@ -802,6 +804,7 @@ router.delete(
     await removeImage(post.imagePath);
     await removeVideo(post.videoPath);
     await removeReelBackground(post.id);
+    await removeKeyedJob(reelJobKey(post.id));
 
     res.json({ success: true, message: 'Post deleted' });
   })

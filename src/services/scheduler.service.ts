@@ -20,6 +20,7 @@ import { cloudflareConfigFrom, generateImage } from './image.service';
 import { sendPostNotification } from './email.service';
 import { bookScheduleTick, runPrepareJob, runScheduleTickJob } from './schedule-runner';
 import { bookEngagementSync, runEngagementSyncJob } from './engagement-sync';
+import { runReelJob } from './reel.service';
 
 /**
  * Scheduler Service - background work on the MariaDB job queue (src/lib/job-queue.ts)
@@ -399,6 +400,7 @@ export function startWorkers(options: WorkerOptions & { only?: JobType[] } = {})
     prepare_post: runPrepareJob,
     schedule_tick: runScheduleTickJob,
     sync_engagement: runEngagementSyncJob,
+    render_reel: runReelJob,
     check_page_tokens: runTokenCheckJob,
   };
   if (only) for (const type of Object.keys(handlers) as JobType[]) if (!only.includes(type)) delete handlers[type];

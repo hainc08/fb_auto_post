@@ -3,9 +3,10 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Type } from '@google/genai';
 import { z } from 'zod';
-import type { Post } from '@prisma/client';
+import type { Job, Post } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { logger } from '../utils/logger';
+import { UnrecoverableJobError, upsertKeyedJob } from '../lib/job-queue';
 import { GeminiClient } from '../lib/clients/gemini';
 import { edgeTts, type EdgeVoice } from '../lib/reel/edge-tts';
 import * as renderer from '../lib/reel/render';
@@ -152,4 +153,58 @@ export async function makeReel(post: Post, input: { script: string; voice: EdgeV
   } finally {
     rendering.delete(post.id);
   }
+}
+
+// ─── Background job (one per post) ──────────────
+
+export const reelJobKey = (postId: string) => `reel:${postId}`;
+
+interface ReelJobPayload {
+  postId: string;
+  userId: string;
+  script: string;
+  voice: EdgeVoice;
+}
+
+/** What the dialog shows: waiting for the worker, a step with its percentage, the result, or why it failed. */
+export type ReelState =
+  | { state: 'idle' }
+  | ({ state: 'queued' | 'running' } & ReelProgress)
+  | { state: 'done' }
+  | { state: 'failed'; error: string };
+
+/** Book the render. One job per post: refused while the previous one waits or runs. */
+export async function queueReel(post: Post, input: { script: string; voice: EdgeVoice }): Promise<void> {
+  const job = await prisma.job.findUnique({ where: { key: reelJobKey(post.id) } });
+  if (job && (job.status === 'PENDING' || job.status === 'RUNNING')) {
+    throw new ReelError(409, 'Reel của bài này đang được dựng, hãy chờ xong rồi thử lại.');
+  }
+  const payload: ReelJobPayload = { postId: post.id, userId: post.userId, script: input.script, voice: input.voice };
+  // upsertKeyedJob creates the job with maxAttempts = 1: a failed render is reported, never repeated on its own
+  await upsertKeyedJob(reelJobKey(post.id), 'render_reel', { ...payload }, new Date());
+}
+
+/**
+ * render_reel handler. A failure is final and its message is what the user reads (Job.lastError).
+ * A job interrupted by a restart simply runs again: nothing was committed before the last step.
+ */
+export async function runReelJob(job: Job): Promise<void> {
+  const { postId, userId, script, voice } = job.payload as unknown as ReelJobPayload;
+  const post = await prisma.post.findFirst({ where: { id: postId, userId } });
+  if (!post) return; // deleted while it waited
+  try {
+    await makeReel(post, { script, voice });
+  } catch (error) {
+    throw new UnrecoverableJobError(error instanceof ReelError ? error.message : `Dựng Reel thất bại: ${(error as Error).message}`);
+  }
+}
+
+export async function reelState(postId: string): Promise<ReelState> {
+  const job = await prisma.job.findUnique({ where: { key: reelJobKey(postId) } });
+  if (!job) return { state: 'idle' };
+  if (job.status === 'PENDING') return { state: 'queued', stage: 'voice', percent: 3 };
+  // RUNNING with no progress in this process: taken a moment ago, or left by a process that died (recovered within 10 minutes)
+  if (job.status === 'RUNNING') return { state: 'running', ...(reelProgress(postId) ?? { stage: 'voice' as const, percent: 5 }) };
+  if (job.status === 'FAILED') return { state: 'failed', error: job.lastError ?? 'Dựng Reel thất bại.' };
+  return { state: 'done' };
 }

@@ -7,7 +7,7 @@ import { EDGE_VOICES } from '../lib/reel/edge-tts';
 import { countSpokenWords } from '../lib/reel/subtitles';
 import * as renderer from '../lib/reel/render';
 import prisma from '../utils/prisma';
-import { makeReel, reelProgress, ReelError, writeReelScript } from '../services/reel.service';
+import { queueReel, reelState, ReelError, writeReelScript } from '../services/reel.service';
 import { findImageEditablePost, videoState } from './posts.routes';
 
 /** "Tạo Reel từ bài": AI script, then voice + subtitles rendered to the post's video (mounted at /api/posts). */
@@ -24,7 +24,7 @@ const reelSchema = z.object({
   voice: z.enum(EDGE_VOICES).default('vi-VN-HoaiMyNeural'),
 });
 
-const NO_FFMPEG = 'Máy chủ chưa có FFmpeg nên chưa dựng được Reel. Cài FFmpeg hoặc đặt biến FFMPEG_PATH.';
+const NO_FFMPEG = 'Máy chủ chưa chạy được FFmpeg nên chưa dựng được Reel. Báo quản trị viên kiểm tra /cron/reel-check.';
 
 /** Can this host make Reels? The client hides the feature when it cannot (e.g. on the production host). */
 router.get(
@@ -34,13 +34,18 @@ router.get(
   })
 );
 
-/** Polled by the dialog while "Dựng Reel" runs: the step and the percentage, or null when nothing is being made. */
+/** Polled by the dialog: waiting, the step with its percentage, the finished video, or why it failed. */
 router.get(
   '/:id/reel/progress',
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const post = await prisma.post.findFirst({ where: { id: req.params.id, userId: req.user!.id }, select: { id: true } });
+    const post = await prisma.post.findFirst({ where: { id: req.params.id, userId: req.user!.id } });
     if (!post) throw createError(404, 'Post not found');
-    res.json({ success: true, data: reelProgress(post.id) });
+    const state = await reelState(post.id);
+    const data =
+      state.state === 'done'
+        ? { ...state, video: videoState(post), reelScript: (post.inputData as Record<string, string> | null)?.reelScript ?? null }
+        : state;
+    res.json({ success: true, data });
   })
 );
 
@@ -62,19 +67,21 @@ router.post(
   })
 );
 
+/** Books the render (a background job) and answers at once; the dialog then polls /reel/progress. */
 router.post(
   '/:id/reel',
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const { script, voice } = reelSchema.parse(req.body ?? {});
     const post = await findImageEditablePost(req);
     if (countSpokenWords(script) < MIN_WORDS) throw createError(400, `Kịch bản cần ít nhất ${MIN_WORDS} từ.`);
+    if (!(await renderer.ffmpegAvailable())) throw createError(503, NO_FFMPEG);
     try {
-      const updated = await makeReel(post, { script, voice });
-      res.json({ success: true, data: { ...videoState(updated), reelScript: script } });
+      await queueReel(post, { script, voice });
     } catch (error) {
       if (error instanceof ReelError) throw createError(error.status, error.message);
       throw error;
     }
+    res.status(202).json({ success: true, data: { state: 'queued' } });
   })
 );
 
