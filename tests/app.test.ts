@@ -1,4 +1,5 @@
-import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
+import * as selfCheck from '../src/lib/reel/self-check';
 import { createApp } from '../src/app';
 import { startTestServer, api } from './helpers/http';
 
@@ -45,5 +46,25 @@ describe('createApp', () => {
       delete process.env.CRON_SECRET;
     }
     expect((await api(server.baseUrl, 'GET', '/cron/tick?key=cron-key-for-test')).status).toBe(404);
+  });
+
+  it('/cron/reel-check needs the cron key and returns the check, or the sample video', async () => {
+    const check = { ok: true, problems: [], ffmpeg: 'ffmpeg version 7', font: 'BeVietnamPro-Bold', voice: { ms: 1, words: 6, bytes: 3 }, render: { ms: 2, durationSec: 4, width: 1080, height: 1920, bytes: 9 }, file: Buffer.from('....ftypvideo') };
+    const run = vi.spyOn(selfCheck, 'reelSelfCheck').mockResolvedValue(check);
+    expect((await api(server.baseUrl, 'GET', '/cron/reel-check?key=x')).status).toBe(404);
+    process.env.CRON_SECRET = 'cron-key-for-test';
+    try {
+      expect((await api(server.baseUrl, 'GET', '/cron/reel-check?key=wrong')).status).toBe(401);
+      expect(run).not.toHaveBeenCalled();
+      const res = await api(server.baseUrl, 'GET', '/cron/reel-check?key=cron-key-for-test');
+      expect(res.status).toBe(200);
+      expect(res.json).toMatchObject({ ok: true, font: 'BeVietnamPro-Bold', render: { width: 1080 } });
+      expect(res.json.file).toBeUndefined();
+      const video = await fetch(`${server.baseUrl}/cron/reel-check?key=cron-key-for-test&video=1`);
+      expect(video.headers.get('content-type')).toBe('video/mp4');
+      expect(Buffer.from(await video.arrayBuffer()).toString()).toBe('....ftypvideo');
+    } finally {
+      delete process.env.CRON_SECRET;
+    }
   });
 });

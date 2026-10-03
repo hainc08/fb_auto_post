@@ -1,4 +1,6 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, vi } from 'vitest';
+import { edgeTts } from '../src/lib/reel/edge-tts';
+import { reelSelfCheck } from '../src/lib/reel/self-check';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, readdirSync } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
@@ -81,6 +83,27 @@ describe.skipIf(!hasFfmpeg)('reelRenderer (needs FFmpeg)', { timeout: 120_000 },
     expect(seen.every((f) => f >= 0 && f <= 1)).toBe(true);
     expect([...seen].sort((a, b) => a - b)).toEqual(seen);
     expect(seen[seen.length - 1]).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('self-check: renders a sample and reports every step', async () => {
+    fixtures();
+    vi.spyOn(edgeTts, 'synthesize').mockResolvedValue({
+      audio: readFileSync(voice),
+      words: ['Xin', 'chào', 'đây', 'là', 'video', 'thử'].map((text, i) => ({ text, startMs: i * 600, durationMs: 500 })),
+    });
+    const check = await reelSelfCheck();
+    expect(check.problems).toEqual([]);
+    expect(check).toMatchObject({ ok: true, font: 'BeVietnamPro-Bold', voice: { words: 6 }, render: { width: 1080, height: 1920 } });
+    expect(check.ffmpeg).toMatch(/^ffmpeg version/);
+    expect(check.file!.subarray(4, 8).toString()).toBe('ftyp');
+  });
+
+  it('self-check: says which step failed and goes on with the others', async () => {
+    vi.spyOn(edgeTts, 'synthesize').mockRejectedValue(new Error('Dịch vụ giọng đọc từ chối kết nối (HTTP 403).'));
+    const check = await reelSelfCheck();
+    expect(check.ok).toBe(false);
+    expect(check.problems).toEqual(['Giọng đọc: Dịch vụ giọng đọc từ chối kết nối (HTTP 403).']);
+    expect(check).toMatchObject({ font: 'BeVietnamPro-Bold', voice: null, render: null, file: null });
   });
 
   it('leaves no work folder behind and says why it failed', async () => {
