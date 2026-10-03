@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import ffmpegStatic from 'ffmpeg-static';
 import type { ImageMime } from '../image-store';
 import { buildAss, DEFAULT_REEL_FONT } from './subtitles';
 
@@ -15,12 +15,43 @@ import { buildAss, DEFAULT_REEL_FONT } from './subtitles';
  * production host needs nothing installed. The subtitle font is assets/fonts/BeVietnamPro-Bold.ttf.
  */
 
-const FFMPEG = process.env.FFMPEG_PATH || ffmpegStatic || 'ffmpeg';
+/** `ffmpeg-static` is an optional dependency: when its download failed at install time the package is absent */
+function bundledFfmpeg(): string | null {
+  return createRequire(path.join(process.cwd(), 'package.json'))('ffmpeg-static') as string | null;
+}
+
+/** FFMPEG_PATH, else the binary shipped by ffmpeg-static, else "ffmpeg" on PATH (the feature hides itself when none runs) */
+export function ffmpegPath(env: string | undefined = process.env.FFMPEG_PATH, bundled: () => string | null = bundledFfmpeg): string {
+  if (env) return env;
+  try {
+    return bundled() || 'ffmpeg';
+  } catch {
+    return 'ffmpeg';
+  }
+}
+
+const FFMPEG = ffmpegPath();
 const RENDER_TIMEOUT_MS = 180_000;
-/** libx264 opens ~1.5 threads per core by default and cannot start on a 64-core shared host */
+/**
+ * The shared host has 64 cores and a per-account limit: libx264 with default threads cannot start there.
+ * Every decoder, filter graph and encoder is held to 2 threads.
+ */
 const THREADS = ['-threads', '2'];
+const FILTER_THREADS = ['-filter_threads', '2', '-filter_complex_threads', '2'];
 const EXT: Record<ImageMime, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 export const REEL_FONT_FILE = path.resolve(process.cwd(), 'assets', 'fonts', 'BeVietnamPro-Bold.ttf');
+/** How libass names the bundled font once it has picked it */
+export const REEL_FONT_NAME = path.basename(REEL_FONT_FILE, path.extname(REEL_FONT_FILE));
+
+/**
+ * The font libass chose, from its log line "fontselect: (Family, 700, 0) -> <name or file>, 0, <PostScript name>".
+ * libass versions differ in what comes first after "->"; the bundled font is recognised in either form.
+ */
+export function selectedFont(log: string): string | null {
+  const line = /fontselect: \([^)]*\) -> ([^\r\n]+)/.exec(log)?.[1];
+  if (!line) return null;
+  return line.includes(REEL_FONT_NAME) ? REEL_FONT_NAME : line.split(',')[0].trim();
+}
 
 function run(args: string[], cwd?: string, onStdout?: (text: string) => void, loglevel = 'error'): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -66,8 +97,8 @@ export async function probeSubtitleFont(font = DEFAULT_REEL_FONT): Promise<strin
   const { dir, assFilter } = await workDir();
   try {
     await writeFile(path.join(dir, 'subs.ass'), buildAss([[{ text: 'Tiếng Việt', startMs: 0, durationMs: 1000 }]], { withImage: false, font }), 'utf8');
-    const log = await run(['-f', 'lavfi', '-i', 'color=c=black:s=1080x1920:r=30', '-vf', assFilter, '-frames:v', '1', '-f', 'null', '-'], dir, undefined, 'verbose');
-    return /fontselect: \([^)]*\) -> ([^,\r\n]+)/.exec(log)?.[1].trim() ?? null;
+    const log = await run([...FILTER_THREADS, '-f', 'lavfi', '-i', 'color=c=black:s=1080x1920:r=30', '-vf', assFilter, ...THREADS, '-frames:v', '1', '-f', 'null', '-'], dir, undefined, 'verbose');
+    return selectedFont(log);
   } catch {
     return null;
   } finally {
@@ -95,9 +126,9 @@ async function render(input: {
       await writeFile(path.join(dir, picture), input.image.buffer);
       // The still ground is made once; blurring every frame of the video would be far slower
       await run(
-        ['-i', picture, '-filter_complex',
+        [...FILTER_THREADS, ...THREADS, '-i', picture, '-filter_complex',
           '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:4,eq=brightness=-0.28[bg];[0:v]scale=960:-2[fg];[bg][fg]overlay=(W-w)/2:200',
-          '-frames:v', '1', 'ground.png'],
+          ...THREADS, '-frames:v', '1', 'ground.png'],
         dir
       );
       video = ['-loop', '1', '-framerate', '30', '-i', 'ground.png'];
@@ -117,7 +148,7 @@ async function render(input: {
           }
         : undefined;
     await run(
-      [...(report ? ['-progress', 'pipe:1', '-nostats'] : []), ...video, '-i', 'voice.mp3', '-vf', assFilter,
+      [...(report ? ['-progress', 'pipe:1', '-nostats'] : []), ...FILTER_THREADS, ...video, '-i', 'voice.mp3', '-vf', assFilter,
         ...THREADS, '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'stillimage', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '160k',
         '-shortest', '-movflags', '+faststart', 'reel.mp4'],
@@ -127,6 +158,17 @@ async function render(input: {
     await copyFile(path.join(dir, 'reel.mp4'), input.outPath);
   } catch (error) {
     throw new Error(`Dựng video thất bại: ${(error as Error).message}`);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** A small generated picture (PNG), for the host self-check: the picture path is the one most posts take */
+export async function samplePicture(): Promise<Buffer> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'autopost-reel-'));
+  try {
+    await run([...FILTER_THREADS, '-f', 'lavfi', '-i', 'gradients=s=640x640:c0=0x2447C4:c1=0xF2B84B', ...THREADS, '-frames:v', '1', 'sample.png'], dir);
+    return await readFile(path.join(dir, 'sample.png'));
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }

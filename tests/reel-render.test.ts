@@ -10,11 +10,10 @@ import { ffmpegAvailable, reelRenderer } from '../src/lib/reel/render';
 import { buildAss, buildLines } from '../src/lib/reel/subtitles';
 import { inspectMp4, reelsProblem } from '../src/lib/mp4-info';
 
-import ffmpegStatic from 'ffmpeg-static';
 import { existsSync } from 'node:fs';
-import { ffmpegVersion, probeSubtitleFont, REEL_FONT_FILE } from '../src/lib/reel/render';
+import { ffmpegPath, ffmpegVersion, probeSubtitleFont, REEL_FONT_FILE, selectedFont } from '../src/lib/reel/render';
 
-const FFMPEG = process.env.FFMPEG_PATH || ffmpegStatic || 'ffmpeg';
+const FFMPEG = ffmpegPath();
 const hasFfmpeg = spawnSync(FFMPEG, ['-version']).status === 0;
 const dir = mkdtempSync(path.join(os.tmpdir(), 'reel-render-test-'));
 
@@ -37,6 +36,29 @@ async function inspect(file: string) {
 
 const ass = buildAss(buildLines([{ text: 'Xin', startMs: 0, durationMs: 400 }, { text: 'chào', startMs: 400, durationMs: 400 }, { text: 'Việt', startMs: 1200, durationMs: 400 }, { text: 'Nam!', startMs: 1600, durationMs: 400 }]), { withImage: false });
 
+describe('which FFmpeg, which font (no FFmpeg needed)', () => {
+  it('FFMPEG_PATH wins; else the bundled binary; else "ffmpeg" on PATH', () => {
+    expect(ffmpegPath('/opt/ffmpeg', () => '/bundled/ffmpeg')).toBe('/opt/ffmpeg');
+    expect(ffmpegPath(undefined, () => '/bundled/ffmpeg')).toBe('/bundled/ffmpeg');
+    expect(ffmpegPath('', () => null)).toBe('ffmpeg');
+  });
+
+  it('a build where the optional ffmpeg-static package is missing still starts', () => {
+    expect(
+      ffmpegPath(undefined, () => {
+        throw new Error("Cannot find module 'ffmpeg-static'");
+      })
+    ).toBe('ffmpeg');
+  });
+
+  it('reads the chosen font from either form of the libass log line', () => {
+    expect(selectedFont('[Parsed_ass_0 @ 0x1] fontselect: (Be Vietnam Pro, 700, 0) -> BeVietnamPro-Bold, 0, BeVietnamPro-Bold\n')).toBe('BeVietnamPro-Bold');
+    expect(selectedFont('[Parsed_ass_0 @ 0x1] fontselect: (Be Vietnam Pro, 700, 0) -> fonts/BeVietnamPro-Bold.ttf, 0, BeVietnamPro-Bold\n')).toBe('BeVietnamPro-Bold');
+    expect(selectedFont('fontselect: (Be Vietnam Pro, 700, 0) -> /usr/share/fonts/DejaVuSans-Bold.ttf, 0, DejaVuSans-Bold')).toBe('/usr/share/fonts/DejaVuSans-Bold.ttf');
+    expect(selectedFont('no font lines here')).toBeNull();
+  });
+});
+
 describe.skipIf(!hasFfmpeg)('reelRenderer (needs FFmpeg)', { timeout: 120_000 }, () => {
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -53,7 +75,7 @@ describe.skipIf(!hasFfmpeg)('reelRenderer (needs FFmpeg)', { timeout: 120_000 },
   });
 
   it('uses the FFmpeg the app ships with', async () => {
-    expect(ffmpegStatic).toBeTruthy();
+    expect(ffmpegPath(undefined)).toMatch(/ffmpeg-static/);
     expect(await ffmpegVersion()).toMatch(/^ffmpeg version \S+/);
   });
 
@@ -91,7 +113,11 @@ describe.skipIf(!hasFfmpeg)('reelRenderer (needs FFmpeg)', { timeout: 120_000 },
       audio: readFileSync(voice),
       words: ['Xin', 'chào', 'đây', 'là', 'video', 'thử'].map((text, i) => ({ text, startMs: i * 600, durationMs: 500 })),
     });
+    const render = vi.spyOn(reelRenderer, 'render');
     const check = await reelSelfCheck();
+    // the sample has a picture: that path (decode, blur, overlay) is the one most posts take
+    expect(render.mock.calls[0][0].image).toMatchObject({ mime: 'image/png' });
+    expect(render.mock.calls[0][0].ass).toMatch(/,2,80,80,430,1$/m);
     expect(check.problems).toEqual([]);
     expect(check).toMatchObject({ ok: true, font: 'BeVietnamPro-Bold', voice: { words: 6 }, render: { width: 1080, height: 1920 } });
     expect(check.ffmpeg).toMatch(/^ffmpeg version/);

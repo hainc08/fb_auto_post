@@ -13,9 +13,8 @@ import { readReelBackground, REEL_DIR } from '../src/lib/reel/background-store';
 import { IMAGE_DIR, saveImage } from '../src/lib/image-store';
 import { saveSettings } from '../src/lib/settings';
 import { resolveVideo, VIDEO_DIR } from '../src/lib/video-store';
-import { STALE_AFTER_MS } from '../src/lib/job-queue';
 import { startWorkers } from '../src/services/scheduler.service';
-import { reelJobKey } from '../src/services/reel.service';
+import { reelJobKey, requeueInterruptedReels } from '../src/services/reel.service';
 import { startTestServer, api } from './helpers/http';
 import { cleanupTestUsers, createTestUser } from './helpers/users';
 import { tinyMp4 } from './helpers/mp4';
@@ -233,6 +232,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     });
     // the worker is paused for a moment: the job is seen waiting
     stopWorker?.();
+    await new Promise((r) => setTimeout(r, 400)); // let a poll in flight end
     expect((await queue(cookie, post.id)).status).toBe(202);
     seen.push(await state());
     stopWorker = startWorkers({ pollMs: 200, only: ['render_reel'] });
@@ -251,16 +251,19 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     expect((await progress(other.cookie, post.id)).status).toBe(404);
   });
 
-  it('a job interrupted by a restart runs again and finishes', async () => {
+  it('a job interrupted by a restart is put back at startup and finishes, without a 10-minute wait', async () => {
     const { cookie, post } = await setup();
     fakePipeline();
     stopWorker?.();
+    await new Promise((r) => setTimeout(r, 400)); // let a poll in flight end
     expect((await queue(cookie, post.id)).status).toBe(202);
-    // as left by a process that died while rendering, 11 minutes ago
-    await prisma.job.update({ where: { key: reelJobKey(post.id) }, data: { status: 'RUNNING', attempts: 1, lockToken: 'dead-process', lockedAt: new Date(Date.now() - STALE_AFTER_MS - 60_000) } });
+    // as left by a process that died a moment ago, in the middle of rendering
+    await prisma.job.update({ where: { key: reelJobKey(post.id) }, data: { status: 'RUNNING', attempts: 1, lockToken: 'dead-process', lockedAt: new Date() } });
     expect((await progress(cookie, post.id)).json.data).toEqual({ state: 'running', stage: 'voice', percent: 5 });
-    // what recoverStaleJobs() does, for this job only (other test files share the jobs table)
-    await prisma.job.update({ where: { key: reelJobKey(post.id) }, data: { status: 'PENDING', interrupted: true, lockToken: null, lockedAt: null, runAt: new Date() } });
+    expect((await queue(cookie, post.id)).status).toBe(409);
+    // what the server does when it starts
+    expect(await requeueInterruptedReels()).toBe(1);
+    expect(await jobOf(post.id)).toMatchObject({ status: 'PENDING', interrupted: true, lockToken: null });
     stopWorker = startWorkers({ pollMs: 200, only: ['render_reel'] });
     await settled(post.id);
     expect((await progress(cookie, post.id)).json.data.state).toBe('done');

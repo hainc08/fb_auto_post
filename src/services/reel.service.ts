@@ -208,3 +208,17 @@ export async function reelState(postId: string): Promise<ReelState> {
   if (job.status === 'FAILED') return { state: 'failed', error: job.lastError ?? 'Dựng Reel thất bại.' };
   return { state: 'done' };
 }
+
+/**
+ * At startup: renders this process's predecessor was in the middle of go back in the queue now.
+ * (One process serves the app; without this the generic recovery would only notice after 10 minutes,
+ * and meanwhile the dialog would show a frozen bar and refuse a new render.)
+ */
+export async function requeueInterruptedReels(): Promise<number> {
+  const { count } = await prisma.job.updateMany({
+    where: { type: 'render_reel', status: 'RUNNING' },
+    data: { status: 'PENDING', interrupted: true, lockToken: null, lockedAt: null, runAt: new Date() },
+  });
+  if (count) logger.warn(`[Reel] ${count} render(s) interrupted by a restart are queued again`);
+  return count;
+}

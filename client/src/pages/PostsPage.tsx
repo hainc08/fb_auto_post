@@ -130,6 +130,33 @@ export default function PostsPage() {
   const [reelOpen, setReelOpen] = useState(false);
   /** Reels need FFmpeg on the server; the button is hidden where there is none */
   const [reelAvailable, setReelAvailable] = useState(false);
+  /** Post whose Reel is being made: followed here, so the result is reported even after the dialog is closed */
+  const [reelWatch, setReelWatch] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!reelWatch) return;
+    let stopped = false;
+    const timer = setInterval(() => {
+      postsApi
+        .reelProgress(reelWatch)
+        .then(({ data }) => {
+          if (stopped || data.state === 'queued' || data.state === 'running') return;
+          stopped = true;
+          setReelWatch(null);
+          if (data.state === 'done') {
+            toast.success('Đã dựng xong Reel — xem thử rồi duyệt đăng như bài thường.');
+            void load();
+          } else if (data.state === 'failed') {
+            toast.error(`Chưa dựng được Reel: ${data.error}`);
+          }
+        })
+        .catch(() => {}); // a missed poll: the next one answers
+    }, 1500);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [reelWatch]);
   /** Phones: the inspector is a full-screen sheet, opened by choosing a post */
   const [sheetOpen, setSheetOpen] = useState(!!params.get('selected'));
   const openPost = (id: string) => {
@@ -657,7 +684,7 @@ export default function PostsPage() {
           initialVoice={detail.inputData?.reelVoice}
           hasCaption={!!detail.caption}
           onClose={() => setReelOpen(false)}
-          onDone={() => void load()}
+          onStarted={() => setReelWatch(detail.id)}
         />
       )}
       {editingId && <EditPostModal postId={editingId} onClose={() => setEditingId(null)} onSaved={handleSaved} />}

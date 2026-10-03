@@ -105,8 +105,10 @@ export function createApp() {
     asyncHandler(async (req, res) => {
       assertCronKey(req);
       const { file, ...report } = await reelCheck.reelSelfCheck();
+      res.set('Cache-Control', 'no-store');
       if (req.query.video === '1' && file) return void res.type('video/mp4').send(file);
-      res.status(report.ok ? 200 : 503).json(report);
+      // Always 200: `curl -f` and hosting proxies hide the body of a 5xx, and the body is the point
+      res.json(report);
     })
   );
 

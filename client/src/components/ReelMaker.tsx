@@ -11,7 +11,8 @@ interface Props {
   hasCaption: boolean;
   onClose: () => void;
   /** A Reel was made: the list and the preview reload */
-  onDone: () => void;
+  /** A render is queued or already running: the page follows it and reports the result, also after this dialog is closed */
+  onStarted: () => void;
 }
 
 const MIN_WORDS = 5;
@@ -26,7 +27,7 @@ const STAGE_LABEL = {
 const countWords = (s: string) => s.split(/\s+/).filter((t) => /[\p{L}\p{N}]/u.test(t)).length;
 
 /** Script → voice + karaoke subtitles → the post's Reel. */
-export default function ReelMaker({ postId, initialScript = '', initialVoice, hasCaption, onClose, onDone }: Props) {
+export default function ReelMaker({ postId, initialScript = '', initialVoice, hasCaption, onClose, onStarted }: Props) {
   const toast = useToast();
   const [script, setScript] = useState(initialScript);
   const [voice, setVoice] = useState(initialVoice ?? REEL_VOICES[0].value);
@@ -41,7 +42,11 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
   useEffect(() => {
     postsApi
       .reelProgress(postId)
-      .then((r) => (r.data.state === 'queued' || r.data.state === 'running') && setBusy('render'))
+      .then((r) => {
+        if (r.data.state !== 'queued' && r.data.state !== 'running') return;
+        setBusy('render');
+        onStarted();
+      })
       .catch(() => {});
   }, [postId]);
 
@@ -57,11 +62,10 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
           if (data.state === 'done') {
             setVideoUrl(assetUrl(data.video.videoUrl));
             if (data.reelScript) setScript(data.reelScript);
-            toast.success('Đã dựng xong Reel — xem thử rồi duyệt đăng như bài thường.');
+            stopped = true; // the page announces the result and reloads the list
             setBusy(null);
-            onDone();
           } else if (data.state === 'failed') {
-            toast.error(data.error);
+            stopped = true;
             setBusy(null);
           } else if (data.state === 'idle') {
             setBusy(null);
@@ -106,6 +110,7 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
     try {
       await postsApi.makeReel(postId, { script: script.trim(), voice });
       setVideoUrl(null);
+      onStarted();
       // only now: polling before the job is booked would read the previous Reel's "done"
       setBusy('render');
     } catch (e: any) {

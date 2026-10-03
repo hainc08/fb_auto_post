@@ -26,7 +26,6 @@ export interface ReelCheck {
 }
 
 const SAMPLE = 'Xin chào, đây là video thử của Auto Post. Phụ đề tiếng Việt có dấu đầy đủ: ă, â, ê, ô, ơ, ư, đ.';
-const EXPECTED_FONT = 'BeVietnamPro-Bold';
 
 async function inspectFile(file: string) {
   const { size } = await stat(file);
@@ -54,7 +53,7 @@ export async function reelSelfCheck(): Promise<ReelCheck> {
   if (check.ffmpeg) {
     check.font = await renderer.probeSubtitleFont();
     if (!check.font) check.problems.push('Phụ đề: FFmpeg không dựng được phụ đề (thiếu libass).');
-    else if (check.font !== EXPECTED_FONT) check.problems.push(`Phụ đề: đang dùng font "${check.font}" thay vì Be Vietnam Pro (thiếu thư mục assets/fonts?).`);
+    else if (check.font !== renderer.REEL_FONT_NAME) check.problems.push(`Phụ đề: đang dùng font "${check.font}" thay vì Be Vietnam Pro (thiếu thư mục assets/fonts?).`);
   }
 
   let speech: Awaited<ReturnType<typeof edgeTts.synthesize>> | null = null;
@@ -71,8 +70,10 @@ export async function reelSelfCheck(): Promise<ReelCheck> {
     const out = path.join(os.tmpdir(), `autopost-reel-check-${randomUUID()}.mp4`);
     const renderStart = Date.now();
     try {
-      const ass = buildAss(buildLines(displayWords(SAMPLE, speech.words)), { withImage: false });
-      await renderer.reelRenderer.render({ audio: speech.audio, ass, outPath: out });
+      // With a picture, like most posts: decoding, blurring and overlaying are FFmpeg steps of their own
+      const image = { buffer: await renderer.samplePicture(), mime: 'image/png' as const };
+      const ass = buildAss(buildLines(displayWords(SAMPLE, speech.words)), { withImage: true });
+      await renderer.reelRenderer.render({ audio: speech.audio, ass, image, outPath: out });
       const info = await inspectFile(out);
       if (!info) throw new Error('file dựng ra không phải MP4 hợp lệ.');
       check.file = await readFile(out);

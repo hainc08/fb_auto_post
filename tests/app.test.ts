@@ -60,6 +60,12 @@ describe('createApp', () => {
       expect(res.status).toBe(200);
       expect(res.json).toMatchObject({ ok: true, font: 'BeVietnamPro-Bold', render: { width: 1080 } });
       expect(res.json.file).toBeUndefined();
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      // a failed check is still an answer to read (curl -f and hosting proxies hide 5xx bodies)
+      run.mockResolvedValueOnce({ ...check, ok: false, problems: ['Giọng đọc: bị chặn'], file: null });
+      const failed = await api(server.baseUrl, 'GET', '/cron/reel-check?key=cron-key-for-test&video=1');
+      expect(failed.status).toBe(200);
+      expect(failed.json).toMatchObject({ ok: false, problems: ['Giọng đọc: bị chặn'] });
       const video = await fetch(`${server.baseUrl}/cron/reel-check?key=cron-key-for-test&video=1`);
       expect(video.headers.get('content-type')).toBe('video/mp4');
       expect(Buffer.from(await video.arrayBuffer()).toString()).toBe('....ftypvideo');

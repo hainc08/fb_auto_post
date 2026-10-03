@@ -205,6 +205,6 @@ Không đổi: Cron Job `/cron/tick`, `/health`, UptimeRobot, đồng bộ Page,
 | Không đăng nhập được admin | Kiểm tra `ADMIN_EMAIL`/`ADMIN_PASSWORD` rồi **Restart**; log có dòng `[Bootstrap]` cho biết đã đặt mật khẩu hay chưa |
 | App không khởi động, log `JWT_SECRET phải là chuỗi ngẫu nhiên…` | Đặt `JWT_SECRET` ≥ 32 ký tự ngẫu nhiên, Restart |
 | Trình duyệt hỏi user/mật khẩu (hộp thoại của trình duyệt) | Host đang chạy bản cũ còn lớp Basic Auth — deploy bản mới (mục 5); app hiện chỉ dùng trang **Đăng nhập** |
-| `/cron/reel-check` báo "FFmpeg: không chạy được" | Lúc build, gói `ffmpeg-static` chưa tải được file FFmpeg (xem log build), hoặc máy chủ không cho chạy file đó. Redeploy; nếu vẫn lỗi thì tính năng Reel tự ẩn và các phần khác không ảnh hưởng |
+| `/cron/reel-check` báo "FFmpeg: không chạy được" | Lúc build, gói `ffmpeg-static` (gói tuỳ chọn, tải lỗi thì build vẫn chạy tiếp) chưa tải được file FFmpeg, hoặc máy chủ không cho chạy file đó. Bấm **Redeploy** để tải lại; trong lúc đó tính năng Reel tự ẩn và các phần khác không ảnh hưởng |
 | `/cron/reel-check` báo đang dùng font khác | Thiếu thư mục `assets/fonts` trên máy chủ — kiểm tra `DEPLOY_PATHS` trong `scripts/sync-deploy-branch.mjs` có `assets` |
 | Dựng Reel báo "Chưa tạo được giọng đọc" liên tục | Microsoft chặn hoặc đổi dịch vụ Edge TTS (không chính thức). Cần đổi nhà cung cấp giọng đọc (Azure Speech) |
