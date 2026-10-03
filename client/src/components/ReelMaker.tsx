@@ -18,6 +18,11 @@ const MIN_WORDS = 5;
 const MAX_CHARS = 1500;
 /** Vietnamese read aloud: about 3 words a second */
 const WORDS_PER_SECOND = 3;
+const STAGE_LABEL = {
+  voice: 'Bước 1/3 · Đang tạo giọng đọc…',
+  render: 'Bước 2/3 · Đang dựng video…',
+  saving: 'Bước 3/3 · Đang lưu…',
+} as const;
 const countWords = (s: string) => s.split(/\s+/).filter((t) => /[\p{L}\p{N}]/u.test(t)).length;
 
 /** Script → voice + karaoke subtitles → the post's Reel. */
@@ -27,6 +32,21 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
   const [voice, setVoice] = useState(initialVoice ?? REEL_VOICES[0].value);
   const [busy, setBusy] = useState<'script' | 'render' | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  /** Step and percentage reported by the server while the Reel is made */
+  const [progress, setProgress] = useState<{ stage: keyof typeof STAGE_LABEL; percent: number }>({ stage: 'voice', percent: 3 });
+
+  // Ask the server how far it is, once a second, while rendering
+  useEffect(() => {
+    if (busy !== 'render') return;
+    const timer = setInterval(() => {
+      postsApi
+        .reelProgress(postId)
+        // never backwards: a late answer must not pull the bar back
+        .then((r) => r.data && setProgress((p) => (r.data!.percent >= p.percent ? r.data! : p)))
+        .catch(() => {});
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [busy, postId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !busy && onClose();
@@ -51,6 +71,7 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
   }
 
   async function render() {
+    setProgress({ stage: 'voice', percent: 3 });
     setBusy('render');
     try {
       const res = await postsApi.makeReel(postId, { script: script.trim(), voice });
@@ -109,7 +130,16 @@ export default function ReelMaker({ postId, initialScript = '', initialVoice, ha
           </div>
 
           {busy === 'render' && (
-            <p className="field-hint" role="status">Đang tạo giọng đọc và dựng video… thường mất 20–60 giây, đừng đóng cửa sổ này.</p>
+            <div className="reel-progress">
+              <div className="upload-progress" role="progressbar" aria-valuenow={progress.percent} aria-valuemin={0} aria-valuemax={100} aria-label="Tiến độ dựng Reel">
+                <span style={{ width: `${progress.percent}%` }} />
+                <em>{progress.percent}%</em>
+              </div>
+              <p className="field-hint" role="status">
+                {STAGE_LABEL[progress.stage]}
+                {progress.stage === 'voice' ? ' Bước này lâu nhất (thường 5–30 giây) và không đo được phần trăm.' : ''} Đừng đóng cửa sổ này.
+              </p>
+            </div>
           )}
           {videoUrl && busy !== 'render' && <video className="reel-preview" src={videoUrl} controls playsInline preload="metadata" />}
         </div>

@@ -192,6 +192,47 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     expect((await first).status).toBe(200);
   });
 
+  it('reports the step and the percentage while a Reel is made, and nothing afterwards', async () => {
+    const { cookie, post } = await setup();
+    fakePipeline();
+    const progress = async () => (await api(server.baseUrl, 'GET', `/api/posts/${post.id}/reel/progress`, { cookie })).json.data;
+    const seen: Array<{ stage: string; percent: number } | null> = [await progress()];
+    vi.spyOn(edgeTts, 'synthesize').mockImplementation(async () => {
+      seen.push(await progress());
+      return { audio: Buffer.from('mp3'), words: WORDS };
+    });
+    vi.spyOn(reelRenderer, 'render').mockImplementation(async ({ outPath, onProgress, durationMs }) => {
+      expect(durationMs).toBe(WORDS.length * 300);
+      seen.push(await progress());
+      onProgress?.(0.5);
+      seen.push(await progress());
+      onProgress?.(1);
+      seen.push(await progress());
+      await writeFile(outPath, tinyMp4({ durationSec: 20, width: 1080, height: 1920 }));
+    });
+    expect((await make(cookie, post.id)).status).toBe(200);
+    seen.push(await progress());
+    expect(seen).toEqual([
+      null,
+      { stage: 'voice', percent: 10 },
+      { stage: 'render', percent: 40 },
+      { stage: 'render', percent: 68 },
+      { stage: 'render', percent: 95 },
+      null,
+    ]);
+    // another member cannot watch it
+    const other = await createTestUser();
+    expect((await api(server.baseUrl, 'GET', `/api/posts/${post.id}/reel/progress`, { cookie: other.cookie })).status).toBe(404);
+  });
+
+  it('forgets the progress when the Reel fails', async () => {
+    const { cookie, post } = await setup();
+    fakePipeline();
+    vi.spyOn(edgeTts, 'synthesize').mockRejectedValue(new Error('lỗi'));
+    await make(cookie, post.id);
+    expect((await api(server.baseUrl, 'GET', `/api/posts/${post.id}/reel/progress`, { cookie })).json.data).toBeNull();
+  });
+
   it('refuses a script that is too short, an unknown voice, and a host without FFmpeg', async () => {
     const { cookie, post } = await setup();
     const { voice } = fakePipeline();

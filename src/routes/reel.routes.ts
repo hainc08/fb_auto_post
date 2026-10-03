@@ -6,7 +6,8 @@ import { getSettings } from '../lib/settings';
 import { EDGE_VOICES } from '../lib/reel/edge-tts';
 import { countSpokenWords } from '../lib/reel/subtitles';
 import * as renderer from '../lib/reel/render';
-import { makeReel, ReelError, writeReelScript } from '../services/reel.service';
+import prisma from '../utils/prisma';
+import { makeReel, reelProgress, ReelError, writeReelScript } from '../services/reel.service';
 import { findImageEditablePost, videoState } from './posts.routes';
 
 /** "Tạo Reel từ bài": AI script, then voice + subtitles rendered to the post's video (mounted at /api/posts). */
@@ -30,6 +31,16 @@ router.get(
   '/reel/status',
   asyncHandler(async (_req: AuthRequest, res: Response) => {
     res.json({ success: true, data: { available: await renderer.ffmpegAvailable() } });
+  })
+);
+
+/** Polled by the dialog while "Dựng Reel" runs: the step and the percentage, or null when nothing is being made. */
+router.get(
+  '/:id/reel/progress',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const post = await prisma.post.findFirst({ where: { id: req.params.id, userId: req.user!.id }, select: { id: true } });
+    if (!post) throw createError(404, 'Post not found');
+    res.json({ success: true, data: reelProgress(post.id) });
   })
 );
 

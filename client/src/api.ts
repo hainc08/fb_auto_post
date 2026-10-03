@@ -426,6 +426,9 @@ export const postsApi = {
   /** Can this server make Reels (it needs FFmpeg)? */
   reelStatus: () => apiFetch<{ available: boolean }>('/posts/reel/status'),
 
+  /** How far "Dựng Reel" is for this post; null when nothing is being made. */
+  reelProgress: (id: string) => apiFetch<{ stage: 'voice' | 'render' | 'saving'; percent: number } | null>(`/posts/${id}/reel/progress`),
+
   /** AI writes a short spoken script from the post's text (not saved). */
   reelScript: (id: string) => apiFetch<{ script: string }>(`/posts/${id}/reel/script`, { method: 'POST' }),
 

@@ -1185,6 +1185,10 @@ tbody tr:hover { background: var(--bg-secondary); }
 /* The body scrolls; its children keep their height (else the script box is squashed once the video shows) */
 .reel-maker .member-body > * { flex-shrink: 0; }
 .reel-voice { width: auto; }
+.reel-progress { display: flex; flex-direction: column; gap: 6px; }
+.reel-progress .field-hint { margin: 0; }
+.reel-progress .upload-progress span { transition: width 0.6s ease-out; }
+@media (prefers-reduced-motion: reduce) { .reel-progress .upload-progress span { transition: none; } }
 .reel-preview { align-self: center; width: min(240px, 100%); aspect-ratio: 9 / 16; border-radius: var(--radius-lg); background: #000; }
 
 /* ─── Timed post ("Hẹn giờ đăng") ─── */

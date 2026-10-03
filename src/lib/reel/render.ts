@@ -14,19 +14,34 @@ const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const RENDER_TIMEOUT_MS = 180_000;
 const EXT: Record<ImageMime, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
-function run(args: string[], cwd?: string): Promise<void> {
+function run(args: string[], cwd?: string, onStdout?: (text: string) => void): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', ...args], { cwd, timeout: RENDER_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (error, _out, stderr) =>
+    const child = execFile(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', ...args], { cwd, timeout: RENDER_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (error, _out, stderr) =>
       error ? reject(new Error(String(stderr || error.message).trim().split('\n').pop())) : resolve()
     );
+    if (onStdout) child.stdout?.on('data', (chunk) => onStdout(String(chunk)));
   });
+}
+
+/** `-progress pipe:1` prints "out_time_us=<microseconds encoded so far>" about twice a second */
+function encodedMs(text: string): number | null {
+  const marks = [...text.matchAll(/out_time_(?:us|ms)=(\d+)/g)];
+  return marks.length ? Number(marks[marks.length - 1][1]) / 1000 : null;
 }
 
 export function ffmpegAvailable(): Promise<boolean> {
   return new Promise((resolve) => execFile(FFMPEG, ['-version'], { timeout: 10_000 }, (error) => resolve(!error)));
 }
 
-async function render(input: { audio: Buffer; ass: string; image?: { buffer: Buffer; mime: ImageMime } | null; outPath: string }): Promise<void> {
+async function render(input: {
+  audio: Buffer;
+  ass: string;
+  image?: { buffer: Buffer; mime: ImageMime } | null;
+  outPath: string;
+  /** Length of the voice; with `onProgress`, the encoded share (0–1) is reported as the video is written */
+  durationMs?: number;
+  onProgress?: (fraction: number) => void;
+}): Promise<void> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'autopost-reel-'));
   try {
     await writeFile(path.join(dir, 'voice.mp3'), input.audio);
@@ -48,12 +63,25 @@ async function render(input: { audio: Buffer; ass: string; image?: { buffer: Buf
     } else {
       video = ['-f', 'lavfi', '-i', 'color=c=0x17191F:s=1080x1920:r=30'];
     }
+    const { durationMs, onProgress } = input;
+    let reported = 0;
+    const report =
+      durationMs && onProgress
+        ? (text: string) => {
+            const ms = encodedMs(text);
+            if (ms === null) return;
+            // never backwards, never past the end
+            reported = Math.max(reported, Math.min(1, ms / durationMs));
+            onProgress(reported);
+          }
+        : undefined;
     await run(
-      [...video, '-i', 'voice.mp3', '-vf', 'ass=subs.ass',
+      [...(report ? ['-progress', 'pipe:1', '-nostats'] : []), ...video, '-i', 'voice.mp3', '-vf', 'ass=subs.ass',
         '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'stillimage', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '160k',
         '-shortest', '-movflags', '+faststart', 'reel.mp4'],
-      dir
+      dir,
+      report
     );
     await copyFile(path.join(dir, 'reel.mp4'), input.outPath);
   } catch (error) {

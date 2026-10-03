@@ -46,13 +46,22 @@ export async function writeReelScript(gemini: { apiKey: string; model: string },
   return result.script.trim();
 }
 
-/** Posts being rendered by this process (a second request for the same post is refused) */
-const rendering = new Set<string>();
+export interface ReelProgress {
+  stage: 'voice' | 'render' | 'saving';
+  /** 0–100 over the whole job. Only the render step is measured; the voice service gives no progress. */
+  percent: number;
+}
+
+/** Posts being rendered by this process, with how far each is (a second request for the same post is refused) */
+const rendering = new Map<string, ReelProgress>();
+
+/** How far the Reel of this post is; null when none is being made. */
+export const reelProgress = (postId: string): ReelProgress | null => rendering.get(postId) ?? null;
 
 /** Voice → subtitles → video → the post's video (REEL). Throws ReelError; on failure the post is unchanged. */
 export async function makeReel(post: Post, input: { script: string; voice: EdgeVoice }): Promise<Post> {
   if (rendering.has(post.id)) throw new ReelError(409, 'Reel của bài này đang được dựng, hãy chờ xong rồi thử lại.');
-  rendering.add(post.id);
+  rendering.set(post.id, { stage: 'voice', percent: 10 });
   try {
     if (!(await renderer.ffmpegAvailable())) {
       throw new ReelError(503, 'Máy chủ chưa có FFmpeg nên chưa dựng được Reel. Cài FFmpeg hoặc đặt biến FFMPEG_PATH.');
@@ -71,7 +80,18 @@ export async function makeReel(post: Post, input: { script: string; voice: EdgeV
     await mkdir(VIDEO_TMP_DIR, { recursive: true });
     const tmp = path.join(VIDEO_TMP_DIR, `reel-${randomUUID()}.mp4`);
     try {
-      await renderer.reelRenderer.render({ audio: speech.audio, ass, image: picture, outPath: tmp });
+      const last = speech.words[speech.words.length - 1];
+      rendering.set(post.id, { stage: 'render', percent: 40 });
+      await renderer.reelRenderer.render({
+        audio: speech.audio,
+        ass,
+        image: picture,
+        outPath: tmp,
+        durationMs: last.startMs + last.durationMs,
+        // the render step is 40–95% of the bar
+        onProgress: (fraction) => rendering.set(post.id, { stage: 'render', percent: 40 + Math.round(fraction * 55) }),
+      });
+      rendering.set(post.id, { stage: 'saving', percent: 97 });
     } catch (error) {
       throw new ReelError(500, (error as Error).message);
     }

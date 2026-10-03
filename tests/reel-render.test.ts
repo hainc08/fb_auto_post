@@ -59,6 +59,16 @@ describe.skipIf(!hasFfmpeg)('reelRenderer (needs FFmpeg)', { timeout: 120_000 },
     }
   });
 
+  it('reports how far the encoding is, up to the end', async () => {
+    fixtures();
+    const seen: number[] = [];
+    await reelRenderer.render({ audio: readFileSync(voice), ass, outPath: path.join(dir, 'progress.mp4'), durationMs: 4000, onProgress: (f) => seen.push(f) });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((f) => f >= 0 && f <= 1)).toBe(true);
+    expect([...seen].sort((a, b) => a - b)).toEqual(seen);
+    expect(seen[seen.length - 1]).toBeGreaterThanOrEqual(0.9);
+  });
+
   it('leaves no work folder behind and says why it failed', async () => {
     const before = readdirSync(os.tmpdir()).filter((n) => n.startsWith('autopost-reel-')).length;
     await expect(reelRenderer.render({ audio: Buffer.from('not audio'), ass, outPath: path.join(dir, 'bad.mp4') })).rejects.toThrow(/Dựng video thất bại/);
