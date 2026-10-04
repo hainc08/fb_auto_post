@@ -680,8 +680,6 @@ export default function PostsPage() {
       {reelOpen && detail && (
         <ReelMaker
           postId={detail.id}
-          initialScript={detail.inputData?.reelScript}
-          initialVoice={detail.inputData?.reelVoice}
           hasCaption={!!detail.caption}
           onClose={() => setReelOpen(false)}
           onStarted={() => setReelWatch(detail.id)}

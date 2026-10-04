@@ -359,6 +359,17 @@ export type ReelState =
   | { state: 'done'; video: VideoState; reelScript: string | null }
   | { state: 'failed'; error: string };
 
+export interface ReelSceneView {
+  id: string;
+  text: string;
+  imagePrompt: string;
+  imageUrl: string | null;
+}
+export interface ReelDraftView {
+  voice: string;
+  scenes: ReelSceneView[];
+}
+
 export const REEL_VOICES = [
   { value: 'vi-VN-HoaiMyNeural', label: 'Hoài My (nữ)' },
   { value: 'vi-VN-NamMinhNeural', label: 'Nam Minh (nam)' },
@@ -435,15 +446,32 @@ export const postsApi = {
   /** Can this server make Reels (it needs FFmpeg)? */
   reelStatus: () => apiFetch<{ available: boolean }>('/posts/reel/status'),
 
-  /** AI writes a short spoken script from the post's text (not saved). */
-  reelScript: (id: string) => apiFetch<{ script: string }>(`/posts/${id}/reel/script`, { method: 'POST' }),
-
   /** Where the Reel of this post is: waiting, a step with its percentage, done (with the video) or failed. */
   reelProgress: (id: string) => apiFetch<ReelState>(`/posts/${id}/reel/progress`),
 
-  /** Books the render (a background job, usually 20–60 seconds); follow it with `reelProgress`. */
-  makeReel: (id: string, body: { script: string; voice: string }) =>
-    apiFetch<{ state: 'queued' }>(`/posts/${id}/reel`, { method: 'POST', body: JSON.stringify(body) }),
+  /** The scenes of the post's Reel as saved. */
+  reelDraft: (id: string) => apiFetch<ReelDraftView>(`/posts/${id}/reel/draft`),
+
+  /** Save the scenes as edited (a scene keeps its picture by its id). */
+  saveReelDraft: (id: string, body: { voice: string; scenes: Array<{ id?: string; text: string; imagePrompt: string }> }) =>
+    apiFetch<ReelDraftView>(`/posts/${id}/reel/draft`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  /** AI writes the scenes from the post's text and replaces the saved ones (their pictures are removed). */
+  reelScript: (id: string) => apiFetch<ReelDraftView>(`/posts/${id}/reel/script`, { method: 'POST' }),
+
+  /** One Cloudflare image call: the scene's picture from its image prompt. */
+  generateSceneImage: (id: string, sceneId: string) => apiFetch<ReelDraftView>(`/posts/${id}/reel/scenes/${sceneId}/image/generate`, { method: 'POST' }),
+
+  uploadSceneImage: (id: string, sceneId: string, file: File) => {
+    const body = new FormData();
+    body.append('image', file);
+    return apiFetch<ReelDraftView>(`/posts/${id}/reel/scenes/${sceneId}/image/upload`, { method: 'POST', body });
+  },
+
+  removeSceneImage: (id: string, sceneId: string) => apiFetch<ReelDraftView>(`/posts/${id}/reel/scenes/${sceneId}/image`, { method: 'DELETE' }),
+
+  /** Books the render of the saved scenes (a background job, usually 20–60 seconds); follow it with `reelProgress`. */
+  makeReel: (id: string) => apiFetch<{ state: 'queued' }>(`/posts/${id}/reel`, { method: 'POST', body: JSON.stringify({}) }),
 
   /** Pass `caption` to rewrite an unsaved draft (result is not persisted). */
   improve: (id: string, instruction: string, caption?: string) =>

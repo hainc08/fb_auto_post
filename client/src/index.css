@@ -1181,10 +1181,22 @@ tbody tr:hover { background: var(--bg-secondary); }
 .comment-actions .form-textarea { flex: 1 1 260px; min-height: 56px; }
 
 /* ─── Reel maker ─── */
-.reel-maker { max-width: 560px; }
+.reel-maker { max-width: 720px; }
 /* The body scrolls; its children keep their height (else the script box is squashed once the video shows) */
 .reel-maker .member-body > * { flex-shrink: 0; }
 .reel-voice { width: auto; }
+.reel-scenes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.reel-scene { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-card); }
+.reel-scene-thumb { width: 88px; height: 88px; border-radius: 8px; background: var(--bg-tertiary); display: grid; place-items: center; color: #8A8E98; overflow: hidden; }
+.reel-scene-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.reel-scene-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.reel-scene-body .form-label { margin: 0; }
+.reel-scene-body .form-textarea { min-height: 56px; }
+.reel-scene-actions { flex-wrap: wrap; gap: 6px; }
+@media (max-width: 640px) {
+  .reel-scene { grid-template-columns: 64px minmax(0, 1fr); gap: 10px; }
+  .reel-scene-thumb { width: 64px; height: 64px; }
+}
 .reel-progress { display: flex; flex-direction: column; gap: 6px; }
 .reel-progress .field-hint { margin: 0; }
 .reel-progress .upload-progress span { transition: width 0.6s ease-out; }
