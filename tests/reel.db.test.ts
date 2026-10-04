@@ -320,6 +320,22 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     expect(gemini).not.toHaveBeenCalled();
   });
 
+  it('the finished Reel can be downloaded as a file, by its owner only', async () => {
+    const { cookie, post } = await setup();
+    fakePipeline();
+    expect((await make(cookie, post.id)).state).toBe('done');
+    const url = `${server.baseUrl}/api/videos/${post.id}`;
+    const download = await fetch(`${url}?download=1`, { headers: { Cookie: cookie } });
+    expect(download.status).toBe(200);
+    expect(download.headers.get('content-disposition')).toBe(`attachment; filename="reel-${post.id.slice(0, 8)}.mp4"`);
+    expect(download.headers.get('content-type')).toBe('video/mp4');
+    expect(Buffer.from(await download.arrayBuffer()).subarray(4, 8).toString()).toBe('ftyp');
+    // the preview player is not turned into a download
+    expect((await fetch(url, { headers: { Cookie: cookie } })).headers.get('content-disposition')).toBeNull();
+    const other = await createTestUser();
+    expect((await fetch(`${url}?download=1`, { headers: { Cookie: other.cookie } })).status).toBe(404);
+  });
+
   // ─── Scenes ─────────────────────────────────────
 
   const SCENE_PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('scene picture')]);

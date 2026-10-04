@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Clapperboard, ImagePlus, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Clapperboard, Download, ImagePlus, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
 import { postsApi, assetUrl, MAX_UPLOAD_BYTES, REEL_VOICES, UPLOAD_TYPES, type ReelDraftView } from '../api';
 import { useToast } from '../components/Toast';
 import { postTitle } from '../components/PostBits';
@@ -298,7 +298,15 @@ export default function ReelPage() {
                 </p>
               </div>
             )}
-            {videoUrl && busy !== 'render' && <video className="reel-preview" src={videoUrl} controls playsInline preload="metadata" />}
+            {videoUrl && busy !== 'render' && (
+              <>
+                <video className="reel-preview" src={videoUrl} controls playsInline preload="metadata" />
+                {/* the server answers ?download=1 with "attachment": the browser saves the file instead of playing it */}
+                <a className="btn btn-secondary btn-block" href={`${videoUrl}${videoUrl.includes('?') ? '&' : '?'}download=1`} download>
+                  <Download size={15} aria-hidden="true" /> Tải video về máy
+                </a>
+              </>
+            )}
           </div>
         </aside>
 

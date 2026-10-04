@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye, MessageCircle, ArrowLeft, Clapperboard } from 'lucide-react';
+import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye, MessageCircle, ArrowLeft, Clapperboard, Download } from 'lucide-react';
 import { postsApi, domainsApi, assetUrl, type ContentDomain } from '../api';
 import EditPostModal from '../components/EditPostModal';
 import { useToast } from '../components/Toast';
@@ -659,6 +659,11 @@ export default function PostsPage() {
                 <button type="button" className="btn btn-ghost btn-block" onClick={() => void cancelTimed(detail.id)} disabled={acting}>
                   Huỷ hẹn giờ
                 </button>
+              )}
+              {detail.videoUrl && (
+                <a className="btn btn-secondary btn-block" href={`${assetUrl(detail.videoUrl)}${detail.videoUrl.includes('?') ? '&' : '?'}download=1`} download>
+                  <Download size={15} aria-hidden="true" /> Tải video về máy
+                </a>
               )}
               {reelAvailable && EDITABLE.includes(detail.status) && !liveSomewhere && (
                 <button type="button" className="btn btn-secondary btn-block" onClick={() => navigate(`/posts/${detail.id}/reel`)} disabled={acting}>
