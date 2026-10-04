@@ -161,7 +161,12 @@ router.post(
       throw createError(502, `AI chưa viết được kịch bản: ${(error as Error).message}`);
     }
     if (!written.length) throw createError(502, 'AI chưa viết được kịch bản: không có cảnh nào có lời đọc. Hãy thử lại.');
-    const old = readDraft(post);
+    // Gemini took seconds: read the post again, so pictures attached and renders booked meanwhile are seen
+    const fresh = await findImageEditablePost(req);
+    await assertNoReelRunning(post.id).catch((error) => {
+      throw createError(409, (error as Error).message);
+    });
+    const old = readDraft(fresh);
     const draft: ReelDraft = { voice: old.voice, scenes: written.map((s) => ({ id: newSceneId(), text: s.text, imagePrompt: s.imagePrompt, image: null })) };
     await saveDraft(post.id, draft);
     for (const s of old.scenes) if (s.image) await removeSceneImage(post.id, s.image);

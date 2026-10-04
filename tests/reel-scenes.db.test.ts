@@ -168,6 +168,23 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('Reel scenes', { timeout: 60_000 }, (
     expect(await sceneFiles(post.id)).toEqual([]);
   });
 
+  it('a picture attached while AI rewrites the script is removed with the scene it belonged to', async () => {
+    const { cookie, post } = await setup();
+    vi.spyOn(renderModule, 'ffmpegAvailable').mockResolvedValue(true);
+    fakeCloudflare();
+    const [a] = (await put(cookie, post.id, [{ text: 'Cảnh cũ', imagePrompt: 'old' }])).json.data.scenes;
+    // another tab finishes a picture for the old scene while Gemini is still writing
+    vi.spyOn(GeminiClient.prototype, 'generateJson').mockImplementation(async () => {
+      const res = await api(server.baseUrl, 'POST', `${base(post.id)}/scenes/${a.id}/image/generate`, { cookie });
+      expect(res.status).toBe(200);
+      return { scenes: [{ text: 'Cảnh mới.', image_prompt: 'new' }] } as never;
+    });
+    const res = await api(server.baseUrl, 'POST', `${base(post.id)}/script`, { cookie });
+    expect(res.status).toBe(200);
+    expect(res.json.data.scenes).toEqual([{ id: expect.any(String), text: 'Cảnh mới.', imagePrompt: 'new', imageUrl: null }]);
+    expect(await sceneFiles(post.id)).toEqual([]);
+  });
+
   it('another member cannot read a scene picture; a published post cannot be edited', async () => {
     const { cookie, post } = await setup();
     fakeCloudflare();

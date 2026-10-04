@@ -43,6 +43,8 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   /** Step and percentage reported by the server while the Reel is made */
   const [progress, setProgress] = useState<{ stage: keyof typeof STAGE_LABEL; percent: number }>({ stage: 'voice', percent: 3 });
+  /** Scenes or voice edited since they were last saved or loaded */
+  const dirty = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   /** Scene the file picker was opened for */
   const uploadFor = useRef<number | null>(null);
@@ -50,7 +52,27 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
   const apply = (draft: ReelDraftView) => {
     setScenes(draft.scenes);
     setVoice(draft.voice);
+    dirty.current = false;
   };
+
+  /** Every edit of the scenes on screen goes through here, so closing knows there is something to save */
+  const change = (next: (list: Scene[]) => Scene[]) => {
+    dirty.current = true;
+    setScenes(next);
+  };
+
+  /** Close the dialog; scenes typed but not saved yet are saved first (nothing else saves them) */
+  function close() {
+    if (!dirty.current || busy) return onClose();
+    void act('save', async () => {
+      try {
+        await persist();
+      } catch (e: any) {
+        toast.error(`Chưa lưu được kịch bản: ${e.message}`);
+      }
+      onClose();
+    });
+  }
 
   useEffect(() => {
     postsApi
@@ -99,10 +121,10 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
   }, [busy, postId]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && (!busy || busy === 'render') && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && (!busy || busy === 'render') && close();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [busy, onClose]);
+  });
 
   /** Run one action; the scenes are locked while it runs */
   async function act(key: string, action: () => Promise<void>) {
@@ -123,7 +145,7 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
     return res.data;
   }
 
-  const edit = (i: number, patch: Partial<Scene>) => setScenes((list) => list.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+  const edit = (i: number, patch: Partial<Scene>) => change((list) => list.map((s, j) => (j === i ? { ...s, ...patch } : s)));
 
   function writeScript() {
     if (scenes.some((s) => s.text.trim() || s.imageUrl) && !armed) return setArmed(true);
@@ -202,14 +224,14 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
   const closable = !busy || busy === 'render';
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && closable && onClose()}>
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && closable && close()}>
       <div className="modal-panel reel-maker" role="dialog" aria-modal="true" aria-labelledby="reel-title">
         <header className="modal-head">
           <div>
             <h2 id="reel-title">Tạo Reel từ bài</h2>
             <p className="field-hint" style={{ margin: 0 }}>Mỗi cảnh có lời đọc và ảnh riêng; ảnh đổi khi giọng đọc sang cảnh mới. Reel sẽ thay ảnh/video hiện tại của bài.</p>
           </div>
-          <button type="button" className="btn btn-ghost btn-icon" onClick={onClose} disabled={!closable} aria-label="Đóng">
+          <button type="button" className="btn btn-ghost btn-icon" onClick={close} disabled={!closable} aria-label="Đóng">
             <X size={20} />
           </button>
         </header>
@@ -221,7 +243,7 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
               {armed ? 'Bấm lần nữa: thay các cảnh hiện tại' : 'AI viết kịch bản từ bài'}
             </button>
             <label htmlFor="reel-voice" className="sr-only">Giọng đọc</label>
-            <select id="reel-voice" className="form-select select-sm reel-voice" value={voice} onChange={(e) => setVoice(e.target.value)} disabled={locked}>
+            <select id="reel-voice" className="form-select select-sm reel-voice" value={voice} onChange={(e) => { dirty.current = true; setVoice(e.target.value); }} disabled={locked}>
               {REEL_VOICES.map((v) => (
                 <option key={v.value} value={v.value}>{v.label}</option>
               ))}
@@ -241,7 +263,7 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
                   <div className="reel-scene-body">
                     <div className="label-row">
                       <label htmlFor={`scene-text-${i}`} className="form-label">Cảnh {i + 1}</label>
-                      <button type="button" className="link-btn" onClick={() => setScenes((list) => list.filter((_, j) => j !== i))} disabled={locked} aria-label={`Xoá cảnh ${i + 1}`}>
+                      <button type="button" className="link-btn" onClick={() => change((list) => list.filter((_, j) => j !== i))} disabled={locked} aria-label={`Xoá cảnh ${i + 1}`}>
                         Xoá cảnh
                       </button>
                     </div>
@@ -285,7 +307,7 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
 
           {busy !== 'load' && (
             <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setScenes((list) => [...list, { text: '', imagePrompt: '', imageUrl: null }])} disabled={locked || scenes.length >= MAX_SCENES}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => change((list) => [...list, { text: '', imagePrompt: '', imageUrl: null }])} disabled={locked || scenes.length >= MAX_SCENES}>
                 <Plus size={14} aria-hidden="true" /> Thêm cảnh
               </button>
               {missing > 0 && (
@@ -315,7 +337,7 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
         </div>
 
         <footer className="modal-foot">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={!closable}>{videoUrl ? 'Xong' : 'Đóng'}</button>
+          <button type="button" className="btn btn-ghost" onClick={close} disabled={!closable}>{videoUrl ? 'Xong' : 'Đóng'}</button>
           <button type="button" className="btn btn-primary" onClick={() => void render()} disabled={locked || !!problem}>
             {busy === 'start' || busy === 'render' ? <div className="spinner" /> : <Clapperboard size={16} aria-hidden="true" />}
             {videoUrl ? 'Dựng lại' : 'Dựng Reel'}

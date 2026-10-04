@@ -113,6 +113,18 @@ export interface RenderScene {
   startMs: number;
 }
 
+/**
+ * FFmpeg inputs, one looped still per scene: each lasts until the next scene starts (never under 0.1 s);
+ * the last one runs until the voice ends (-shortest). Every decoder is held to 2 threads, like the rest.
+ */
+export function stillInputs(scenes: Array<{ startMs: number }>, files: string[]): string[] {
+  return scenes.flatMap((scene, i) => {
+    const next = scenes[i + 1];
+    const seconds = next ? Math.max(0.1, (next.startMs - scene.startMs) / 1000) : 3600;
+    return [...THREADS, '-loop', '1', '-framerate', '30', '-t', seconds.toFixed(3), '-i', files[i]];
+  });
+}
+
 /** The picture on a blurred, darkened copy of itself that fills 9:16 */
 const GROUND_FILTER =
   '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:4,eq=brightness=-0.28[bg];[0:v]scale=960:-2[fg];[bg][fg]overlay=(W-w)/2:200';
@@ -152,12 +164,7 @@ async function render(input: {
       grounds.set(key, ground);
     }
 
-    // Each scene is its still for as long as it lasts; the last one runs until the voice ends (-shortest)
-    const stills = scenes.flatMap((scene, i) => {
-      const next = scenes[i + 1];
-      const seconds = next ? Math.max(0.1, (next.startMs - scene.startMs) / 1000) : 3600;
-      return ['-loop', '1', '-framerate', '30', '-t', seconds.toFixed(3), '-i', grounds.get(scene.image?.buffer ?? null)!];
-    });
+    const stills = stillInputs(scenes, scenes.map((scene) => grounds.get(scene.image?.buffer ?? null)!));
     const graph =
       scenes.length > 1
         ? `${scenes.map((_, i) => `[${i}:v]`).join('')}concat=n=${scenes.length}:v=1:a=0,${assFilter}[v]`

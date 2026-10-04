@@ -11,7 +11,7 @@ import { buildAss, buildLines } from '../src/lib/reel/subtitles';
 import { inspectMp4, reelsProblem } from '../src/lib/mp4-info';
 
 import { existsSync } from 'node:fs';
-import { ffmpegPath, ffmpegVersion, probeSubtitleFont, REEL_FONT_FILE, selectedFont } from '../src/lib/reel/render';
+import { ffmpegPath, ffmpegVersion, probeSubtitleFont, REEL_FONT_FILE, selectedFont, stillInputs } from '../src/lib/reel/render';
 
 const FFMPEG = ffmpegPath();
 const hasFfmpeg = spawnSync(FFMPEG, ['-version']).status === 0;
@@ -56,6 +56,16 @@ describe('which FFmpeg, which font (no FFmpeg needed)', () => {
     expect(selectedFont('[Parsed_ass_0 @ 0x1] fontselect: (Be Vietnam Pro, 700, 0) -> fonts/BeVietnamPro-Bold.ttf, 0, BeVietnamPro-Bold\n')).toBe('BeVietnamPro-Bold');
     expect(selectedFont('fontselect: (Be Vietnam Pro, 700, 0) -> /usr/share/fonts/DejaVuSans-Bold.ttf, 0, DejaVuSans-Bold')).toBe('/usr/share/fonts/DejaVuSans-Bold.ttf');
     expect(selectedFont('no font lines here')).toBeNull();
+  });
+
+  it('every still is decoded with 2 threads (the host refuses more) and lasts until the next scene', () => {
+    const still = (seconds: string, file: string) => ['-threads', '2', '-loop', '1', '-framerate', '30', '-t', seconds, '-i', file];
+    // the third scene starts when the second does: a scene is never shorter than 0.1 s; the last runs until the voice ends
+    expect(stillInputs([{ startMs: 0 }, { startMs: 1500 }, { startMs: 1500 }], ['a.png', 'b.png', 'a.png'])).toEqual([
+      ...still('1.500', 'a.png'),
+      ...still('0.100', 'b.png'),
+      ...still('3600.000', 'a.png'),
+    ]);
   });
 });
 
@@ -157,7 +167,8 @@ describe.skipIf(!hasFfmpeg)('reelRenderer (needs FFmpeg)', { timeout: 120_000 },
     const render = vi.spyOn(reelRenderer, 'render');
     const check = await reelSelfCheck();
     // the sample has a picture: that path (decode, blur, overlay) is the one most posts take
-    expect(render.mock.calls[0][0].image).toMatchObject({ mime: 'image/png' });
+    // …and two scenes, so the host check also covers the picture change
+    expect(render.mock.calls[0][0].scenes).toEqual([{ image: expect.objectContaining({ mime: 'image/png' }), startMs: 0 }, { image: null, startMs: 1800 }]);
     expect(render.mock.calls[0][0].ass).toMatch(/,2,80,80,430,1$/m);
     expect(check.problems).toEqual([]);
     expect(check).toMatchObject({ ok: true, font: 'BeVietnamPro-Bold', voice: { words: 6 }, render: { width: 1080, height: 1920 } });
