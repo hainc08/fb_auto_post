@@ -15,10 +15,11 @@ interface Draft {
   voice: string;
   rules: string;
   imageStyle: string;
+  reelInstructions: string;
   defaultHashtags: string[];
 }
 
-const EMPTY: Draft = { name: '', description: '', audience: '', voice: '', rules: '', imageStyle: '', defaultHashtags: [] };
+const EMPTY: Draft = { name: '', description: '', audience: '', voice: '', rules: '', imageStyle: '', reelInstructions: '', defaultHashtags: [] };
 const NEW_FORMAT = {
   name: 'Bài chuẩn',
   instructions: 'Mở bằng 1 câu gây chú ý, 3–4 đoạn ngắn dễ đọc trên điện thoại, kết bằng lời mời bình luận.',
@@ -31,6 +32,7 @@ const toDraft = (d: ContentDomain): Draft => ({
   voice: d.voice ?? '',
   rules: d.rules ?? '',
   imageStyle: d.imageStyle ?? '',
+  reelInstructions: d.reelInstructions ?? '',
   defaultHashtags: d.defaultHashtags ?? [],
 });
 
@@ -113,6 +115,7 @@ export default function DomainsPage() {
       voice: draft.voice,
       rules: draft.rules,
       imageStyle: draft.imageStyle,
+      reelInstructions: draft.reelInstructions,
       defaultHashtags: draft.defaultHashtags,
     };
     if (selectedId === 'new') {
@@ -286,6 +289,21 @@ export default function DomainsPage() {
                   onChange={(e) => set('imageStyle')(e.target.value)}
                   placeholder="Tiếng Anh, VD: flat illustration, pastel colors, soft light"
                 />
+              </fieldset>
+
+              <fieldset className="domain-block">
+                <legend>Kịch bản Reel</legend>
+                <label htmlFor="d-reel" className="form-label">Hướng dẫn viết kịch bản Reel</label>
+                <textarea
+                  id="d-reel"
+                  className="form-textarea"
+                  rows={4}
+                  maxLength={2000}
+                  value={draft.reelInstructions}
+                  onChange={(e) => set('reelInstructions')(e.target.value)}
+                  placeholder="VD: Kể một câu chuyện ngắn 60–90 từ về một nhân viên văn phòng. Cảnh đầu là tình huống cụ thể, cảnh giữa là mẹo đã dùng, cảnh cuối là kết quả và một câu hỏi cho người xem."
+                />
+                <p className="field-hint">Dùng khi bấm "AI viết kịch bản" trong Tạo Reel từ bài. Để trống: mở bằng câu hỏi gây tò mò, một ý chính, lời kêu gọi (40–100 từ).</p>
               </fieldset>
 
               <div className="row domain-actions">

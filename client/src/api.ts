@@ -238,6 +238,7 @@ export interface ContentDomain {
   rules: string | null;
   defaultHashtags: string[] | null;
   imageStyle: string | null;
+  reelInstructions: string | null;
   isArchived: boolean;
   sortOrder: number;
   formats: ContentFormat[];
@@ -252,6 +253,7 @@ export interface DomainInput {
   rules?: string | null;
   defaultHashtags?: string[];
   imageStyle?: string | null;
+  reelInstructions?: string | null;
   isArchived?: boolean;
 }
 

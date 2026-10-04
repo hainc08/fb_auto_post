@@ -143,6 +143,7 @@ CREATE TABLE `posts` (
     `scheduleQueued` BOOLEAN NOT NULL DEFAULT false,
     `approvedAt` DATETIME(3) NULL,
     `inputData` JSON NULL,
+    `reelDraft` JSON NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -315,6 +316,7 @@ CREATE TABLE `content_domains` (
     `rules` TEXT NULL,
     `defaultHashtags` JSON NULL,
     `imageStyle` VARCHAR(500) NULL,
+    `reelInstructions` TEXT NULL,
     `language` VARCHAR(191) NOT NULL DEFAULT 'vi',
     `isArchived` BOOLEAN NOT NULL DEFAULT false,
     `sortOrder` INTEGER NOT NULL DEFAULT 0,

@@ -168,4 +168,16 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('domains & formats API', { timeout: 9
     expect(spy).toHaveBeenCalledTimes(1);
     expect(await prisma.post.count({ where: { userId: user.id } })).toBe(0);
   });
+
+  it('keeps the instructions for writing Reel scripts; empty clears them', async () => {
+    const { cookie } = await createTestUser();
+    const created = (await api(server.baseUrl, 'POST', '/api/domains', { cookie, body: newDomain('Reel', { reelInstructions: '  Kể một câu chuyện ngắn về dân văn phòng.  ' }) })).json.data;
+    expect(created.reelInstructions).toBe('Kể một câu chuyện ngắn về dân văn phòng.');
+    const listed = (await api(server.baseUrl, 'GET', '/api/domains', { cookie })).json.data.find((d: { id: string }) => d.id === created.id);
+    expect(listed.reelInstructions).toBe('Kể một câu chuyện ngắn về dân văn phòng.');
+    const cleared = await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { reelInstructions: '' } });
+    expect(cleared.json.data.reelInstructions).toBeNull();
+    const long = await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { reelInstructions: 'x'.repeat(2001) } });
+    expect(long.status).toBe(400);
+  });
 });
