@@ -80,6 +80,7 @@ Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `
 - ✅ (2026-09-30) Lịch theo thứ + 1–3 khung giờ (giờ VN), nhiều Page, hàng chờ ý tưởng + AI gợi ý 10 ý tưởng, giữ sẵn N bài, duyệt trước khi đăng, bài chưa duyệt dời sang khung sau; lịch cũ tự chuyển đổi — plan docs/superpowers/plans/2026-09-30-schedule-slots.md
 - ✅ (2026-10-02) Hẹn giờ đăng cho bài lẻ (không cần tạo lịch): chọn ngày giờ ở trang Tạo bài hoặc trong chi tiết bài; đổi giờ, huỷ hẹn giờ, đăng ngay — plan docs/superpowers/plans/2026-10-02-timed-posts.md
 - ✅ (2026-10-03) Tạo Reel từ bài: AI viết kịch bản ngắn → giọng đọc Edge TTS → phụ đề chạy theo lời → FFmpeg dựng video 9:16 → thành video Reels của bài. Chạy nền qua hàng đợi, có thanh tiến trình; FFmpeg (ffmpeg-static) và font Be Vietnam Pro đi kèm app nên chạy được trên Hostinger; kiểm tra sau deploy bằng `/cron/reel-check` — plans docs/superpowers/plans/2026-10-02-text-to-reel.md, 2026-10-03-reel-on-hostinger.md. Edge TTS là dịch vụ không chính thức: nếu bị chặn, đổi sang Azure Speech.
+- ✅ (2026-10-04) Reel theo từng cảnh: mỗi cảnh có lời đọc và ảnh riêng (AI tạo từ mô tả hoặc tự tải lên), ảnh đổi đúng lúc giọng đọc sang cảnh mới; mỗi lĩnh vực có "Hướng dẫn viết kịch bản Reel" riêng — plan docs/superpowers/plans/2026-10-04-reel-scenes.md
 
 ## Phase 3 — "Bộ não marketing" ⬜
 - **Brand Profile theo Page**: giọng văn, chân dung khách hàng, USP, từ cấm, CTA mặc định, emoji level
