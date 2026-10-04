@@ -33,6 +33,7 @@ export const domainFields = {
     .transform((tags) => [...new Set(tags.map(cleanTag).filter(Boolean))])
     .optional(),
   imageStyle: text(500),
+  reelInstructions: text(2000),
   sortOrder: z.number().int().min(0).max(1000).optional(),
 };
 

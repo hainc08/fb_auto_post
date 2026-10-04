@@ -73,7 +73,12 @@ export async function reelSelfCheck(): Promise<ReelCheck> {
       // With a picture, like most posts: decoding, blurring and overlaying are FFmpeg steps of their own
       const image = { buffer: await renderer.samplePicture(), mime: 'image/png' as const };
       const ass = buildAss(buildLines(displayWords(SAMPLE, speech.words)), { withImage: true });
-      await renderer.reelRenderer.render({ audio: speech.audio, ass, image, outPath: out });
+      // Two scenes (the picture, then a plain ground from the middle word on): the picture change is checked too
+      const scenes = [
+        { image, startMs: 0 },
+        { image: null, startMs: speech.words[Math.floor(speech.words.length / 2)].startMs },
+      ];
+      await renderer.reelRenderer.render({ audio: speech.audio, ass, scenes, outPath: out });
       const info = await inspectFile(out);
       if (!info) throw new Error('file dựng ra không phải MP4 hợp lệ.');
       check.file = await readFile(out);

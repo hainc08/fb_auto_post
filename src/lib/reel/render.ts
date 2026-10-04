@@ -106,35 +106,70 @@ export async function probeSubtitleFont(font = DEFAULT_REEL_FONT): Promise<strin
   }
 }
 
+export interface RenderScene {
+  /** The scene's picture; null = a plain dark ground */
+  image: { buffer: Buffer; mime: ImageMime } | null;
+  /** When the voice reaches the scene, from the start of the audio */
+  startMs: number;
+}
+
+/**
+ * FFmpeg inputs, one looped still per scene: each lasts until the next scene starts (never under 0.1 s);
+ * the last one runs until the voice ends (-shortest). Every decoder is held to 2 threads, like the rest.
+ */
+export function stillInputs(scenes: Array<{ startMs: number }>, files: string[]): string[] {
+  return scenes.flatMap((scene, i) => {
+    const next = scenes[i + 1];
+    const seconds = next ? Math.max(0.1, (next.startMs - scene.startMs) / 1000) : 3600;
+    return [...THREADS, '-loop', '1', '-framerate', '30', '-t', seconds.toFixed(3), '-i', files[i]];
+  });
+}
+
+/** The picture on a blurred, darkened copy of itself that fills 9:16 */
+const GROUND_FILTER =
+  '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:4,eq=brightness=-0.28[bg];[0:v]scale=960:-2[fg];[bg][fg]overlay=(W-w)/2:200';
+
 async function render(input: {
   audio: Buffer;
   ass: string;
+  /** One still per scene, shown from its start to the next scene's (default: one scene with `image`) */
+  scenes?: RenderScene[];
   image?: { buffer: Buffer; mime: ImageMime } | null;
   outPath: string;
   /** Length of the voice; with `onProgress`, the encoded share (0–1) is reported as the video is written */
   durationMs?: number;
   onProgress?: (fraction: number) => void;
 }): Promise<void> {
+  const scenes: RenderScene[] = input.scenes?.length ? input.scenes : [{ image: input.image ?? null, startMs: 0 }];
   const { dir, assFilter } = await workDir();
   try {
     await writeFile(path.join(dir, 'voice.mp3'), input.audio);
     await writeFile(path.join(dir, 'subs.ass'), input.ass, 'utf8');
 
-    let video: string[];
-    if (input.image) {
-      const picture = `picture.${EXT[input.image.mime]}`;
-      await writeFile(path.join(dir, picture), input.image.buffer);
-      // The still ground is made once; blurring every frame of the video would be far slower
-      await run(
-        [...FILTER_THREADS, ...THREADS, '-i', picture, '-filter_complex',
-          '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:4,eq=brightness=-0.28[bg];[0:v]scale=960:-2[fg];[bg][fg]overlay=(W-w)/2:200',
-          ...THREADS, '-frames:v', '1', 'ground.png'],
-        dir
-      );
-      video = ['-loop', '1', '-framerate', '30', '-i', 'ground.png'];
-    } else {
-      video = ['-f', 'lavfi', '-i', 'color=c=0x17191F:s=1080x1920:r=30'];
+    // One still ground per distinct picture: scenes sharing a picture (or having none) share the file.
+    // Made once each; blurring every frame of the video would be far slower.
+    const grounds = new Map<Buffer | null, string>();
+    for (const scene of scenes) {
+      const key = scene.image?.buffer ?? null;
+      if (grounds.has(key)) continue;
+      const n = grounds.size;
+      const ground = `ground${n}.png`;
+      if (scene.image) {
+        const picture = `picture${n}.${EXT[scene.image.mime]}`;
+        await writeFile(path.join(dir, picture), scene.image.buffer);
+        await run([...FILTER_THREADS, ...THREADS, '-i', picture, '-filter_complex', GROUND_FILTER, ...THREADS, '-frames:v', '1', ground], dir);
+      } else {
+        await run([...FILTER_THREADS, '-f', 'lavfi', '-i', 'color=c=0x17191F:s=1080x1920', ...THREADS, '-frames:v', '1', ground], dir);
+      }
+      grounds.set(key, ground);
     }
+
+    const stills = stillInputs(scenes, scenes.map((scene) => grounds.get(scene.image?.buffer ?? null)!));
+    const graph =
+      scenes.length > 1
+        ? `${scenes.map((_, i) => `[${i}:v]`).join('')}concat=n=${scenes.length}:v=1:a=0,${assFilter}[v]`
+        : `[0:v]${assFilter}[v]`;
+
     const { durationMs, onProgress } = input;
     let reported = 0;
     const report =
@@ -148,7 +183,8 @@ async function render(input: {
           }
         : undefined;
     await run(
-      [...(report ? ['-progress', 'pipe:1', '-nostats'] : []), ...FILTER_THREADS, ...video, '-i', 'voice.mp3', '-vf', assFilter,
+      [...(report ? ['-progress', 'pipe:1', '-nostats'] : []), ...FILTER_THREADS, ...stills, '-i', 'voice.mp3',
+        '-filter_complex', graph, '-map', '[v]', '-map', `${scenes.length}:a`,
         ...THREADS, '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'stillimage', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-b:a', '160k',
         '-shortest', '-movflags', '+faststart', 'reel.mp4'],

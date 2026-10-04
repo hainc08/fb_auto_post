@@ -295,6 +295,8 @@ model Post {
 
   // Input variables (JSON) - data used to fill template
   inputData Json?
+  // "Tạo Reel từ bài": { voice, scenes: [{ id, text, imagePrompt, image }] } (src/lib/reel/scenes.ts)
+  reelDraft Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -529,6 +531,7 @@ model ContentDomain {
   rules           String?  @db.Text
   defaultHashtags Json? // string[] ≤ 10, stored without "#"
   imageStyle      String?  @db.VarChar(500) // English
+  reelInstructions String?  @db.Text // how AI writes Reel scripts for this domain; empty = built-in default
   language        String   @default("vi")
   isArchived      Boolean  @default(false)
   sortOrder       Int      @default(0)
