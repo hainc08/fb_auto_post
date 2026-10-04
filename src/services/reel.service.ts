@@ -1,13 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { Type } from '@google/genai';
-import { z } from 'zod';
 import type { Job, Post } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { logger } from '../utils/logger';
 import { UnrecoverableJobError, upsertKeyedJob } from '../lib/job-queue';
-import { GeminiClient } from '../lib/clients/gemini';
 import { edgeTts, type EdgeVoice } from '../lib/reel/edge-tts';
 import * as renderer from '../lib/reel/render';
 import { buildAss, buildLines, displayWords } from '../lib/reel/subtitles';
@@ -22,29 +19,6 @@ export class ReelError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
   }
-}
-
-const SCRIPT_SCHEMA = { type: Type.OBJECT, properties: { script: { type: Type.STRING } }, required: ['script'] };
-const scriptValidator = z.object({ script: z.string().min(1) });
-
-const SCRIPT_SYSTEM = `Bạn viết kịch bản lời đọc cho video Reels dọc trên Facebook, bằng tiếng Việt.
-Quy tắc:
-- 40 đến 100 từ, đọc lên trong 20–40 giây.
-- Câu đầu là một câu hỏi hoặc một ý gây tò mò; sau đó một ý chính; câu cuối kêu gọi hành động.
-- Câu ngắn, văn nói tự nhiên. Không hashtag, không emoji, không đường link, không gạch đầu dòng.
-- Chỉ dùng thông tin có trong bài viết được cung cấp.`;
-
-/** A short spoken script (40–100 words) from the post's text. */
-export async function writeReelScript(gemini: { apiKey: string; model: string }, caption: string): Promise<string> {
-  const client = new GeminiClient(gemini);
-  const result = await client.generateJson({
-    systemInstruction: SCRIPT_SYSTEM,
-    prompt: `Bài viết:\n${caption}\n\nViết kịch bản lời đọc cho Reels.`,
-    responseSchema: SCRIPT_SCHEMA,
-    validator: scriptValidator,
-    temperature: 0.8,
-  });
-  return result.script.trim();
 }
 
 export interface ReelProgress {

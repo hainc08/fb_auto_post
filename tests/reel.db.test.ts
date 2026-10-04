@@ -318,17 +318,4 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     expect(res.json.error).toMatch(/FFmpeg/);
     expect(gemini).not.toHaveBeenCalled();
   });
-
-  it('AI writes a short script from the post text', async () => {
-    const { cookie, post, userId } = await setup();
-    await saveSettings(userId, { geminiApiKey: 'AIzaFakeKeyReelTest000000000000000000' });
-    vi.spyOn(renderModule, 'ffmpegAvailable').mockResolvedValue(true);
-    const spy = vi.spyOn(GeminiClient.prototype, 'generateJson').mockResolvedValue({ script: '  Bạn có biết? AI viết email trong mười giây.  ' } as never);
-    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/reel/script`, { cookie });
-    expect(res.status).toBe(200);
-    expect(res.json.data.script).toBe('Bạn có biết? AI viết email trong mười giây.');
-    expect(spy.mock.calls[0][0].prompt).toContain('Bài viết dài về email.');
-    const empty = await prisma.post.update({ where: { id: post.id }, data: { caption: null } });
-    expect((await api(server.baseUrl, 'POST', `/api/posts/${empty.id}/reel/script`, { cookie })).status).toBe(400);
-  });
 });
