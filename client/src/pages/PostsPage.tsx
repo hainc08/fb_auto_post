@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye, MessageCircle, ArrowLeft, Clapperboard } from 'lucide-react';
 import { postsApi, domainsApi, assetUrl, type ContentDomain } from '../api';
 import EditPostModal from '../components/EditPostModal';
@@ -9,7 +9,7 @@ import PostListItem from '../components/PostListItem';
 import PostFilters from '../components/PostFilters';
 import CommentsPanel from '../components/CommentsPanel';
 import SchedulePicker from '../components/SchedulePicker';
-import ReelMaker from '../components/ReelMaker';
+import { reelWatch as reelWatchStore } from '../lib/reel-watch';
 import type { MenuAction } from '../components/PostActionsMenu';
 import { matchesFilters, statusCounts, engagementTotals, type TimeRange, type TargetSummary } from '../lib/post-display';
 import { slotLabel } from '../components/ScheduleBits';
@@ -106,6 +106,7 @@ const LOG_LABEL: Record<string, string> = {
 export default function PostsPage() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const status = params.get('status') ?? '';
   const q = params.get('q') ?? '';
   const domainFilter = params.get('domain') ?? '';
@@ -126,12 +127,10 @@ export default function PostsPage() {
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
   /** The "Hẹn giờ đăng" picker is open in the inspector */
   const [timing, setTiming] = useState(false);
-  /** The "Tạo Reel từ bài" dialog is open for the selected post */
-  const [reelOpen, setReelOpen] = useState(false);
   /** Reels need FFmpeg on the server; the button is hidden where there is none */
   const [reelAvailable, setReelAvailable] = useState(false);
-  /** Post whose Reel is being made: followed here, so the result is reported even after the dialog is closed */
-  const [reelWatch, setReelWatch] = useState<string | null>(null);
+  /** Post whose Reel is being made (left on the Reel page): followed here, so the result is reported */
+  const [reelWatch, setReelWatch] = useState<string | null>(reelWatchStore.get);
 
   useEffect(() => {
     if (!reelWatch) return;
@@ -143,6 +142,7 @@ export default function PostsPage() {
           if (stopped || data.state === 'queued' || data.state === 'running') return;
           stopped = true;
           setReelWatch(null);
+          reelWatchStore.set(null);
           if (data.state === 'done') {
             toast.success('Đã dựng xong Reel — xem thử rồi duyệt đăng như bài thường.');
             void load();
@@ -661,7 +661,7 @@ export default function PostsPage() {
                 </button>
               )}
               {reelAvailable && EDITABLE.includes(detail.status) && !liveSomewhere && (
-                <button type="button" className="btn btn-secondary btn-block" onClick={() => setReelOpen(true)} disabled={acting}>
+                <button type="button" className="btn btn-secondary btn-block" onClick={() => navigate(`/posts/${detail.id}/reel`)} disabled={acting}>
                   <Clapperboard size={15} aria-hidden="true" /> {detail.inputData?.reelScript ? 'Sửa Reel' : 'Tạo Reel từ bài'}
                 </button>
               )}
@@ -677,14 +677,6 @@ export default function PostsPage() {
       </aside>
 
       {commentsFor && <CommentsPanel postId={commentsFor} onClose={() => setCommentsFor(null)} onChanged={() => void load()} />}
-      {reelOpen && detail && (
-        <ReelMaker
-          postId={detail.id}
-          hasCaption={!!detail.caption}
-          onClose={() => setReelOpen(false)}
-          onStarted={() => setReelWatch(detail.id)}
-        />
-      )}
       {editingId && <EditPostModal postId={editingId} onClose={() => setEditingId(null)} onSaved={handleSaved} />}
     </div>
   );

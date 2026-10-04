@@ -1,15 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Clapperboard, ImagePlus, Plus, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Clapperboard, ImagePlus, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
 import { postsApi, assetUrl, MAX_UPLOAD_BYTES, REEL_VOICES, UPLOAD_TYPES, type ReelDraftView } from '../api';
-import { useToast } from './Toast';
-
-interface Props {
-  postId: string;
-  hasCaption: boolean;
-  onClose: () => void;
-  /** A render is queued or already running: the page follows it and reports the result, also after this dialog is closed */
-  onStarted: () => void;
-}
+import { useToast } from '../components/Toast';
+import { postTitle } from '../components/PostBits';
+import { reelWatch } from '../lib/reel-watch';
 
 /** A scene being edited; `id` comes from the server once the scenes are saved */
 interface Scene {
@@ -31,13 +26,19 @@ const STAGE_LABEL = {
 } as const;
 const countWords = (s: string) => s.split(/\s+/).filter((t) => /[\p{L}\p{N}]/u.test(t)).length;
 
-/** Scenes (spoken text + picture) → voice + karaoke subtitles → the post's Reel. */
-export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Props) {
+/** "Tạo Reel từ bài": scenes (spoken text + picture) → voice + karaoke subtitles → the post's Reel. */
+export default function ReelPage() {
+  const { id: postId = '' } = useParams<{ id: string }>();
   const toast = useToast();
+  const navigate = useNavigate();
+  const back = `/posts?selected=${postId}`;
+  const [post, setPost] = useState<{ caption: string | null } | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [voice, setVoice] = useState<string>(REEL_VOICES[0].value);
   /** What is running: 'load', 'script', 'save', 'start', 'render', 'pictures', or 'scene:<index>' */
   const [busy, setBusy] = useState<string | null>('load');
+  /** The saved scenes could not be loaded: nothing may be edited (saving would replace them) */
+  const [broken, setBroken] = useState(false);
   /** "AI viết kịch bản" replaces the scenes: asked twice when there are some */
   const [armed, setArmed] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -45,9 +46,15 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
   const [progress, setProgress] = useState<{ stage: keyof typeof STAGE_LABEL; percent: number }>({ stage: 'voice', percent: 3 });
   /** Scenes or voice edited since they were last saved or loaded */
   const dirty = useRef(false);
+  /** What is on screen, for the save that runs when the page is left */
+  const latest = useRef({ voice, scenes });
+  useEffect(() => {
+    latest.current = { voice, scenes };
+  });
   const fileRef = useRef<HTMLInputElement>(null);
   /** Scene the file picker was opened for */
   const uploadFor = useRef<number | null>(null);
+  const runRef = useRef<HTMLDivElement>(null);
 
   const apply = (draft: ReelDraftView) => {
     setScenes(draft.scenes);
@@ -55,61 +62,67 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
     dirty.current = false;
   };
 
-  /** Every edit of the scenes on screen goes through here, so closing knows there is something to save */
+  /** Every edit of the scenes on screen goes through here, so leaving knows there is something to save */
   const change = (next: (list: Scene[]) => Scene[]) => {
     dirty.current = true;
     setScenes(next);
   };
 
-  /** Close the dialog; scenes typed but not saved yet are saved first (nothing else saves them) */
-  function close() {
-    if (!dirty.current || busy) return onClose();
-    void act('save', async () => {
-      try {
-        await persist();
-      } catch (e: any) {
-        toast.error(`Chưa lưu được kịch bản: ${e.message}`);
-      }
-      onClose();
-    });
-  }
+  const draftBody = (d: { voice: string; scenes: Scene[] }) => ({ voice: d.voice, scenes: d.scenes.map((s) => ({ id: s.id, text: s.text, imagePrompt: s.imagePrompt })) });
 
   useEffect(() => {
     postsApi
+      .get(postId)
+      .then((r) => setPost(r.data))
+      .catch(() => {
+        toast.error('Không tìm thấy bài đăng.');
+        navigate('/posts', { replace: true });
+      });
+    postsApi
       .reelDraft(postId)
       .then((r) => apply(r.data))
-      .catch((e) => toast.error(e.message))
+      .catch((e) => {
+        setBroken(true);
+        toast.error(`Chưa tải được kịch bản: ${e.message}`);
+      })
       .finally(() => setBusy((b) => (b === 'load' ? null : b)));
     // A render started earlier (the tab was closed or reloaded) is picked up again
     postsApi
       .reelProgress(postId)
       .then((r) => {
-        if (r.data.state !== 'queued' && r.data.state !== 'running') return;
-        setBusy('render');
-        onStarted();
+        if (r.data.state === 'queued' || r.data.state === 'running') setBusy('render');
+        else if (r.data.state === 'done') setVideoUrl(assetUrl(r.data.video.videoUrl));
       })
       .catch(() => {});
+    // Leaving by the menu or the browser's back button: scenes typed but not saved yet are saved (nothing else saves them)
+    return () => {
+      if (dirty.current) void postsApi.saveReelDraft(postId, draftBody(latest.current)).catch(() => {});
+    };
   }, [postId]);
 
   // Follow the job once a second until it is done or failed
   useEffect(() => {
     if (busy !== 'render') return;
+    // if this page is left meanwhile, the Posts page announces the result
+    reelWatch.set(postId);
     let stopped = false;
     const timer = setInterval(() => {
       postsApi
         .reelProgress(postId)
         .then(({ data }) => {
           if (stopped) return;
-          if (data.state === 'done') {
-            stopped = true; // the page announces the result and reloads the list
-            setVideoUrl(assetUrl(data.video.videoUrl));
-            setBusy(null);
-          } else if (data.state === 'failed' || data.state === 'idle') {
-            stopped = true;
-            setBusy(null);
-          } else {
+          if (data.state === 'queued' || data.state === 'running') {
             // never backwards: a late answer must not pull the bar back
-            setProgress((p) => (data.percent >= p.percent ? { stage: data.stage, percent: data.percent } : p));
+            return setProgress((p) => (data.percent >= p.percent ? { stage: data.stage, percent: data.percent } : p));
+          }
+          stopped = true;
+          reelWatch.set(null);
+          setBusy(null);
+          if (data.state === 'done') {
+            setVideoUrl(assetUrl(data.video.videoUrl));
+            toast.success('Đã dựng xong Reel — xem thử rồi duyệt đăng như bài thường.');
+          } else if (data.state === 'failed') {
+            toast.error(`Chưa dựng được Reel: ${data.error}`);
           }
         })
         .catch(() => {}); // a missed poll: the next one answers
@@ -119,12 +132,6 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
       clearInterval(timer);
     };
   }, [busy, postId]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && (!busy || busy === 'render') && close();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
 
   /** Run one action; the scenes are locked while it runs */
   async function act(key: string, action: () => Promise<void>) {
@@ -140,7 +147,7 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
 
   /** Save the scenes as they are on screen; the answer carries the ids pictures are attached to */
   async function persist(): Promise<ReelDraftView> {
-    const res = await postsApi.saveReelDraft(postId, { voice, scenes: scenes.map((s) => ({ id: s.id, text: s.text, imagePrompt: s.imagePrompt })) });
+    const res = await postsApi.saveReelDraft(postId, draftBody({ voice, scenes }));
     apply(res.data);
     return res.data;
   }
@@ -199,9 +206,10 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
       setProgress({ stage: 'voice', percent: 3 });
       await postsApi.makeReel(postId);
       setVideoUrl(null);
-      onStarted();
       // only now: polling before the job is booked would read the previous Reel's "done"
       setBusy('render');
+      // phones: the bar and the video are above the scenes
+      runRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
 
   const script = scenes.map((s) => s.text.trim()).filter(Boolean).join(' ');
@@ -209,7 +217,7 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
   const seconds = Math.round(words / WORDS_PER_SECOND);
   const silent = scenes.findIndex((s) => countWords(s.text) === 0);
   const problem = !scenes.length
-    ? 'Chưa có cảnh nào: bấm "AI viết kịch bản" hoặc "Thêm cảnh".'
+    ? 'Chưa có cảnh nào: bấm "AI viết kịch bản từ bài" hoặc "Thêm cảnh".'
     : silent !== -1 && scenes.length > 1
       ? `Cảnh ${silent + 1} chưa có lời đọc.`
       : script.length > MAX_CHARS
@@ -219,46 +227,90 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
           : seconds > 90
             ? 'Kịch bản quá dài: Reels tối đa 90 giây.'
             : null;
-  const locked = !!busy;
+  const locked = !!busy || broken;
   const missing = scenes.filter((s) => !s.imageUrl && s.imagePrompt.trim()).length;
-  const closable = !busy || busy === 'render';
+  const rendering = busy === 'start' || busy === 'render';
+  const renderButton = (
+    <button type="button" className="btn btn-primary btn-block" onClick={() => void render()} disabled={locked || !!problem}>
+      {rendering ? <div className="spinner" /> : <Clapperboard size={16} aria-hidden="true" />}
+      {busy === 'render' ? `Đang dựng… ${progress.percent}%` : videoUrl ? 'Dựng lại' : 'Dựng Reel'}
+    </button>
+  );
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && closable && close()}>
-      <div className="modal-panel reel-maker" role="dialog" aria-modal="true" aria-labelledby="reel-title">
-        <header className="modal-head">
-          <div>
-            <h2 id="reel-title">Tạo Reel từ bài</h2>
-            <p className="field-hint" style={{ margin: 0 }}>Mỗi cảnh có lời đọc và ảnh riêng; ảnh đổi khi giọng đọc sang cảnh mới. Reel sẽ thay ảnh/video hiện tại của bài.</p>
-          </div>
-          <button type="button" className="btn btn-ghost btn-icon" onClick={close} disabled={!closable} aria-label="Đóng">
-            <X size={20} />
-          </button>
-        </header>
+    <div className="reel-page">
+      <Link to={back} className="back-link">
+        <ArrowLeft size={15} aria-hidden="true" /> Bài đăng
+      </Link>
+      <div className="page-header">
+        <h1>Tạo Reel từ bài</h1>
+        <p>
+          {post?.caption ? `"${postTitle(post.caption)}" · ` : ''}Mỗi cảnh có lời đọc và ảnh riêng; ảnh đổi khi giọng đọc sang cảnh mới. Reel sẽ thay ảnh/video hiện tại của bài.
+        </p>
+      </div>
 
-        <div className="member-body">
-          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={writeScript} onBlur={() => setArmed(false)} disabled={locked || !hasCaption}>
-              {busy === 'script' ? <div className="spinner" /> : <Sparkles size={14} aria-hidden="true" />}
+      <div className="reel-layout">
+        <aside className="reel-side">
+          <div className="card reel-tools">
+            <button type="button" className="btn btn-secondary btn-block" onClick={writeScript} onBlur={() => setArmed(false)} disabled={locked || !post?.caption}>
+              {busy === 'script' ? <div className="spinner" /> : <Sparkles size={15} aria-hidden="true" />}
               {armed ? 'Bấm lần nữa: thay các cảnh hiện tại' : 'AI viết kịch bản từ bài'}
             </button>
-            <label htmlFor="reel-voice" className="sr-only">Giọng đọc</label>
-            <select id="reel-voice" className="form-select select-sm reel-voice" value={voice} onChange={(e) => { dirty.current = true; setVoice(e.target.value); }} disabled={locked}>
-              {REEL_VOICES.map((v) => (
-                <option key={v.value} value={v.value}>{v.label}</option>
-              ))}
-            </select>
-            <span className={`char-count ${problem && scenes.length ? 'over' : ''}`} style={{ marginLeft: 'auto' }}>{scenes.length} cảnh · {words} từ · ~{seconds} giây</span>
+            <div>
+              <label htmlFor="reel-voice" className="form-label">Giọng đọc</label>
+              <select
+                id="reel-voice"
+                className="form-select"
+                value={voice}
+                onChange={(e) => {
+                  dirty.current = true;
+                  setVoice(e.target.value);
+                }}
+                disabled={locked}
+              >
+                {REEL_VOICES.map((v) => (
+                  <option key={v.value} value={v.value}>{v.label}</option>
+                ))}
+              </select>
+            </div>
+            <p className={`char-count ${problem && scenes.length ? 'over' : ''}`}>{scenes.length} cảnh · {words} từ · ~{seconds} giây</p>
+            {missing > 0 && (
+              <button type="button" className="btn btn-secondary btn-block" onClick={() => void generateMissing()} disabled={locked}>
+                {busy === 'pictures' ? <div className="spinner" /> : <Sparkles size={15} aria-hidden="true" />} Tạo ảnh cho {missing} cảnh chưa có
+              </button>
+            )}
           </div>
 
+          <div className="card reel-run" ref={runRef}>
+            <div className="reel-run-button">{renderButton}</div>
+            <p className={problem && scenes.length ? 'field-warning' : 'field-hint'}>
+              {problem ?? 'Cảnh chưa có ảnh riêng sẽ dùng ảnh của bài. Mỗi lần "Tạo ảnh AI" tốn một lượt tạo ảnh Cloudflare của bạn.'}
+            </p>
+            {busy === 'render' && (
+              <div className="reel-progress">
+                <div className="upload-progress" role="progressbar" aria-valuenow={progress.percent} aria-valuemin={0} aria-valuemax={100} aria-label="Tiến độ dựng Reel">
+                  <span style={{ width: `${progress.percent}%` }} />
+                  <em>{progress.percent}%</em>
+                </div>
+                <p className="field-hint" role="status">
+                  {STAGE_LABEL[progress.stage]}
+                  {progress.stage === 'voice' ? ' Bước này lâu nhất (thường 5–30 giây) và không đo được phần trăm.' : ''} Bạn có thể rời trang này; Reel vẫn được dựng tiếp.
+                </p>
+              </div>
+            )}
+            {videoUrl && busy !== 'render' && <video className="reel-preview" src={videoUrl} controls playsInline preload="metadata" />}
+          </div>
+        </aside>
+
+        <section className="reel-main" aria-label="Các cảnh của Reel">
           {busy === 'load' ? (
-            <div className="loading-page" style={{ minHeight: 120 }}><div className="spinner spinner-lg" /></div>
+            <div className="loading-page" style={{ minHeight: 160 }}><div className="spinner spinner-lg" /></div>
           ) : (
             <ol className="reel-scenes">
               {scenes.map((s, i) => (
                 <li key={s.id ?? `new-${i}`} className="reel-scene">
                   <div className="reel-scene-thumb">
-                    {busy === `scene:${i}` ? <div className="spinner" /> : s.imageUrl ? <img src={assetUrl(s.imageUrl)!} alt={`Ảnh của cảnh ${i + 1}`} /> : <ImagePlus size={22} strokeWidth={1.6} aria-hidden="true" />}
+                    {busy === `scene:${i}` ? <div className="spinner" /> : s.imageUrl ? <img src={assetUrl(s.imageUrl)!} alt={`Ảnh của cảnh ${i + 1}`} /> : <ImagePlus size={26} strokeWidth={1.6} aria-hidden="true" />}
                   </div>
                   <div className="reel-scene-body">
                     <div className="label-row">
@@ -270,7 +322,7 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
                     <textarea
                       id={`scene-text-${i}`}
                       className="form-textarea"
-                      rows={2}
+                      rows={3}
                       value={s.text}
                       onChange={(e) => edit(i, { text: e.target.value })}
                       disabled={locked}
@@ -304,46 +356,16 @@ export default function ReelMaker({ postId, hasCaption, onClose, onStarted }: Pr
             </ol>
           )}
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => upload(e.target.files?.[0])} />
-
           {busy !== 'load' && (
-            <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => change((list) => [...list, { text: '', imagePrompt: '', imageUrl: null }])} disabled={locked || scenes.length >= MAX_SCENES}>
-                <Plus size={14} aria-hidden="true" /> Thêm cảnh
-              </button>
-              {missing > 0 && (
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void generateMissing()} disabled={locked}>
-                  {busy === 'pictures' ? <div className="spinner" /> : <Sparkles size={14} aria-hidden="true" />} Tạo ảnh cho {missing} cảnh chưa có
-                </button>
-              )}
-            </div>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => change((list) => [...list, { text: '', imagePrompt: '', imageUrl: null }])} disabled={locked || scenes.length >= MAX_SCENES}>
+              <Plus size={14} aria-hidden="true" /> Thêm cảnh
+            </button>
           )}
-          <p className={problem && scenes.length ? 'field-warning' : 'field-hint'}>
-            {problem ?? 'Cảnh chưa có ảnh riêng sẽ dùng ảnh của bài. Mỗi lần "Tạo ảnh AI" tốn một lượt tạo ảnh Cloudflare của bạn.'}
-          </p>
-
-          {busy === 'render' && (
-            <div className="reel-progress">
-              <div className="upload-progress" role="progressbar" aria-valuenow={progress.percent} aria-valuemin={0} aria-valuemax={100} aria-label="Tiến độ dựng Reel">
-                <span style={{ width: `${progress.percent}%` }} />
-                <em>{progress.percent}%</em>
-              </div>
-              <p className="field-hint" role="status">
-                {STAGE_LABEL[progress.stage]}
-                {progress.stage === 'voice' ? ' Bước này lâu nhất (thường 5–30 giây) và không đo được phần trăm.' : ''} Bạn có thể đóng cửa sổ này; Reel vẫn được dựng tiếp.
-              </p>
-            </div>
-          )}
-          {videoUrl && busy !== 'render' && <video className="reel-preview" src={videoUrl} controls playsInline preload="metadata" />}
-        </div>
-
-        <footer className="modal-foot">
-          <button type="button" className="btn btn-ghost" onClick={close} disabled={!closable}>{videoUrl ? 'Xong' : 'Đóng'}</button>
-          <button type="button" className="btn btn-primary" onClick={() => void render()} disabled={locked || !!problem}>
-            {busy === 'start' || busy === 'render' ? <div className="spinner" /> : <Clapperboard size={16} aria-hidden="true" />}
-            {videoUrl ? 'Dựng lại' : 'Dựng Reel'}
-          </button>
-        </footer>
+        </section>
       </div>
+
+      {/* Phones: the render button stays in reach under the scenes */}
+      <div className="reel-bottom">{renderButton}</div>
     </div>
   );
 }

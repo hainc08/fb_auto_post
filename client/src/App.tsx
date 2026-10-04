@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import PagesPage from './pages/PagesPage';
 import PostsPage from './pages/PostsPage';
+import ReelPage from './pages/ReelPage';
 import CreatePostPage from './pages/CreatePostPage';
 import SchedulesPage from './pages/SchedulesPage';
 import ScheduleDetailPage from './pages/ScheduleDetailPage';
@@ -128,6 +129,16 @@ export default function App() {
             <ProtectedRoute adminOnly>
               <AppLayout>
                 <UsersPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/posts/:id/reel"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <ReelPage />
               </AppLayout>
             </ProtectedRoute>
           }

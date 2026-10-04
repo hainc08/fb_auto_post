@@ -1180,22 +1180,33 @@ tbody tr:hover { background: var(--bg-secondary); }
 .comment-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 8px; }
 .comment-actions .form-textarea { flex: 1 1 260px; min-height: 56px; }
 
-/* ─── Reel maker ─── */
-.reel-maker { max-width: 720px; }
-/* The body scrolls; its children keep their height (else the script box is squashed once the video shows) */
-.reel-maker .member-body > * { flex-shrink: 0; }
-.reel-voice { width: auto; }
+/* ─── Reel page: scenes on the left, tools and the result on the right ─── */
+.reel-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+.reel-main { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; min-width: 0; }
+.reel-main .reel-scenes { align-self: stretch; }
+.reel-side { grid-column: 2; grid-row: 1; position: sticky; top: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.reel-tools, .reel-run { display: flex; flex-direction: column; gap: 12px; }
+.reel-tools .char-count, .reel-run .field-hint, .reel-run .field-warning { margin: 0; }
+.reel-run .reel-preview { width: 100%; max-height: 420px; }
+.reel-bottom { display: none; }
 .reel-scenes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.reel-scene { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-card); }
-.reel-scene-thumb { width: 88px; height: 88px; border-radius: 8px; background: var(--bg-tertiary); display: grid; place-items: center; color: #8A8E98; overflow: hidden; }
+.reel-scene { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 16px; padding: 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-card); }
+.reel-scene-thumb { width: 160px; height: 160px; border-radius: 10px; background: var(--bg-tertiary); display: grid; place-items: center; color: #8A8E98; overflow: hidden; }
 .reel-scene-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .reel-scene-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .reel-scene-body .form-label { margin: 0; }
-.reel-scene-body .form-textarea { min-height: 56px; }
+.reel-scene-body .form-textarea { min-height: 76px; }
 .reel-scene-actions { flex-wrap: wrap; gap: 6px; }
+@media (max-width: 960px) {
+  /* One column: tools and the result first, then the scenes; the render button stays in reach at the bottom */
+  .reel-layout { grid-template-columns: minmax(0, 1fr); }
+  .reel-main, .reel-side { grid-column: 1; grid-row: auto; position: static; }
+  .reel-run-button { display: none; }
+  .reel-bottom { display: block; position: sticky; bottom: 0; z-index: 5; margin: 16px -16px 0; padding: 12px 16px; background: var(--bg-card); border-top: 1px solid var(--border-default); }
+}
 @media (max-width: 640px) {
-  .reel-scene { grid-template-columns: 64px minmax(0, 1fr); gap: 10px; }
-  .reel-scene-thumb { width: 64px; height: 64px; }
+  .reel-scene { grid-template-columns: 72px minmax(0, 1fr); gap: 10px; padding: 10px; }
+  .reel-scene-thumb { width: 72px; height: 72px; }
 }
 .reel-progress { display: flex; flex-direction: column; gap: 6px; }
 .reel-progress .field-hint { margin: 0; }
