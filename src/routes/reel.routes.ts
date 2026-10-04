@@ -9,13 +9,12 @@ import { getSettings } from '../lib/settings';
 import { MAX_IMAGE_BYTES } from '../lib/image-store';
 import { styledImagePrompt } from '../lib/compose-prompt';
 import { EDGE_VOICES } from '../lib/reel/edge-tts';
-import { countSpokenWords } from '../lib/reel/subtitles';
 import * as renderer from '../lib/reel/render';
-import { MAX_SCENES, MAX_SCRIPT_CHARS, mergeScenes, type ReelDraft, type ReelScene } from '../lib/reel/scenes';
+import { draftProblem, MAX_SCENES, MAX_SCRIPT_CHARS, mergeScenes, type ReelDraft, type ReelScene } from '../lib/reel/scenes';
 import { readSceneImage, removeSceneImage, saveSceneImage } from '../lib/reel/scene-store';
 import { imageStyleOf } from '../services/post-writer';
 import { cloudflareConfigFrom, generateImage } from '../services/image.service';
-import { queueReel, reelState, ReelError } from '../services/reel.service';
+import { assertNoReelRunning, queueReel, reelState, ReelError } from '../services/reel.service';
 import { readDraft, saveDraft, writeReelScenes } from '../services/reel-draft.service';
 import { findImageEditablePost, videoState } from './posts.routes';
 
@@ -27,7 +26,6 @@ import { findImageEditablePost, videoState } from './posts.routes';
 const router = Router();
 router.use(authenticate);
 
-const MIN_WORDS = 5;
 const NO_FFMPEG = 'Máy chủ chưa chạy được FFmpeg nên chưa dựng được Reel. Báo quản trị viên kiểm tra /cron/reel-check.';
 const newSceneId = () => randomUUID().slice(0, 8);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_IMAGE_BYTES, files: 1 } });
@@ -132,6 +130,9 @@ router.put(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const body = draftSchema.parse(req.body ?? {});
     const post = await findImageEditablePost(req);
+    await assertNoReelRunning(post.id).catch((error) => {
+      throw createError(409, (error as Error).message);
+    });
     const old = readDraft(post);
     const { scenes, dropped } = mergeScenes(old.scenes, body.scenes, newSceneId);
     const draft: ReelDraft = { voice: body.voice ?? old.voice, scenes };
@@ -146,6 +147,9 @@ router.post(
   '/:id/reel/script',
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const post = await findImageEditablePost(req);
+    await assertNoReelRunning(post.id).catch((error) => {
+      throw createError(409, (error as Error).message);
+    });
     // No AI call (it costs the member's quota) for a Reel this host cannot render
     if (!(await renderer.ffmpegAvailable())) throw createError(503, NO_FFMPEG);
     if (!post.caption?.trim()) throw createError(400, 'Bài chưa có nội dung để viết kịch bản.');
@@ -229,8 +233,9 @@ router.get(
 // ─── Render ─────────────────────────────────────
 
 const reelSchema = z.object({
-  script: z.string().trim().min(1, 'Nhập kịch bản lời đọc').max(MAX_SCRIPT_CHARS, `Kịch bản tối đa ${MAX_SCRIPT_CHARS} ký tự`),
-  voice: z.enum(EDGE_VOICES).default('vi-VN-HoaiMyNeural'),
+  /** The quick form: the whole script as one scene. Without it the saved scenes are rendered. */
+  script: z.string().trim().min(1, 'Nhập kịch bản lời đọc').max(MAX_SCRIPT_CHARS, `Kịch bản tối đa ${MAX_SCRIPT_CHARS} ký tự`).optional(),
+  voice: z.enum(EDGE_VOICES).optional(),
 });
 
 /** Books the render (a background job) and answers at once; the dialog then polls /reel/progress. */
@@ -239,10 +244,22 @@ router.post(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const { script, voice } = reelSchema.parse(req.body ?? {});
     const post = await findImageEditablePost(req);
-    if (countSpokenWords(script) < MIN_WORDS) throw createError(400, `Kịch bản cần ít nhất ${MIN_WORDS} từ.`);
+    const old = readDraft(post);
+    const draft: ReelDraft = {
+      voice: voice ?? old.voice,
+      scenes: script === undefined ? old.scenes : [{ id: newSceneId(), text: script, imagePrompt: '', image: null }],
+    };
+    const problem = draftProblem(draft.scenes);
+    if (problem) throw createError(400, problem);
     if (!(await renderer.ffmpegAvailable())) throw createError(503, NO_FFMPEG);
     try {
-      await queueReel(post, { script, voice });
+      // before the draft changes: a Reel being made reads these scenes and their pictures
+      await assertNoReelRunning(post.id);
+      if (script !== undefined || voice !== undefined) {
+        await saveDraft(post.id, draft);
+        if (script !== undefined) for (const s of old.scenes) if (s.image) await removeSceneImage(post.id, s.image);
+      }
+      await queueReel(post);
     } catch (error) {
       if (error instanceof ReelError) throw createError(error.status, error.message);
       throw error;

@@ -12,6 +12,9 @@ import { readReelBackground, removeReelBackground, saveReelBackground } from '..
 import { readImage, removeImage } from '../lib/image-store';
 import { removeVideo, saveUploadedVideo, VIDEO_TMP_DIR } from '../lib/video-store';
 import { reelsProblem } from '../lib/mp4-info';
+import { draftScript, sceneStarts, type ReelDraft } from '../lib/reel/scenes';
+import { readSceneImage } from '../lib/reel/scene-store';
+import { readDraft } from './reel-draft.service';
 
 /** "Tạo Reel từ bài": a voice reads a short script, subtitles follow it, the video becomes the post's video. */
 
@@ -34,7 +37,9 @@ const rendering = new Map<string, ReelProgress>();
 export const reelProgress = (postId: string): ReelProgress | null => rendering.get(postId) ?? null;
 
 /** Voice → subtitles → video → the post's video (REEL). Throws ReelError; on failure the post is unchanged. */
-export async function makeReel(post: Post, input: { script: string; voice: EdgeVoice }): Promise<Post> {
+export async function makeReel(post: Post, draft: ReelDraft): Promise<Post> {
+  const script = draftScript(draft.scenes);
+  const voice = draft.voice as EdgeVoice;
   if (rendering.has(post.id)) throw new ReelError(409, 'Reel của bài này đang được dựng, hãy chờ xong rồi thử lại.');
   rendering.set(post.id, { stage: 'voice', percent: 10 });
   try {
@@ -45,13 +50,18 @@ export async function makeReel(post: Post, input: { script: string; voice: EdgeV
 
     let speech;
     try {
-      speech = await edgeTts.synthesize(input.script, input.voice);
+      speech = await edgeTts.synthesize(script, voice);
     } catch (error) {
       throw new ReelError(502, `Chưa tạo được giọng đọc: ${(error as Error).message}`);
     }
     if (!speech.words.length) throw new ReelError(502, 'Chưa tạo được giọng đọc: dịch vụ không trả về mốc thời gian của từng từ.');
 
-    const ass = buildAss(buildLines(displayWords(input.script, speech.words)), { withImage: !!picture, font: process.env.REEL_FONT });
+    // Each scene's own picture; a scene without one shows the post's picture (or a plain ground)
+    const starts = sceneStarts(draft.scenes.map((s) => s.text), speech.words);
+    const scenes = await Promise.all(
+      draft.scenes.map(async (s, i) => ({ image: (s.image ? await readSceneImage(post.id, s.image) : null) ?? picture, startMs: starts[i] }))
+    );
+    const ass = buildAss(buildLines(displayWords(script, speech.words)), { withImage: scenes.some((s) => s.image), font: process.env.REEL_FONT });
     await mkdir(VIDEO_TMP_DIR, { recursive: true });
     const tmp = path.join(VIDEO_TMP_DIR, `reel-${randomUUID()}.mp4`);
     try {
@@ -60,7 +70,7 @@ export async function makeReel(post: Post, input: { script: string; voice: EdgeV
       await renderer.reelRenderer.render({
         audio: speech.audio,
         ass,
-        image: picture,
+        scenes,
         outPath: tmp,
         durationMs: last.startMs + last.durationMs,
         // the render step is 40–95% of the bar
@@ -105,7 +115,7 @@ export async function makeReel(post: Post, input: { script: string; voice: EdgeV
           videoKind: 'REEL',
           imagePath: null,
           imageUrl: null,
-          inputData: { ...((post.inputData as Record<string, string> | null) ?? {}), reelScript: input.script, reelVoice: input.voice },
+          inputData: { ...((post.inputData as Record<string, string> | null) ?? {}), reelScript: script, reelVoice: voice },
         },
       });
       if (count) updated = await prisma.post.findUnique({ where: { id: post.id } });
@@ -121,7 +131,7 @@ export async function makeReel(post: Post, input: { script: string; voice: EdgeV
     }
     await removeVideo(post.videoPath);
     await removeImage(post.imagePath);
-    await prisma.postLog.create({ data: { postId: post.id, action: 'reel_rendered', details: { ...stored.meta, voice: input.voice, words: speech.words.length } } });
+    await prisma.postLog.create({ data: { postId: post.id, action: 'reel_rendered', details: { ...stored.meta, voice, words: speech.words.length, scenes: draft.scenes.length } } });
     logger.info('Reel rendered', { postId: post.id, durationSec: stored.meta.durationSec, bytes: stored.meta.bytes });
     return updated;
   } finally {
@@ -133,12 +143,6 @@ export async function makeReel(post: Post, input: { script: string; voice: EdgeV
 
 export const reelJobKey = (postId: string) => `reel:${postId}`;
 
-interface ReelJobPayload {
-  postId: string;
-  userId: string;
-  script: string;
-  voice: EdgeVoice;
-}
 
 /** What the dialog shows: waiting for the worker, a step with its percentage, the result, or why it failed. */
 export type ReelState =
@@ -147,27 +151,37 @@ export type ReelState =
   | { state: 'done' }
   | { state: 'failed'; error: string };
 
-/** Book the render. One job per post: refused while the previous one waits or runs. */
-export async function queueReel(post: Post, input: { script: string; voice: EdgeVoice }): Promise<void> {
-  const job = await prisma.job.findUnique({ where: { key: reelJobKey(post.id) } });
-  if (job && (job.status === 'PENDING' || job.status === 'RUNNING')) {
-    throw new ReelError(409, 'Reel của bài này đang được dựng, hãy chờ xong rồi thử lại.');
-  }
-  const payload: ReelJobPayload = { postId: post.id, userId: post.userId, script: input.script, voice: input.voice };
+interface ReelJobPayload {
+  postId: string;
+  userId: string;
+}
+
+/** Book the render of the post's saved scenes. One job per post: refused while the previous one waits or runs. */
+export async function queueReel(post: Post): Promise<void> {
+  await assertNoReelRunning(post.id);
+  const payload: ReelJobPayload = { postId: post.id, userId: post.userId };
   // upsertKeyedJob creates the job with maxAttempts = 1: a failed render is reported, never repeated on its own
   await upsertKeyedJob(reelJobKey(post.id), 'render_reel', { ...payload }, new Date());
 }
 
+/** Throws 409 while the post's Reel is waiting or being made (its scenes must not change under it) */
+export async function assertNoReelRunning(postId: string): Promise<void> {
+  const job = await prisma.job.findUnique({ where: { key: reelJobKey(postId) } });
+  if (job && (job.status === 'PENDING' || job.status === 'RUNNING')) {
+    throw new ReelError(409, 'Reel của bài này đang được dựng, hãy chờ xong rồi thử lại.');
+  }
+}
+
 /**
- * render_reel handler. A failure is final and its message is what the user reads (Job.lastError).
- * A job interrupted by a restart simply runs again: nothing was committed before the last step.
+ * render_reel handler: renders the scenes as saved when the job runs. A failure is final and its message
+ * is what the user reads (Job.lastError). A job interrupted by a restart simply runs again.
  */
 export async function runReelJob(job: Job): Promise<void> {
-  const { postId, userId, script, voice } = job.payload as unknown as ReelJobPayload;
+  const { postId, userId } = job.payload as unknown as ReelJobPayload;
   const post = await prisma.post.findFirst({ where: { id: postId, userId } });
   if (!post) return; // deleted while it waited
   try {
-    await makeReel(post, { script, voice });
+    await makeReel(post, readDraft(post));
   } catch (error) {
     throw new UnrecoverableJobError(error instanceof ReelError ? error.message : `Dựng Reel thất bại: ${(error as Error).message}`);
   }

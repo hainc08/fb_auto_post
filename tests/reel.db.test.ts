@@ -6,6 +6,7 @@ import '../src/config';
 import prisma from '../src/utils/prisma';
 import { createApp } from '../src/app';
 import { GeminiClient } from '../src/lib/clients/gemini';
+import { CloudflareClient } from '../src/lib/clients/cloudflare';
 import { edgeTts } from '../src/lib/reel/edge-tts';
 import { reelRenderer } from '../src/lib/reel/render';
 import * as renderModule from '../src/lib/reel/render';
@@ -107,7 +108,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     expect(done).toMatchObject({ state: 'done', reelScript: SCRIPT, video: { videoKind: 'REEL', reelsProblem: null, videoMeta: { width: 1080, height: 1920, durationSec: 20 } } });
     expect(voice).toHaveBeenCalledWith(SCRIPT, 'vi-VN-NamMinhNeural');
     const input = render.mock.calls[0][0];
-    expect(input.image).toMatchObject({ mime: 'image/png' });
+    expect(input.scenes).toEqual([{ image: expect.objectContaining({ mime: 'image/png' }), startMs: 0 }]);
     // subtitles use the script's own words (punctuation kept), under the picture
     expect(input.ass).toContain('email?');
     expect(input.ass).toMatch(/,2,80,80,430,1$/m);
@@ -126,7 +127,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     await make(cookie, post.id);
     const first = (await row(post.id)).videoPath!;
     expect((await make(cookie, post.id, { script: `${SCRIPT} Cảm ơn bạn đã xem.` })).state).toBe('done');
-    expect(render.mock.calls[1][0].image).toMatchObject({ mime: 'image/png' });
+    expect(render.mock.calls[1][0].scenes![0].image).toMatchObject({ mime: 'image/png' });
     const second = (await row(post.id)).videoPath!;
     expect(second).not.toBe(first);
     expect(existsSync(resolveVideo(first)!)).toBe(false);
@@ -136,7 +137,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     const { cookie, post } = await setup(false);
     const { render } = fakePipeline();
     expect((await make(cookie, post.id)).state).toBe('done');
-    expect(render.mock.calls[0][0].image).toBeNull();
+    expect(render.mock.calls[0][0].scenes).toEqual([{ image: null, startMs: 0 }]);
     expect(render.mock.calls[0][0].ass).toMatch(/,5,80,80,0,1$/m);
   });
 
@@ -317,5 +318,68 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('text to Reel', { timeout: 60_000 }, 
     expect(res.status).toBe(503);
     expect(res.json.error).toMatch(/FFmpeg/);
     expect(gemini).not.toHaveBeenCalled();
+  });
+
+  // ─── Scenes ─────────────────────────────────────
+
+  const SCENE_PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('scene picture')]);
+  const draftOf = async (cookie: string, id: string) => (await api(server.baseUrl, 'GET', `/api/posts/${id}/reel/draft`, { cookie })).json.data;
+  const sceneFiles = async (id: string) => (await filesOf(REEL_DIR, id)).filter((n) => !n.endsWith('.bg'));
+
+  /** Save scenes and give the first one a picture "generated" by Cloudflare */
+  async function scenesWithPicture(cookie: string, userId: string, id: string, scenes: Array<Record<string, unknown>>, voice?: string) {
+    await saveSettings(userId, { cfAccountId: 'acc-reel', cfApiToken: 'cf-fake-token-reel' });
+    vi.spyOn(CloudflareClient.prototype, 'generateImage').mockResolvedValue({ buffer: SCENE_PNG, mimeType: 'image/png' } as never);
+    const saved = (await api(server.baseUrl, 'PUT', `/api/posts/${id}/reel/draft`, { cookie, body: { scenes, ...(voice && { voice }) } })).json.data;
+    const res = await api(server.baseUrl, 'POST', `/api/posts/${id}/reel/scenes/${saved.scenes[0].id}/image/generate`, { cookie });
+    if (res.status !== 200) throw new Error(`no scene picture: ${res.status} ${res.text}`);
+  }
+
+  it('renders the saved scenes: one voice request, each scene with its picture and start time', async () => {
+    // the post has a picture of its own: scenes without one use it
+    const { cookie, post, userId } = await setup();
+    const { render } = fakePipeline();
+    await scenesWithPicture(cookie, userId, post.id, [{ text: 'Bạn mất bao lâu?', imagePrompt: 'x' }, { text: 'Thử ngay hôm nay!' }, { text: 'Cảm ơn bạn.' }], 'vi-VN-NamMinhNeural');
+    // 4 + 4 + 3 words, 300 ms each
+    const words = Array.from({ length: 11 }, (_, i) => ({ text: `w${i}`, startMs: i * 300, durationMs: 300 }));
+    const voice = vi.spyOn(edgeTts, 'synthesize').mockResolvedValue({ audio: Buffer.from('mp3'), words });
+
+    const state = await make(cookie, post.id, {});
+    expect(state).toMatchObject({ state: 'done', reelScript: 'Bạn mất bao lâu? Thử ngay hôm nay! Cảm ơn bạn.' });
+    expect(voice).toHaveBeenCalledTimes(1);
+    expect(voice).toHaveBeenCalledWith('Bạn mất bao lâu? Thử ngay hôm nay! Cảm ơn bạn.', 'vi-VN-NamMinhNeural');
+    const input = render.mock.calls[0][0];
+    expect(input.scenes!.map((s) => s.startMs)).toEqual([0, 1200, 2400]);
+    expect(input.scenes![0].image!.buffer.equals(SCENE_PNG)).toBe(true);
+    expect(input.scenes![1].image!.buffer.equals(PNG)).toBe(true);
+    expect(input.scenes![2].image!.buffer.equals(PNG)).toBe(true);
+    // subtitles under the picture, with the script's own words
+    expect(input.ass).toMatch(/,2,80,80,430,1$/m);
+    expect(input.ass).toContain('lâu?');
+    // the scenes stay for the next edit
+    expect((await draftOf(cookie, post.id)).scenes).toHaveLength(3);
+  });
+
+  it('refuses to render scenes that are not ready, with the reason', async () => {
+    const { cookie, post } = await setup();
+    vi.spyOn(renderModule, 'ffmpegAvailable').mockResolvedValue(true);
+    const none = await queue(cookie, post.id, {});
+    expect(none.status).toBe(400);
+    expect(none.json.error).toBe('Kịch bản chưa có cảnh nào.');
+    await api(server.baseUrl, 'PUT', `/api/posts/${post.id}/reel/draft`, { cookie, body: { scenes: [{ text: 'Một hai ba bốn năm' }, { text: '' }] } });
+    const silent = await queue(cookie, post.id, {});
+    expect(silent.status).toBe(400);
+    expect(silent.json.error).toBe('Cảnh 2 chưa có lời đọc.');
+    expect(await jobOf(post.id)).toBeNull();
+  });
+
+  it('the quick form (a whole script) replaces the scenes with one, and drops their pictures', async () => {
+    const { cookie, post, userId } = await setup();
+    fakePipeline();
+    await scenesWithPicture(cookie, userId, post.id, [{ text: 'Một', imagePrompt: 'x' }, { text: 'Hai' }]);
+    expect(await sceneFiles(post.id)).toHaveLength(1);
+    expect((await make(cookie, post.id, { script: SCRIPT })).state).toBe('done');
+    expect((await draftOf(cookie, post.id)).scenes).toEqual([{ id: expect.any(String), text: SCRIPT, imagePrompt: '', imageUrl: null }]);
+    expect(await sceneFiles(post.id)).toEqual([]);
   });
 });

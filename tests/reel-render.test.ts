@@ -97,6 +97,47 @@ describe.skipIf(!hasFfmpeg)('reelRenderer (needs FFmpeg)', { timeout: 120_000 },
     }
   });
 
+  /** Average colour of the frame at `seconds` */
+  const colourAt = (file: string, seconds: number) => {
+    const rgb = execFileSync(FFMPEG, ['-loglevel', 'error', '-ss', String(seconds), '-i', file, '-frames:v', '1', '-vf', 'scale=1:1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+    return { r: rgb[0], g: rgb[1], b: rgb[2] };
+  };
+  const solid = (colour: string) => {
+    const file = path.join(dir, `${colour}.png`);
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `color=c=${colour}:s=640x640`, '-frames:v', '1', file]);
+    return { buffer: readFileSync(file), mime: 'image/png' as const };
+  };
+
+  it('shows each scene\'s picture from its start time, then the next one', async () => {
+    fixtures();
+    const outPath = path.join(dir, 'scenes.mp4');
+    const red = solid('red');
+    await reelRenderer.render({
+      audio: readFileSync(voice),
+      ass,
+      outPath,
+      scenes: [
+        { image: red, startMs: 0 },
+        { image: solid('green'), startMs: 1500 },
+        { image: null, startMs: 2600 },
+        // the same picture again: its ground is made once
+        { image: red, startMs: 3300 },
+      ],
+    });
+    const info = await inspect(outPath);
+    expect(info).toMatchObject({ width: 1080, height: 1920 });
+    expect(info!.durationSec).toBeGreaterThanOrEqual(3.5);
+    expect(info!.durationSec).toBeLessThanOrEqual(4.6);
+    const first = colourAt(outPath, 0.7);
+    expect(first.r).toBeGreaterThan(first.g + 40);
+    const second = colourAt(outPath, 2.0);
+    expect(second.g).toBeGreaterThan(second.r + 40);
+    const third = colourAt(outPath, 2.95);
+    expect(Math.max(third.r, third.g, third.b)).toBeLessThan(70);
+    const fourth = colourAt(outPath, 3.7);
+    expect(fourth.r).toBeGreaterThan(fourth.g + 40);
+  });
+
   it('reports how far the encoding is, up to the end', async () => {
     fixtures();
     const seen: number[] = [];
