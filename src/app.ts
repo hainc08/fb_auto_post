@@ -7,6 +7,7 @@ import { logger } from './utils/logger';
 import { asyncHandler, createError, errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { csrfGuard } from './middleware/auth.middleware';
 import { safeEqual } from './lib/crypto';
+import * as reelCheck from './lib/reel/self-check';
 import authRoutes from './routes/auth.routes';
 import adminRoutes from './routes/admin.routes';
 import pagesRoutes from './routes/pages.routes';
@@ -15,6 +16,7 @@ import domainsRoutes from './routes/domains.routes';
 import formatsRoutes from './routes/formats.routes';
 import postsRoutes from './routes/posts.routes';
 import commentsRoutes from './routes/comments.routes';
+import reelRoutes from './routes/reel.routes';
 import schedulesRoutes from './routes/schedules.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import settingsRoutes from './routes/settings.routes';
@@ -33,6 +35,7 @@ export const API_ROUTERS: ReadonlyArray<readonly [string, Router]> = [
   ['/api/formats', formatsRoutes],
   ['/api/posts', postsRoutes],
   ['/api/posts', commentsRoutes],
+  ['/api/posts', reelRoutes],
   ['/api/schedules', schedulesRoutes],
   ['/api/analytics', analyticsRoutes],
   ['/api/settings', settingsRoutes],
@@ -71,21 +74,41 @@ export function createApp() {
     })
   );
 
+  /** /cron/* routes are opened with CRON_SECRET (header x-cron-secret or ?key=) */
+  const assertCronKey = (req: express.Request) => {
+    const secret = process.env.CRON_SECRET;
+    if (!secret) throw createError(404, 'Cron routes are disabled (CRON_SECRET not set)');
+    const given = String(req.get('x-cron-secret') ?? req.query.key ?? '');
+    if (!given || !safeEqual(given, secret)) throw createError(401, 'Invalid cron key');
+  };
+
   // Hostinger may put the app to sleep when nobody visits it; a cron job calling
   // this every minute wakes it and runs whatever is due (scheduled posts…).
   //   curl -fsS "https://<domain>/cron/tick?key=<CRON_SECRET>"
   app.all(
     '/cron/tick',
     asyncHandler(async (req, res) => {
-      const secret = process.env.CRON_SECRET;
-      if (!secret) throw createError(404, 'Cron tick is disabled (CRON_SECRET not set)');
-      const given = String(req.get('x-cron-secret') ?? req.query.key ?? '');
-      if (!given || !safeEqual(given, secret)) throw createError(401, 'Invalid cron key');
+      assertCronKey(req);
 
       const worker = getWorker();
       if (!worker) throw createError(503, 'Worker not running');
       const processed = await worker.drain(45_000);
       res.json({ ok: true, processed, dueJobs: await countDueJobs() });
+    })
+  );
+
+  // After a deploy: can this host make Reels? Renders one sample with the real voice service and FFmpeg.
+  //   curl -fsS "https://<domain>/cron/reel-check?key=<CRON_SECRET>"            → JSON report
+  //   open "https://<domain>/cron/reel-check?key=<CRON_SECRET>&video=1"         → the sample video
+  app.get(
+    '/cron/reel-check',
+    asyncHandler(async (req, res) => {
+      assertCronKey(req);
+      const { file, ...report } = await reelCheck.reelSelfCheck();
+      res.set('Cache-Control', 'no-store');
+      if (req.query.video === '1' && file) return void res.type('video/mp4').send(file);
+      // Always 200: `curl -f` and hosting proxies hide the body of a 5xx, and the body is the point
+      res.json(report);
     })
   );
 

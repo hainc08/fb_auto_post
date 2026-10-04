@@ -106,6 +106,7 @@ Video bài viết nằm ở `STORAGE_DIR/videos` (tối đa 100 MB mỗi video).
 6. Tải thử một video khoảng 50–100 MB. Nếu báo "Máy chủ từ chối file quá lớn" (lỗi 413 từ proxy của Hostinger) thì giới hạn tải lên của gói thấp hơn 100 MB — dùng video nhỏ hơn.
 7. **Lịch đăng**: tạo một lịch có khung giờ gần nhất và 1 ý tưởng → trong 1–2 phút trang lịch có bài "AI đang viết" rồi "Chờ duyệt". Duyệt bài; đến giờ bài được đăng. Lịch cũ (trước bản này) tự chuyển sang lịch theo khung giờ; lịch "Một lần"/"Hàng tháng" bị tạm dừng, tên có "(cần xem lại)".
 8. **Hẹn giờ đăng**: mở một bài "Chờ duyệt" → **Hẹn giờ đăng** → chọn giờ sau hiện tại vài phút → bài chuyển sang "Đã lên lịch" và tự đăng đúng giờ (cần Cron Job ở mục 4). Thử **Đổi giờ đăng** và **Huỷ hẹn giờ** trên một bài khác.
+9. **Tạo Reel từ bài**: mở `https://ten-mien/cron/reel-check?key=CRON_SECRET_CUA_BAN` → phải thấy `"ok": true`, `"font": "BeVietnamPro-Bold"`. Thêm `&video=1` để xem video mẫu: phụ đề tiếng Việt phải có dấu đầy đủ. Sau đó thử trên một bài "Chờ duyệt": **Tạo Reel từ bài** → **Dựng Reel**.
 
 ### Facebook App
 developers.facebook.com → App → **Settings → Basic**:
@@ -204,3 +205,6 @@ Không đổi: Cron Job `/cron/tick`, `/health`, UptimeRobot, đồng bộ Page,
 | Không đăng nhập được admin | Kiểm tra `ADMIN_EMAIL`/`ADMIN_PASSWORD` rồi **Restart**; log có dòng `[Bootstrap]` cho biết đã đặt mật khẩu hay chưa |
 | App không khởi động, log `JWT_SECRET phải là chuỗi ngẫu nhiên…` | Đặt `JWT_SECRET` ≥ 32 ký tự ngẫu nhiên, Restart |
 | Trình duyệt hỏi user/mật khẩu (hộp thoại của trình duyệt) | Host đang chạy bản cũ còn lớp Basic Auth — deploy bản mới (mục 5); app hiện chỉ dùng trang **Đăng nhập** |
+| `/cron/reel-check` báo "FFmpeg: không chạy được" | Lúc build, gói `ffmpeg-static` (gói tuỳ chọn, tải lỗi thì build vẫn chạy tiếp) chưa tải được file FFmpeg, hoặc máy chủ không cho chạy file đó. Bấm **Redeploy** để tải lại; trong lúc đó tính năng Reel tự ẩn và các phần khác không ảnh hưởng |
+| `/cron/reel-check` báo đang dùng font khác | Thiếu thư mục `assets/fonts` trên máy chủ — kiểm tra `DEPLOY_PATHS` trong `scripts/sync-deploy-branch.mjs` có `assets` |
+| Dựng Reel báo "Chưa tạo được giọng đọc" liên tục | Microsoft chặn hoặc đổi dịch vụ Edge TTS (không chính thức). Cần đổi nhà cung cấp giọng đọc (Azure Speech) |

@@ -16,6 +16,9 @@ import { getSettings } from '../lib/settings';
 import { DEFAULT_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES, isLiveOnAnyPage, syncTargets } from '../lib/post-targets';
 import { blockMessage, blockReason } from '../lib/page-health';
 import { timedProblem } from '../lib/post-timing';
+import { removeReelBackground } from '../lib/reel/background-store';
+import { removeKeyedJob } from '../lib/job-queue';
+import { reelJobKey } from '../services/reel.service';
 
 import { assertOwnTemplate } from '../lib/ownership';
 import { randomUUID } from 'node:crypto';
@@ -54,7 +57,7 @@ const EDITABLE_STATUSES: PostStatus[] = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'
 const domainFormatSelect = { domain: { select: { id: true, name: true } }, format: { select: { id: true, name: true } } } as const;
 
 const videoProblem = (meta: unknown) => (meta ? reelsProblem(meta as VideoInfo) : null);
-const videoState = (p: { videoUrl: string | null; videoKind: string | null; videoMeta: unknown }) => ({
+export const videoState = (p: { videoUrl: string | null; videoKind: string | null; videoMeta: unknown }) => ({
   videoUrl: p.videoUrl,
   videoKind: p.videoKind,
   videoMeta: p.videoMeta,
@@ -410,7 +413,7 @@ const upload = multer({
   limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },
 });
 
-async function findImageEditablePost(req: AuthRequest) {
+export async function findImageEditablePost(req: AuthRequest) {
   const post = await prisma.post.findFirst({ where: { id: req.params.id, userId: req.user!.id } });
   if (!post) throw createError(404, 'Post not found');
   if (!IMAGE_EDITABLE.includes(post.status)) {
@@ -800,6 +803,8 @@ router.delete(
     await prisma.post.delete({ where: { id: post.id } });
     await removeImage(post.imagePath);
     await removeVideo(post.videoPath);
+    await removeReelBackground(post.id);
+    await removeKeyedJob(reelJobKey(post.id));
 
     res.json({ success: true, message: 'Post deleted' });
   })

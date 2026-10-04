@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye, MessageCircle, ArrowLeft } from 'lucide-react';
+import { PenLine, Send, Trash2, ExternalLink, Check, X, Plus, RotateCcw, CalendarClock, Eye, MessageCircle, ArrowLeft, Clapperboard } from 'lucide-react';
 import { postsApi, domainsApi, assetUrl, type ContentDomain } from '../api';
 import EditPostModal from '../components/EditPostModal';
 import { useToast } from '../components/Toast';
@@ -9,6 +9,7 @@ import PostListItem from '../components/PostListItem';
 import PostFilters from '../components/PostFilters';
 import CommentsPanel from '../components/CommentsPanel';
 import SchedulePicker from '../components/SchedulePicker';
+import ReelMaker from '../components/ReelMaker';
 import type { MenuAction } from '../components/PostActionsMenu';
 import { matchesFilters, statusCounts, engagementTotals, type TimeRange, type TargetSummary } from '../lib/post-display';
 import { slotLabel } from '../components/ScheduleBits';
@@ -99,6 +100,7 @@ const LOG_LABEL: Record<string, string> = {
   image_reused: 'Dùng ảnh đã lưu',
   scheduled: 'Hẹn giờ đăng',
   schedule_cancelled: 'Huỷ hẹn giờ',
+  reel_rendered: 'Dựng Reel',
 };
 
 export default function PostsPage() {
@@ -124,6 +126,37 @@ export default function PostsPage() {
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
   /** The "Hẹn giờ đăng" picker is open in the inspector */
   const [timing, setTiming] = useState(false);
+  /** The "Tạo Reel từ bài" dialog is open for the selected post */
+  const [reelOpen, setReelOpen] = useState(false);
+  /** Reels need FFmpeg on the server; the button is hidden where there is none */
+  const [reelAvailable, setReelAvailable] = useState(false);
+  /** Post whose Reel is being made: followed here, so the result is reported even after the dialog is closed */
+  const [reelWatch, setReelWatch] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!reelWatch) return;
+    let stopped = false;
+    const timer = setInterval(() => {
+      postsApi
+        .reelProgress(reelWatch)
+        .then(({ data }) => {
+          if (stopped || data.state === 'queued' || data.state === 'running') return;
+          stopped = true;
+          setReelWatch(null);
+          if (data.state === 'done') {
+            toast.success('Đã dựng xong Reel — xem thử rồi duyệt đăng như bài thường.');
+            void load();
+          } else if (data.state === 'failed') {
+            toast.error(`Chưa dựng được Reel: ${data.error}`);
+          }
+        })
+        .catch(() => {}); // a missed poll: the next one answers
+    }, 1500);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [reelWatch]);
   /** Phones: the inspector is a full-screen sheet, opened by choosing a post */
   const [sheetOpen, setSheetOpen] = useState(!!params.get('selected'));
   const openPost = (id: string) => {
@@ -151,6 +184,7 @@ export default function PostsPage() {
 
   useEffect(() => {
     domainsApi.list(true).then((r) => setDomains(r.data)).catch(() => {});
+    postsApi.reelStatus().then((r) => setReelAvailable(r.data.available)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -626,6 +660,11 @@ export default function PostsPage() {
                   Huỷ hẹn giờ
                 </button>
               )}
+              {reelAvailable && EDITABLE.includes(detail.status) && !liveSomewhere && (
+                <button type="button" className="btn btn-secondary btn-block" onClick={() => setReelOpen(true)} disabled={acting}>
+                  <Clapperboard size={15} aria-hidden="true" /> {detail.inputData?.reelScript ? 'Sửa Reel' : 'Tạo Reel từ bài'}
+                </button>
+              )}
               {detail.status !== 'PUBLISHING' && (
                 <button type="button" className="btn btn-danger btn-block" onClick={confirmRemove} disabled={acting}>
                   <Trash2 size={15} aria-hidden="true" />
@@ -638,6 +677,16 @@ export default function PostsPage() {
       </aside>
 
       {commentsFor && <CommentsPanel postId={commentsFor} onClose={() => setCommentsFor(null)} onChanged={() => void load()} />}
+      {reelOpen && detail && (
+        <ReelMaker
+          postId={detail.id}
+          initialScript={detail.inputData?.reelScript}
+          initialVoice={detail.inputData?.reelVoice}
+          hasCaption={!!detail.caption}
+          onClose={() => setReelOpen(false)}
+          onStarted={() => setReelWatch(detail.id)}
+        />
+      )}
       {editingId && <EditPostModal postId={editingId} onClose={() => setEditingId(null)} onSaved={handleSaved} />}
     </div>
   );

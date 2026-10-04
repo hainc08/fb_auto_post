@@ -1180,6 +1180,17 @@ tbody tr:hover { background: var(--bg-secondary); }
 .comment-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 8px; }
 .comment-actions .form-textarea { flex: 1 1 260px; min-height: 56px; }
 
+/* ─── Reel maker ─── */
+.reel-maker { max-width: 560px; }
+/* The body scrolls; its children keep their height (else the script box is squashed once the video shows) */
+.reel-maker .member-body > * { flex-shrink: 0; }
+.reel-voice { width: auto; }
+.reel-progress { display: flex; flex-direction: column; gap: 6px; }
+.reel-progress .field-hint { margin: 0; }
+.reel-progress .upload-progress span { transition: width 0.6s ease-out; }
+@media (prefers-reduced-motion: reduce) { .reel-progress .upload-progress span { transition: none; } }
+.reel-preview { align-self: center; width: min(240px, 100%); aspect-ratio: 9 / 16; border-radius: var(--radius-lg); background: #000; }
+
 /* ─── Timed post ("Hẹn giờ đăng") ─── */
 .timed-picker { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--bg-secondary); animation: rise-in 0.2s ease-out; }
 .timed-picker .form-label, .timed-picker .field-hint, .timed-picker .field-warning { margin: 0; }

@@ -350,6 +350,18 @@ export interface CommentsPage {
   threads: CommentThread[];
 }
 
+export type ReelStage = 'voice' | 'render' | 'saving';
+export type ReelState =
+  | { state: 'idle' }
+  | { state: 'queued' | 'running'; stage: ReelStage; percent: number }
+  | { state: 'done'; video: VideoState; reelScript: string | null }
+  | { state: 'failed'; error: string };
+
+export const REEL_VOICES = [
+  { value: 'vi-VN-HoaiMyNeural', label: 'Hoài My (nữ)' },
+  { value: 'vi-VN-NamMinhNeural', label: 'Nam Minh (nam)' },
+] as const;
+
 export const postsApi = {
   list: (params?: { status?: string; pageId?: string; domainId?: string; page?: string; limit?: string }) => {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -417,6 +429,19 @@ export const postsApi = {
     }),
 
   removeVideo: (id: string) => apiFetch<{ videoUrl: null }>(`/posts/${id}/video`, { method: 'DELETE' }),
+
+  /** Can this server make Reels (it needs FFmpeg)? */
+  reelStatus: () => apiFetch<{ available: boolean }>('/posts/reel/status'),
+
+  /** AI writes a short spoken script from the post's text (not saved). */
+  reelScript: (id: string) => apiFetch<{ script: string }>(`/posts/${id}/reel/script`, { method: 'POST' }),
+
+  /** Where the Reel of this post is: waiting, a step with its percentage, done (with the video) or failed. */
+  reelProgress: (id: string) => apiFetch<ReelState>(`/posts/${id}/reel/progress`),
+
+  /** Books the render (a background job, usually 20–60 seconds); follow it with `reelProgress`. */
+  makeReel: (id: string, body: { script: string; voice: string }) =>
+    apiFetch<{ state: 'queued' }>(`/posts/${id}/reel`, { method: 'POST', body: JSON.stringify(body) }),
 
   /** Pass `caption` to rewrite an unsaved draft (result is not persisted). */
   improve: (id: string, instruction: string, caption?: string) =>
