@@ -78,6 +78,7 @@ CREATE TABLE `facebook_pages` (
     `tokenCheckedAt` DATETIME(3) NULL,
     `tokenError` TEXT NULL,
     `defaultDomainId` VARCHAR(191) NULL,
+    `autoReply` BOOLEAN NOT NULL DEFAULT false,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -144,6 +145,7 @@ CREATE TABLE `posts` (
     `approvedAt` DATETIME(3) NULL,
     `inputData` JSON NULL,
     `reelDraft` JSON NULL,
+    `autoReplyOff` BOOLEAN NOT NULL DEFAULT false,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -298,6 +300,8 @@ CREATE TABLE `post_comments` (
     `fromPage` BOOLEAN NOT NULL DEFAULT false,
     `pageReplied` BOOLEAN NOT NULL DEFAULT false,
     `handledAt` DATETIME(3) NULL,
+    `draftReply` TEXT NULL,
+    `draftCheckedAt` DATETIME(3) NULL,
     `syncedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     UNIQUE INDEX `post_comments_fbCommentId_key`(`fbCommentId`),
@@ -317,6 +321,7 @@ CREATE TABLE `content_domains` (
     `defaultHashtags` JSON NULL,
     `imageStyle` VARCHAR(500) NULL,
     `reelInstructions` TEXT NULL,
+    `replyInstructions` TEXT NULL,
     `language` VARCHAR(191) NOT NULL DEFAULT 'vi',
     `isArchived` BOOLEAN NOT NULL DEFAULT false,
     `sortOrder` INTEGER NOT NULL DEFAULT 0,

@@ -150,4 +150,32 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     expect(res.status).toBe(404);
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it('the Page switch "AI soạn trả lời" needs both comment permissions and a Gemini key', async () => {
+    const { cookie, post } = await setup();
+    const pageId = post.pageId;
+    const patch = (body: Record<string, unknown>, c = cookie, id = pageId) => api(server.baseUrl, 'PATCH', `/api/pages/${id}`, { cookie: c, body });
+    // no Gemini key yet
+    const noKey = await patch({ autoReply: true });
+    expect(noKey.status).toBe(409);
+    expect(noKey.json.error).toMatch(/Gemini/);
+    await saveSettings(post.userId, { geminiApiKey: 'AIzaFakeKeyCommentsSwitch00000000000000' });
+    const on = await patch({ autoReply: true });
+    expect(on.status).toBe(200);
+    expect(on.json.data).toMatchObject({ id: pageId, autoReply: true });
+    const listed = (await api(server.baseUrl, 'GET', '/api/pages', { cookie })).json.data.find((p: { id: string }) => p.id === pageId);
+    expect(listed.autoReply).toBe(true);
+    // the default-domain form of the same route still works and leaves the switch alone
+    expect((await patch({ defaultDomainId: null })).json.data).toMatchObject({ defaultDomainId: null, autoReply: true });
+    expect((await patch({ autoReply: false })).json.data.autoReply).toBe(false);
+
+    // a Page that may read comments but not answer them
+    const readOnly = await setup(ALL.filter((s) => s !== 'pages_manage_engagement'));
+    await saveSettings(readOnly.post.userId, { geminiApiKey: 'AIzaFakeKeyCommentsSwitch00000000000000' });
+    const refused = await patch({ autoReply: true }, readOnly.cookie, readOnly.post.pageId);
+    expect(refused.status).toBe(409);
+    expect(refused.json.error).toMatch(/quyền/);
+    // turning it off is always allowed
+    expect((await patch({ autoReply: false }, readOnly.cookie, readOnly.post.pageId)).status).toBe(200);
+  });
 });

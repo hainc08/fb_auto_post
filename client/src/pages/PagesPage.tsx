@@ -56,6 +56,16 @@ export default function PagesPage() {
     }
   }
 
+  async function setAutoReply(id: string, autoReply: boolean) {
+    try {
+      await pagesApi.setAutoReply(id, autoReply);
+      setPages((list) => list.map((p) => (p.id === id ? { ...p, autoReply } : p)));
+      toast.success(autoReply ? 'Đã bật: AI sẽ soạn sẵn câu trả lời cho bình luận mới, bạn duyệt rồi gửi.' : 'Đã tắt AI soạn trả lời cho Page này.');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  }
+
   async function checkAll() {
     setBusy('check-all');
     try {
@@ -178,6 +188,7 @@ export default function PagesPage() {
                     <th scope="col">Page</th>
                     <th scope="col">Trạng thái</th>
                     <th scope="col">Lĩnh vực mặc định</th>
+                    <th scope="col">AI trả lời bình luận</th>
                     <th scope="col">Token do app</th>
                     <th scope="col">Hạn token</th>
                     <th scope="col">Kiểm tra</th>
@@ -194,12 +205,13 @@ export default function PagesPage() {
                       confirming={confirmId === p.id}
                       domains={domains}
                       onDomain={(domainId) => setDefaultDomain(p.id, domainId)}
+                      onAutoReply={(on) => setAutoReply(p.id, on)}
                       onCheck={() => checkOne(p.id)}
                       onDisconnect={() => disconnect(p.id)}
                     />
                   ))}
                   {active.length === 0 && (
-                    <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}>Không có Page nào đang kết nối.</td></tr>
+                    <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: 24 }}>Không có Page nào đang kết nối.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -239,11 +251,12 @@ interface RowProps {
   confirming: boolean;
   domains: ContentDomain[];
   onDomain: (domainId: string | null) => void;
+  onAutoReply: (on: boolean) => void;
   onCheck: () => void;
   onDisconnect: () => void;
 }
 
-function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onCheck, onDisconnect }: RowProps) {
+function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onAutoReply, onCheck, onDisconnect }: RowProps) {
   const expiresSoon = p.tokenExpiresAt && new Date(p.tokenExpiresAt).getTime() - Date.now() < 7 * DAY;
   return (
     <tr className={p.postable ? '' : 'blocked'}>
@@ -273,6 +286,13 @@ function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onCheck,
             <option key={d.id} value={d.id}>{d.name}</option>
           ))}
         </select>
+      </td>
+      <td data-label="AI trả lời bình luận">
+        <label className="switch" title="AI soạn sẵn câu trả lời cho bình luận mới; bạn duyệt rồi mới gửi">
+          <input type="checkbox" checked={p.autoReply} onChange={(e) => onAutoReply(e.target.checked)} aria-label={`AI soạn trả lời bình luận cho ${p.pageName}`} />
+          <span className="switch-track" aria-hidden="true" />
+          <span className="switch-label">{p.autoReply ? 'Đang bật' : 'Tắt'}</span>
+        </label>
       </td>
       <td className="mono" data-label="Token do app">
         {p.tokenAppId ? (

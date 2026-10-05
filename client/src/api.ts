@@ -149,6 +149,8 @@ export interface PageInfo {
   blockMessage: string | null;
   /** Content domain preselected when creating a post for this Page */
   defaultDomainId: string | null;
+  /** "AI soạn trả lời bình luận" is on for this Page */
+  autoReply: boolean;
 }
 
 export type SyncAction = 'update' | 'reconnect' | 'add' | 'disconnect';
@@ -202,6 +204,10 @@ export const pagesApi = {
       method: 'PATCH',
       body: JSON.stringify({ defaultDomainId }),
     }),
+
+  /** Turn "AI soạn trả lời bình luận" on or off for a Page. */
+  setAutoReply: (id: string, autoReply: boolean) =>
+    apiFetch<{ id: string; autoReply: boolean }>(`/pages/${id}`, { method: 'PATCH', body: JSON.stringify({ autoReply }) }),
 };
 
 // ─── Content domains & formats ──────────────────
@@ -239,6 +245,7 @@ export interface ContentDomain {
   defaultHashtags: string[] | null;
   imageStyle: string | null;
   reelInstructions: string | null;
+  replyInstructions: string | null;
   isArchived: boolean;
   sortOrder: number;
   formats: ContentFormat[];
@@ -254,6 +261,7 @@ export interface DomainInput {
   defaultHashtags?: string[];
   imageStyle?: string | null;
   reelInstructions?: string | null;
+  replyInstructions?: string | null;
   isArchived?: boolean;
 }
 

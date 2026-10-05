@@ -180,4 +180,13 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('domains & formats API', { timeout: 9
     const long = await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { reelInstructions: 'x'.repeat(2001) } });
     expect(long.status).toBe(400);
   });
+
+  it('keeps the instructions for answering comments; empty clears them', async () => {
+    const { cookie } = await createTestUser();
+    const created = (await api(server.baseUrl, 'POST', '/api/domains', { cookie, body: newDomain('Trả lời', { replyInstructions: '  Xưng em, gọi anh chị.  ' }) })).json.data;
+    expect(created.replyInstructions).toBe('Xưng em, gọi anh chị.');
+    const cleared = await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { replyInstructions: '' } });
+    expect(cleared.json.data.replyInstructions).toBeNull();
+    expect((await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { replyInstructions: 'x'.repeat(2001) } })).status).toBe(400);
+  });
 });
