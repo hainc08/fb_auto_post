@@ -95,6 +95,9 @@ const ROUTE_CASES: Record<string, Case> = {
   'POST /api/posts/:id/comments/refresh': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/refresh` },
   'POST /api/posts/:id/comments/:commentId/reply': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/${b.commentId}/reply`, body: { message: 'hack' } },
   'PATCH /api/posts/:id/comments/:commentId': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/${b.commentId}`, body: { handled: true } },
+  'DELETE /api/posts/:id/comments/:commentId/draft': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/${b.commentId}/draft` },
+  'POST /api/posts/:id/comments/send-drafts': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/send-drafts` },
+  'PATCH /api/posts/:id/comments/auto-reply': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/auto-reply`, body: { off: true } },
   'POST /api/posts/:id/approve': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/approve` },
   'POST /api/posts/:id/schedule': {
     kind: 'foreign-id',

@@ -178,4 +178,109 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     // turning it off is always allowed
     expect((await patch({ autoReply: false }, readOnly.cookie, readOnly.post.pageId)).status).toBe(200);
   });
+
+  /** Give the post's comment a draft, and add more drafted comments */
+  async function drafted(target: { id: string }, commentId: string, more = 0) {
+    await prisma.postComment.update({ where: { id: commentId }, data: { draftReply: 'Dạ mời anh nhắn tin cho Page ạ.', draftCheckedAt: new Date() } });
+    const extra = [];
+    for (let i = 0; i < more; i++) {
+      extra.push(
+        await prisma.postComment.create({
+          data: { targetId: target.id, fbCommentId: `D_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, authorName: `Khách ${i}`, message: `Hỏi ${i}`, commentedAt: new Date(Date.now() + (i + 1) * 1000), draftReply: `Trả lời ${i}`, draftCheckedAt: new Date() },
+        })
+      );
+    }
+    return extra;
+  }
+  const comments = (cookie: string, postId: string) => api(server.baseUrl, 'GET', `/api/posts/${postId}/comments`, { cookie });
+  const replyOk = (id: string) => new Response(JSON.stringify({ id }));
+
+  it('shows the AI draft of a comment that waits; sending a reply or discarding removes it', async () => {
+    const { cookie, post, comment, target } = await setup();
+    await prisma.facebookPage.update({ where: { id: post.pageId }, data: { autoReply: true } });
+    await drafted(target, comment.id);
+    const view = (await comments(cookie, post.id)).json.data;
+    expect(view.autoReplyOff).toBe(false);
+    expect(view.pages[0].autoReply).toBe(true);
+    expect(view.pages[0].threads[0]).toMatchObject({ needsReply: true, draftReply: 'Dạ mời anh nhắn tin cho Page ạ.' });
+
+    const discarded = await api(server.baseUrl, 'DELETE', `/api/posts/${post.id}/comments/${comment.id}/draft`, { cookie });
+    expect(discarded.status).toBe(200);
+    expect(discarded.json.data.pages[0].threads[0]).toMatchObject({ needsReply: true, draftReply: null });
+    // discarded, not forgotten: the AI is not asked about this comment again
+    expect((await prisma.postComment.findUniqueOrThrow({ where: { id: comment.id } })).draftCheckedAt).not.toBeNull();
+
+    await drafted(target, comment.id);
+    stubGraph(async () => replyOk('REPLY_MANUAL'));
+    const sent = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/${comment.id}/reply`, { cookie, body: { message: 'Câu tôi tự sửa.' } });
+    expect(sent.status).toBe(200);
+    expect((await prisma.postComment.findUniqueOrThrow({ where: { id: comment.id } })).draftReply).toBeNull();
+  });
+
+  it('send-drafts posts every waiting draft as the Page; a second call sends nothing', async () => {
+    const { cookie, post, comment, target } = await setup();
+    await drafted(target, comment.id, 2);
+    let n = 0;
+    const graph = stubGraph(async () => replyOk(`REPLY_ALL_${Date.now()}_${n++}`));
+    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/send-drafts`, { cookie });
+    expect(res.status).toBe(200);
+    expect(res.json.data).toMatchObject({ sent: 3, failed: null });
+    expect(graph).toHaveBeenCalledTimes(3);
+    // oldest comment first, each with its own draft
+    const bodies = graph.mock.calls.map(([, init]) => new URLSearchParams(String(init?.body)).get('message'));
+    expect(bodies).toEqual(['Dạ mời anh nhắn tin cho Page ạ.', 'Trả lời 0', 'Trả lời 1']);
+    expect(res.json.data.pages[0].unansweredCount).toBe(0);
+    expect(res.json.data.pages[0].threads.every((t: { needsReply: boolean; draftReply: string | null; replies: unknown[] }) => !t.needsReply && t.draftReply === null && t.replies.length === 1)).toBe(true);
+
+    const again = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/send-drafts`, { cookie });
+    expect(again.json.data).toMatchObject({ sent: 0, failed: null });
+    expect(graph).toHaveBeenCalledTimes(3);
+  });
+
+  it('send-drafts skips comments answered or handled meanwhile', async () => {
+    const { cookie, post, comment, target } = await setup();
+    const [answered, handled] = await drafted(target, comment.id, 2);
+    await prisma.postComment.update({ where: { id: answered.id }, data: { pageReplied: true } });
+    await prisma.postComment.update({ where: { id: handled.id }, data: { handledAt: new Date() } });
+    const graph = stubGraph(async () => replyOk('REPLY_ONLY_ONE'));
+    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/send-drafts`, { cookie });
+    expect(res.json.data.sent).toBe(1);
+    expect(graph).toHaveBeenCalledTimes(1);
+    // and the view never offers a draft for a comment that no longer waits
+    expect(res.json.data.pages[0].threads.every((t: { draftReply: string | null }) => t.draftReply === null)).toBe(true);
+  });
+
+  it('send-drafts stops at the first failure, says how many were sent, and keeps the unsent drafts', async () => {
+    const { cookie, post, comment, target } = await setup();
+    await drafted(target, comment.id, 2);
+    let call = 0;
+    const graph = stubGraph(async () =>
+      ++call === 2 ? new Response(JSON.stringify({ error: { message: '(#200) Permissions error', code: 200 } }), { status: 400 }) : replyOk(`REPLY_PARTIAL_${Date.now()}`)
+    );
+    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/send-drafts`, { cookie });
+    expect(res.status).toBe(200);
+    expect(res.json.data.sent).toBe(1);
+    expect(res.json.data.failed).toMatch(/Facebook chưa nhận câu trả lời/);
+    expect(graph).toHaveBeenCalledTimes(2);
+    const left = await prisma.postComment.findMany({ where: { targetId: target.id, parentFbId: null, draftReply: { not: null } }, orderBy: { commentedAt: 'asc' } });
+    expect(left.map((c) => c.draftReply)).toEqual(['Trả lời 0', 'Trả lời 1']);
+  });
+
+  it('send-drafts needs the reply permission; a post can opt out of AI drafts', async () => {
+    const readOnly = await setup(ALL.filter((s) => s !== 'pages_manage_engagement'));
+    await drafted(readOnly.target, readOnly.comment.id);
+    const graph = stubGraph();
+    const refused = await api(server.baseUrl, 'POST', `/api/posts/${readOnly.post.id}/comments/send-drafts`, { cookie: readOnly.cookie });
+    expect(refused.json.data).toMatchObject({ sent: 0 });
+    expect(refused.json.data.failed).toMatch(/quyền trả lời/);
+    expect(graph).not.toHaveBeenCalled();
+    expect((await prisma.postComment.findUniqueOrThrow({ where: { id: readOnly.comment.id } })).draftReply).not.toBeNull();
+
+    const { cookie, post } = await setup();
+    const off = await api(server.baseUrl, 'PATCH', `/api/posts/${post.id}/comments/auto-reply`, { cookie, body: { off: true } });
+    expect(off.status).toBe(200);
+    expect(off.json.data.autoReplyOff).toBe(true);
+    expect((await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).autoReplyOff).toBe(true);
+    expect((await api(server.baseUrl, 'PATCH', `/api/posts/${post.id}/comments/auto-reply`, { cookie, body: { off: false } })).json.data.autoReplyOff).toBe(false);
+  });
 });
