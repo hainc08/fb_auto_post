@@ -183,4 +183,18 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments hub API', { timeout: 60_000
     expect(nothing.json.error).toMatch(/30 ngày/);
     expect(graph).not.toHaveBeenCalled();
   });
+
+
+  it('refresh says so when Facebook did not answer for the Page, instead of reporting success', async () => {
+    const s = await setup();
+    const a = await s.mkPage('A');
+    const due = await s.publish(a, { synced: null });
+    // the token expired since the last daily check: the Page still reads VALID, Graph refuses
+    stubGraph(async () => json({ error: { message: 'Error validating access token: Session has expired', code: 190, error_subcode: 463 } }, 400));
+    const res = await api(server.baseUrl, 'POST', '/api/comments/refresh', { cookie: s.cookie, body: { pageId: a.id } });
+    expect(res.status).toBe(502);
+    expect(res.json.error).toMatch(/Facebook chưa trả lời/);
+    expect(res.json.error).toMatch(/Đồng bộ Page/);
+    expect((await prisma.postTarget.findUniqueOrThrow({ where: { id: due.target.id } })).statsSyncedAt).toBeNull();
+  });
 });

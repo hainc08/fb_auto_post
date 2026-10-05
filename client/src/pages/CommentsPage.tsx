@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, ExternalLink, MessageCircle, RefreshCw, Sparkles, ThumbsUp } from 'lucide-react';
 import { commentsApi, assetUrl, type CommentsHubPage, type CommentsHubPost } from '../api';
@@ -17,6 +17,15 @@ export default function CommentsPage() {
   const [posts, setPosts] = useState<CommentsHubPost[] | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending'>('all');
   const [refreshing, setRefreshing] = useState(false);
+  /** Bumped by "Làm mới Page": the open board fetches its comments again */
+  const [boardTick, setBoardTick] = useState(0);
+  /** What the page shows now: an answer or a timer from an earlier Page or filter must not overwrite it */
+  const latest = useRef({ pageId, filter });
+  useEffect(() => {
+    latest.current = { pageId, filter };
+  });
+  const followUp = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(followUp.current), []);
 
   /** Change the address (the page reads everything it shows from it, so a reload or a shared link lands on the same view) */
   function go(next: { page?: string | null; post?: string | null }, replace = false) {
@@ -33,7 +42,10 @@ export default function CommentsPage() {
       setPages(r.data.pages);
       return r.data.pages;
     });
-  const loadPosts = (id: string, f: 'all' | 'pending') => commentsApi.posts(id, f).then((r) => setPosts(r.data));
+  const loadPosts = (id: string, f: 'all' | 'pending') =>
+    commentsApi.posts(id, f).then((r) => {
+      if (latest.current.pageId === id && latest.current.filter === f) setPosts(r.data);
+    });
 
   useEffect(() => {
     loadPages()
@@ -58,8 +70,9 @@ export default function CommentsPage() {
 
   /** Counts changed (a reply, "Đã xử lý", a refresh): the tiles and the list follow, quietly */
   const reload = () => {
+    const now = latest.current;
     void loadPages().catch(() => {});
-    if (pageId) void loadPosts(pageId, filter).catch(() => {});
+    if (now.pageId) void loadPosts(now.pageId, now.filter).catch(() => {});
   };
 
   async function refreshPage() {
@@ -69,9 +82,14 @@ export default function CommentsPage() {
       const { data } = await commentsApi.refresh(pageId);
       toast.success(`Đã làm mới ${data.synced} bài. Gợi ý AI (nếu có) sẽ hiện sau ít giây.`);
       reload();
+      setBoardTick((t) => t + 1);
       announceCommentsChanged();
-      // AI drafts are written after the sync answers
-      setTimeout(reload, 10_000);
+      // AI drafts are written after the sync answers: one more look, wherever the member is by then
+      clearTimeout(followUp.current);
+      followUp.current = setTimeout(() => {
+        reload();
+        setBoardTick((t) => t + 1);
+      }, 10_000);
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -224,7 +242,7 @@ export default function CommentsPage() {
                 )}
               </div>
               {/* driven by the address, not by the list: a post that leaves the filtered list stays open while it is worked on */}
-              <CommentsBoard key={`${postId}:${pageId}`} postId={postId} pageId={pageId} onChanged={reload} />
+              <CommentsBoard key={`${postId}:${pageId}`} postId={postId} pageId={pageId} onChanged={reload} refreshKey={boardTick} />
             </>
           ) : (
             <div className="hub-empty hub-choose">

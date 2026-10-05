@@ -148,8 +148,14 @@ router.post(
     const due = targets.filter((t) => !t.statsSyncedAt || now - t.statsSyncedAt.getTime() >= REFRESH_WAIT_MS);
     if (!due.length) throw createError(429, 'Vừa làm mới xong, thử lại sau ít giây.');
     // AI drafts are not waited for here (one Gemini call per post with new comments): they show a few seconds later
-    await syncTargets(due.map((t) => t.id), new Date(), { draftWaitMs: 0 });
-    res.json({ success: true, data: { synced: due.length } });
+    const started = new Date();
+    await syncTargets(due.map((t) => t.id), started, { draftWaitMs: 0 });
+    // syncTargets logs a Page whose Graph calls fail and goes on: only the posts stamped by this run were refreshed
+    const synced = await prisma.postTarget.count({ where: { id: { in: due.map((t) => t.id) }, statsSyncedAt: { gte: started } } });
+    if (!synced) {
+      throw createError(502, 'Facebook chưa trả lời cho Page này nên chưa làm mới được bài nào. Thử lại sau ít phút; nếu vẫn lỗi, vào Kênh Facebook → Đồng bộ Page.');
+    }
+    res.json({ success: true, data: { synced } });
   })
 );
 

@@ -12,10 +12,12 @@ interface Props {
   pageId?: string;
   /** Counts changed (reply, handled, refresh, drafts): whoever shows them reloads */
   onChanged: () => void;
+  /** Change it to fetch the comments again (the Page was refreshed elsewhere); replies being typed are kept */
+  refreshKey?: number;
 }
 
 /** Comments of one published post, by Page: needs-reply first, reply as the Page, AI drafts, mark handled. */
-export default function CommentsBoard({ postId, pageId, onChanged }: Props) {
+export default function CommentsBoard({ postId, pageId, onChanged, refreshKey = 0 }: Props) {
   const toast = useToast();
   const [all, setAll] = useState<CommentsPage[] | null>(null);
   /** This post is left out of AI reply drafts */
@@ -38,7 +40,7 @@ export default function CommentsBoard({ postId, pageId, onChanged }: Props) {
       .comments(postId)
       .then((r) => show(r.data))
       .catch((e) => toast.error(e.message));
-  }, [postId]);
+  }, [postId, refreshKey]);
 
   /** Run one action; true when it succeeded */
   async function run(key: string, action: () => Promise<{ data: CommentsView }>, done?: string): Promise<boolean> {
