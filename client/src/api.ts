@@ -506,8 +506,12 @@ export const postsApi = {
   /** Drop the AI draft of one comment. */
   discardDraft: (id: string, commentId: string) => apiFetch<CommentsView>(`/posts/${id}/comments/${commentId}/draft`, { method: 'DELETE' }),
 
-  /** Post every waiting AI draft of the post as the Page; stops at the first failure. */
-  sendDrafts: (id: string) => apiFetch<CommentsView & { sent: number; failed: string | null }>(`/posts/${id}/comments/send-drafts`, { method: 'POST' }),
+  /** Post these AI drafts (the ones on screen, as shown) as the Page; stops at the first failure. `uncertain`: a reply Facebook may or may not have taken. */
+  sendDrafts: (id: string, drafts: Array<{ commentId: string; reply: string }>) =>
+    apiFetch<CommentsView & { sent: number; failed: string | null; uncertain: { commentId: string; reply: string } | null }>(`/posts/${id}/comments/send-drafts`, {
+      method: 'POST',
+      body: JSON.stringify({ drafts }),
+    }),
 
   /** Leave this post out of (or back in) AI reply drafts. */
   setAutoReplyOff: (id: string, off: boolean) => apiFetch<CommentsView>(`/posts/${id}/comments/auto-reply`, { method: 'PATCH', body: JSON.stringify({ off }) }),

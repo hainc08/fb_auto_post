@@ -69,8 +69,12 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
     setArmed(false);
     setBusy((b) => new Set(b).add('r:all'));
     try {
-      const { data } = await postsApi.sendDrafts(postId);
+      // exactly what is on screen: a draft the sync wrote meanwhile is not sent unread
+      const { data } = await postsApi.sendDrafts(postId, sendable.map((t) => ({ commentId: t.id, reply: t.draftReply! })));
       show(data);
+      // Facebook gave no clear answer for one: its text goes back in its box, to send by hand after a look at Facebook
+      const unsure = data.uncertain;
+      if (unsure) setDrafts((d) => ({ ...d, [unsure.commentId]: unsure.reply }));
       onChanged();
       if (data.failed) toast.error(`Đã gửi ${data.sent} câu rồi dừng: ${data.failed}`);
       else toast.success(data.sent ? `Đã gửi ${data.sent} câu trả lời trên Facebook.` : 'Không còn gợi ý nào để gửi.');
@@ -89,8 +93,10 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
   const synced = (pages ?? []).map((p) => p.statsSyncedAt).filter((d): d is string => !!d).sort().pop() ?? null;
   /** A draft changed in its box: "Gửi N gợi ý" would post it as the AI wrote it, so it is left to its own "Trả lời" button */
   const edited = (t: CommentThread) => drafts[t.id] !== undefined && drafts[t.id] !== t.draftReply;
-  const draftCount = (pages ?? []).reduce((s, p) => s + p.threads.filter((t) => t.draftReply && !edited(t)).length, 0);
-  const hasEdited = (pages ?? []).some((p) => p.threads.some((t) => t.draftReply && edited(t)));
+  /** Drafts "Gửi N gợi ý" sends: on Pages that may answer, untouched, at most 20 at a time (the server's limit) */
+  const sendable = (pages ?? []).filter((p) => p.canReply).flatMap((p) => p.threads.filter((t) => t.draftReply && !edited(t))).slice(0, 20);
+  const draftCount = sendable.length;
+  const hasEdited = (pages ?? []).some((p) => p.canReply && p.threads.some((t) => t.draftReply && edited(t)));
   const anyAuto = (pages ?? []).some((p) => p.autoReply);
 
   function thread(p: CommentsPage, t: CommentThread) {

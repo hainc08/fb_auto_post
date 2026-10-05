@@ -217,12 +217,20 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     expect((await prisma.postComment.findUniqueOrThrow({ where: { id: comment.id } })).draftReply).toBeNull();
   });
 
+  /** "Gửi N gợi ý": the panel sends the drafts it shows (default: every draft stored for the post, shown or not) */
+  async function sendAll(cookie: string, postId: string, drafts?: Array<{ commentId: string; reply: string }>) {
+    const stored = await prisma.postComment.findMany({ where: { target: { postId }, draftReply: { not: null } }, orderBy: { commentedAt: 'asc' } });
+    return api(server.baseUrl, 'POST', `/api/posts/${postId}/comments/send-drafts`, { cookie, body: { drafts: drafts ?? stored.map((c) => ({ commentId: c.id, reply: c.draftReply! })) } });
+  }
+
   it('send-drafts posts every waiting draft as the Page; a second call sends nothing', async () => {
     const { cookie, post, comment, target } = await setup();
     await drafted(target, comment.id, 2);
     let n = 0;
     const graph = stubGraph(async () => replyOk(`REPLY_ALL_${Date.now()}_${n++}`));
-    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/send-drafts`, { cookie });
+    // what the panel shows, sent twice (a double click)
+    const shown = (await prisma.postComment.findMany({ where: { targetId: target.id, draftReply: { not: null } } })).map((c) => ({ commentId: c.id, reply: c.draftReply! }));
+    const res = await sendAll(cookie, post.id, shown);
     expect(res.status).toBe(200);
     expect(res.json.data).toMatchObject({ sent: 3, failed: null });
     expect(graph).toHaveBeenCalledTimes(3);
@@ -232,7 +240,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     expect(res.json.data.pages[0].unansweredCount).toBe(0);
     expect(res.json.data.pages[0].threads.every((t: { needsReply: boolean; draftReply: string | null; replies: unknown[] }) => !t.needsReply && t.draftReply === null && t.replies.length === 1)).toBe(true);
 
-    const again = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/send-drafts`, { cookie });
+    const again = await sendAll(cookie, post.id, shown);
     expect(again.json.data).toMatchObject({ sent: 0, failed: null });
     expect(graph).toHaveBeenCalledTimes(3);
   });
@@ -243,7 +251,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     await prisma.postComment.update({ where: { id: answered.id }, data: { pageReplied: true } });
     await prisma.postComment.update({ where: { id: handled.id }, data: { handledAt: new Date() } });
     const graph = stubGraph(async () => replyOk('REPLY_ONLY_ONE'));
-    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/send-drafts`, { cookie });
+    const res = await sendAll(cookie, post.id);
     expect(res.json.data.sent).toBe(1);
     expect(graph).toHaveBeenCalledTimes(1);
     // and the view never offers a draft for a comment that no longer waits
@@ -257,7 +265,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     const graph = stubGraph(async () =>
       ++call === 2 ? new Response(JSON.stringify({ error: { message: '(#200) Permissions error', code: 200 } }), { status: 400 }) : replyOk(`REPLY_PARTIAL_${Date.now()}`)
     );
-    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/send-drafts`, { cookie });
+    const res = await sendAll(cookie, post.id);
     expect(res.status).toBe(200);
     expect(res.json.data.sent).toBe(1);
     expect(res.json.data.failed).toMatch(/Facebook chưa nhận câu trả lời/);
@@ -270,9 +278,8 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     const readOnly = await setup(ALL.filter((s) => s !== 'pages_manage_engagement'));
     await drafted(readOnly.target, readOnly.comment.id);
     const graph = stubGraph();
-    const refused = await api(server.baseUrl, 'POST', `/api/posts/${readOnly.post.id}/comments/send-drafts`, { cookie: readOnly.cookie });
-    expect(refused.json.data).toMatchObject({ sent: 0 });
-    expect(refused.json.data.failed).toMatch(/quyền trả lời/);
+    const refused = await sendAll(readOnly.cookie, readOnly.post.id);
+    expect(refused.json.data).toMatchObject({ sent: 0, failed: null });
     expect(graph).not.toHaveBeenCalled();
     expect((await prisma.postComment.findUniqueOrThrow({ where: { id: readOnly.comment.id } })).draftReply).not.toBeNull();
 
@@ -282,5 +289,82 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     expect(off.json.data.autoReplyOff).toBe(true);
     expect((await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).autoReplyOff).toBe(true);
     expect((await api(server.baseUrl, 'PATCH', `/api/posts/${post.id}/comments/auto-reply`, { cookie, body: { off: false } })).json.data.autoReplyOff).toBe(false);
+  });
+
+
+  it('send-drafts sends only the drafts the member was shown, word for word', async () => {
+    const { cookie, post, comment, target } = await setup();
+    const [second, third] = await drafted(target, comment.id, 2);
+    const graph = stubGraph(async () => replyOk(`REPLY_SHOWN_${Date.now()}`));
+    // the panel showed two drafts; the sync has rewritten one since, and written a third the member never saw
+    await prisma.postComment.update({ where: { id: second.id }, data: { draftReply: 'Bản AI viết lại sau đó' } });
+    const res = await sendAll(cookie, post.id, [
+      { commentId: comment.id, reply: 'Dạ mời anh nhắn tin cho Page ạ.' },
+      { commentId: second.id, reply: 'Trả lời 0' },
+    ]);
+    expect(res.json.data).toMatchObject({ sent: 1, failed: null });
+    expect(graph).toHaveBeenCalledTimes(1);
+    expect((await prisma.postComment.findUniqueOrThrow({ where: { id: second.id } })).draftReply).toBe('Bản AI viết lại sau đó');
+    expect((await prisma.postComment.findUniqueOrThrow({ where: { id: third.id } })).draftReply).toBe('Trả lời 1');
+    // nothing named: nothing sent
+    expect((await api(server.baseUrl, 'POST', `/api/posts/${post.id}/comments/send-drafts`, { cookie, body: {} })).status).toBe(400);
+    expect((await sendAll(cookie, post.id, Array.from({ length: 21 }, () => ({ commentId: comment.id, reply: 'x' })))).status).toBe(400);
+    expect(graph).toHaveBeenCalledTimes(1);
+  });
+
+  it('two send-drafts at the same moment answer each comment once', async () => {
+    const { cookie, post, comment, target } = await setup();
+    await drafted(target, comment.id, 2);
+    let n = 0;
+    const graph = stubGraph(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+      return replyOk(`REPLY_RACE_${Date.now()}_${n++}`);
+    });
+    const [a, b] = await Promise.all([sendAll(cookie, post.id), sendAll(cookie, post.id)]);
+    expect(a.json.data.sent + b.json.data.sent).toBe(3);
+    expect(graph).toHaveBeenCalledTimes(3);
+  });
+
+  it('when Facebook gives no clear answer, send-drafts stops and that draft cannot be sent again by a second click', async () => {
+    const { cookie, post, comment, target } = await setup();
+    const [second, third] = await drafted(target, comment.id, 2);
+    let call = 0;
+    const graph = stubGraph(async () => {
+      if (++call === 2) throw new TypeError('fetch failed');
+      return replyOk(`REPLY_UNSURE_${Date.now()}_${call}`);
+    });
+    const all = [
+      { commentId: comment.id, reply: 'Dạ mời anh nhắn tin cho Page ạ.' },
+      { commentId: second.id, reply: 'Trả lời 0' },
+      { commentId: third.id, reply: 'Trả lời 1' },
+    ];
+    const res = await sendAll(cookie, post.id, all);
+    expect(res.json.data.sent).toBe(1);
+    expect(res.json.data.failed).toMatch(/Không chắc Facebook đã nhận/);
+    // the text comes back for the member to look at, but it is no longer a draft "send all" would post
+    expect(res.json.data.uncertain).toEqual({ commentId: second.id, reply: 'Trả lời 0' });
+    expect(await prisma.postComment.findUniqueOrThrow({ where: { id: second.id } })).toMatchObject({ draftReply: null, pageReplied: false });
+    // the same click again: only the third one goes out
+    const again = await sendAll(cookie, post.id, all);
+    expect(again.json.data).toMatchObject({ sent: 1, failed: null, uncertain: null });
+    expect(graph).toHaveBeenCalledTimes(3);
+  });
+
+  it('a Page that may no longer answer does not hold back the drafts of the post\'s other Pages', async () => {
+    const { cookie, post, comment, target } = await setup();
+    await drafted(target, comment.id);
+    // the same post also went to a second Page, which lost the reply permission; its comment is the older one
+    const lost = await prisma.facebookPage.create({
+      data: { userId: post.userId, pageId: `CM_LOST_${Date.now()}`, pageName: 'Mất quyền', pageAccessToken: encrypt('EAAtokencommentslostxxxxxxxxxxxxxxx'), tokenStatus: 'VALID', grantedScopes: ALL.filter((x) => x !== 'pages_manage_engagement') },
+    });
+    const lostTarget = await prisma.postTarget.create({ data: { postId: post.id, pageId: lost.id, status: 'PUBLISHED', fbPostId: `CM_LOST_POST_${Date.now()}`, publishedAt: new Date() } });
+    const stuck = await prisma.postComment.create({
+      data: { targetId: lostTarget.id, fbCommentId: `C_LOST_${Date.now()}`, authorName: 'Cũ', message: 'Hỏi từ hôm qua', commentedAt: new Date(Date.now() - 86_400_000), draftReply: 'Gợi ý không gửi được', draftCheckedAt: new Date() },
+    });
+    const graph = stubGraph(async () => replyOk(`REPLY_OTHER_PAGE_${Date.now()}`));
+    const res = await sendAll(cookie, post.id);
+    expect(res.json.data).toMatchObject({ sent: 1, failed: null });
+    expect(graph).toHaveBeenCalledTimes(1);
+    expect((await prisma.postComment.findUniqueOrThrow({ where: { id: stuck.id } })).draftReply).toBe('Gợi ý không gửi được');
   });
 });

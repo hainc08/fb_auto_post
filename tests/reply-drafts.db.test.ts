@@ -3,9 +3,9 @@ import '../src/config';
 import prisma from '../src/utils/prisma';
 import { encrypt } from '../src/lib/crypto';
 import { saveSettings } from '../src/lib/settings';
-import { GeminiClient } from '../src/lib/clients/gemini';
+import { GeminiClient, GeminiError } from '../src/lib/clients/gemini';
 import { draftReplies } from '../src/services/reply-drafts';
-import { runEngagementSync } from '../src/services/engagement-sync';
+import { runEngagementSync, syncTargets } from '../src/services/engagement-sync';
 import { cleanupTestUsers, createTestUser } from './helpers/users';
 
 const ALL = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list', 'pages_read_user_content', 'pages_manage_engagement'];
@@ -152,5 +152,48 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('AI reply drafts', { timeout: 60_000 
     gemini.mockResolvedValue({ replies: [{ key: 'c1', reply: 'Dạ mời anh Bình nhắn tin cho Page ạ.', skip: false }] } as never);
     await runEngagementSync(new Date(), { id: target.id });
     expect(await prisma.postComment.findUniqueOrThrow({ where: { fbCommentId: `${fbPostId}_c1` } })).toMatchObject({ draftReply: 'Dạ mời anh Bình nhắn tin cho Page ạ.' });
+  });
+
+
+  it('a comment the AI refuses to read does not stop the drafts of the others, and is not asked about again', async () => {
+    const { target, comment, row } = await setup();
+    const abusive = await comment('nội dung khiến bộ lọc an toàn chặn');
+    const fine = await comment('Cho hỏi mua ở đâu?');
+    const refused = () => new GeminiError('Gemini từ chối tạo nội dung vì bộ lọc an toàn.', undefined, undefined, true);
+    const gemini = vi.spyOn(GeminiClient.prototype, 'generateJson').mockImplementation(async (input) => {
+      if (input.prompt.includes('bộ lọc an toàn chặn')) throw refused();
+      return { replies: [{ key: 'c1', reply: 'Dạ mời anh nhắn tin ạ.', skip: false }] } as never;
+    });
+    expect(await draftReplies(target.id)).toBe(1);
+    // the two together (refused), then one at a time
+    expect(gemini).toHaveBeenCalledTimes(3);
+    expect(await row(abusive.id)).toMatchObject({ draftReply: null, draftCheckedAt: expect.any(Date) });
+    expect(await row(fine.id)).toMatchObject({ draftReply: 'Dạ mời anh nhắn tin ạ.' });
+    expect(await draftReplies(target.id)).toBe(0);
+    expect(gemini).toHaveBeenCalledTimes(3);
+  });
+
+  it('"Làm mới" does not wait for a slow AI: the sync returns, the drafts arrive when they are ready', async () => {
+    const { target, row } = await setup();
+    const fbPostId = target.fbPostId!;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL) => {
+        const url = new URL(String(input));
+        if (url.searchParams.get('ids')) return json({ [fbPostId]: { id: fbPostId, reactions: { summary: { total_count: 0 } }, comments: { summary: { total_count: 1 } } } });
+        return json({ data: [{ id: `${fbPostId}_slow`, message: 'Giá bao nhiêu shop?', created_time: new Date().toISOString(), from: { id: 'U2', name: 'Chậm' } }] });
+      })
+    );
+    vi.spyOn(GeminiClient.prototype, 'generateJson').mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+      return { replies: [{ key: 'c1', reply: 'Dạ mời anh nhắn tin ạ.', skip: false }] } as never;
+    });
+    const started = Date.now();
+    await syncTargets([target.id], new Date(), { draftWaitMs: 50 });
+    expect(Date.now() - started).toBeLessThan(350);
+    const stored = await prisma.postComment.findUniqueOrThrow({ where: { fbCommentId: `${fbPostId}_slow` } });
+    expect(stored.draftReply).toBeNull();
+    await new Promise((r) => setTimeout(r, 600));
+    expect((await row(stored.id)).draftReply).toBe('Dạ mời anh nhắn tin ạ.');
   });
 });

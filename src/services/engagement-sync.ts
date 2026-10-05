@@ -80,7 +80,12 @@ async function storeComments(targetId: string, pageFbId: string, comments: Graph
 }
 
 /** Sync these targets: counts for all, comments for those that have any. Grouped by Page; one Page failing never stops the others. */
-export async function syncTargets(targetIds: string[], now = new Date()): Promise<void> {
+export async function syncTargets(
+  targetIds: string[],
+  now = new Date(),
+  /** `draftWaitMs`: wait at most this long for AI reply drafts (they are finished in the background); default: wait for them */
+  opts: { draftWaitMs?: number } = {}
+): Promise<void> {
   const targets = await prisma.postTarget.findMany({
     where: { id: { in: targetIds }, fbPostId: { not: null } },
     include: { page: true },
@@ -123,7 +128,9 @@ export async function syncTargets(targetIds: string[], now = new Date()): Promis
         await recountUnanswered(t.id);
         // "AI soạn trả lời bình luận": drafts only, sent by the member later. A failing AI never fails the sync.
         if (page.autoReply) {
-          await draftReplies(t.id, now).catch((error) => logger.warn('[Replies] Drafting failed', { targetId: t.id, error: (error as Error).message }));
+          const drafting = draftReplies(t.id, now).catch((error) => logger.warn('[Replies] Drafting failed', { targetId: t.id, error: (error as Error).message }));
+          if (opts.draftWaitMs === undefined) await drafting;
+          else await Promise.race([drafting, new Promise((resolve) => setTimeout(resolve, opts.draftWaitMs).unref())]);
         }
       }
     } catch (error) {

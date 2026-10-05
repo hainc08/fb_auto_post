@@ -15,6 +15,10 @@ router.use(authenticate);
 
 const REFRESH_WAIT_MS = 30_000;
 const SEND_BATCH = 20;
+/** "Làm mới" answers after this long even if the AI is still writing drafts (they show at the next look) */
+const REFRESH_DRAFT_WAIT_MS = 15_000;
+/** Facebook clearly did not take the reply (as opposed to: no clear answer, it may be live) */
+const REFUSED = { code: 'REPLY_REFUSED' } as const;
 const commentSelect = {
   id: true,
   fbCommentId: true,
@@ -103,7 +107,7 @@ type OwnedComment = Awaited<ReturnType<typeof ownComment>>['comment'];
 async function sendReply(userId: string, comment: OwnedComment, message: string): Promise<void> {
   const page = comment.target.page;
   if (!toStringArray(page.grantedScopes).includes(COMMENT_REPLY_SCOPE)) {
-    throw createError(409, 'Page chưa cấp quyền trả lời bình luận. Vào Kênh Facebook → Đồng bộ Page và tick quyền quản lý bình luận.');
+    throw createError(409, 'Page chưa cấp quyền trả lời bình luận. Vào Kênh Facebook → Đồng bộ Page và tick quyền quản lý bình luận.', REFUSED);
   }
   const settings = await getSettings(userId);
   const token = revealSecret(page.pageAccessToken);
@@ -116,7 +120,7 @@ async function sendReply(userId: string, comment: OwnedComment, message: string)
     if (!(error instanceof FacebookApiError)) {
       throw createError(502, 'Không chắc Facebook đã nhận câu trả lời. Hãy kiểm tra trên Facebook trước khi gửi lại.');
     }
-    throw createError(502, `Facebook chưa nhận câu trả lời: ${error.message}`);
+    throw createError(502, `Facebook chưa nhận câu trả lời: ${error.message}`, REFUSED);
   }
   // A reply always answers the top-level comment of its thread
   const topFbId = comment.parentFbId ?? comment.fbCommentId;
@@ -155,7 +159,7 @@ router.post(
     if (!targets.length) throw createError(400, 'Bài chưa được đăng lên Page nào.');
     const recent = targets.every((t) => t.statsSyncedAt && Date.now() - t.statsSyncedAt.getTime() < REFRESH_WAIT_MS);
     if (recent) throw createError(429, 'Vừa làm mới xong, thử lại sau ít giây.');
-    await syncTargets(targets.map((t) => t.id));
+    await syncTargets(targets.map((t) => t.id), new Date(), { draftWaitMs: REFRESH_DRAFT_WAIT_MS });
     res.json({ success: true, data: await view(post.id) });
   })
 );
@@ -181,27 +185,39 @@ router.patch(
   })
 );
 
+const sendDraftsSchema = z.object({
+  drafts: z
+    .array(z.object({ commentId: z.string().uuid(), reply: z.string().min(1).max(2000) }))
+    .min(1, 'Không có gợi ý nào để gửi.')
+    .max(SEND_BATCH, `Mỗi lần gửi tối đa ${SEND_BATCH} gợi ý.`),
+});
+
 /**
- * "Gửi N gợi ý": post every waiting AI draft of this post as the Page, oldest comment first.
- * Stops at the first failure (the answer says how many went out and why it stopped); unsent drafts stay.
+ * "Gửi N gợi ý": post the AI drafts the member was shown (`drafts`: comment + the text as shown), oldest comment
+ * first. A draft that changed since, or that the member never saw, is not sent. Stops at the first failure
+ * (the answer says how many went out and why it stopped).
  */
 router.post(
   '/:id/comments/send-drafts',
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const post = await ownPost(req);
+    const shown = new Map(sendDraftsSchema.parse(req.body ?? {}).drafts.map((d) => [d.commentId, d.reply]));
     const waiting = await prisma.postComment.findMany({
-      where: { target: { postId: post.id }, parentFbId: null, fromPage: false, pageReplied: false, handledAt: null, draftReply: { not: null } },
+      where: { id: { in: [...shown.keys()] }, target: { postId: post.id }, parentFbId: null, fromPage: false, pageReplied: false, handledAt: null, draftReply: { not: null } },
       include: { target: { include: { page: true } } },
       orderBy: { commentedAt: 'asc' },
-      take: SEND_BATCH,
     });
     let sent = 0;
     let failed: string | null = null;
+    /** A reply Facebook may or may not have taken: handed back as text, no longer a draft */
+    let uncertain: { commentId: string; reply: string } | null = null;
     for (const comment of waiting) {
-      const message = comment.draftReply!;
-      // Take the draft first: a second click or another tab finds nothing left to send for this comment
+      const message = shown.get(comment.id)!;
+      // A Page that may no longer answer: its drafts are passed over, the post's other Pages still get theirs
+      if (!toStringArray(comment.target.page.grantedScopes).includes(COMMENT_REPLY_SCOPE)) continue;
+      // Take the draft first, and only while it still reads as the member saw it: a second click or another tab finds nothing left
       const { count } = await prisma.postComment.updateMany({
-        where: { id: comment.id, draftReply: { not: null }, pageReplied: false, handledAt: null },
+        where: { id: comment.id, draftReply: message, pageReplied: false, handledAt: null },
         data: { draftReply: null },
       });
       if (!count) continue;
@@ -209,13 +225,19 @@ router.post(
         await sendReply(req.user!.id, comment, message);
         sent++;
       } catch (error) {
-        // not sent (or not surely sent): the text goes back, for the member to look at
-        await prisma.postComment.updateMany({ where: { id: comment.id, pageReplied: false }, data: { draftReply: message } });
         failed = (error as Error).message;
+        if ((error as { details?: { code?: string } }).details?.code === REFUSED.code) {
+          // surely not sent: the draft goes back
+          await prisma.postComment.updateMany({ where: { id: comment.id, pageReplied: false }, data: { draftReply: message } });
+        } else {
+          // No clear answer: the reply may be live. It must not be a draft the next "send all" posts again;
+          // the member gets the text back in the reply box, to send by hand after a look at Facebook.
+          uncertain = { commentId: comment.id, reply: message };
+        }
         break;
       }
     }
-    res.json({ success: true, data: { ...(await view(post.id)), sent, failed } });
+    res.json({ success: true, data: { ...(await view(post.id)), sent, failed, uncertain } });
   })
 );
 
