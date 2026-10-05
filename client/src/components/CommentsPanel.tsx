@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, RefreshCw, Check, Undo2, AlertTriangle } from 'lucide-react';
-import { postsApi, type CommentsPage, type CommentThread } from '../api';
+import { X, RefreshCw, Check, Undo2, AlertTriangle, Sparkles, Send } from 'lucide-react';
+import { postsApi, type CommentsPage, type CommentsView, type CommentThread } from '../api';
 import { useToast } from './Toast';
 import { formatWhen } from './PostBits';
 
@@ -16,6 +16,14 @@ interface Props {
 export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
   const toast = useToast();
   const [pages, setPages] = useState<CommentsPage[] | null>(null);
+  /** This post is left out of AI reply drafts */
+  const [autoReplyOff, setAutoReplyOff] = useState(false);
+  /** "Gửi N gợi ý" posts publicly: asked twice */
+  const [armed, setArmed] = useState(false);
+  const show = (view: CommentsView) => {
+    setPages(view.pages);
+    setAutoReplyOff(view.autoReplyOff);
+  };
   const [onlyPending, setOnlyPending] = useState(true);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   /** Actions in flight (several can run at once; each key stays busy until its own request ends) */
@@ -25,7 +33,7 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
   useEffect(() => {
     postsApi
       .comments(postId)
-      .then((r) => setPages(r.data.pages))
+      .then((r) => show(r.data))
       .catch((e) => toast.error(e.message));
   }, [postId]);
   useEffect(() => {
@@ -35,11 +43,11 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
   }, [onClose]);
 
   /** Run one action; true when it succeeded */
-  async function run(key: string, action: () => Promise<{ data: { pages: CommentsPage[] } }>, done?: string): Promise<boolean> {
+  async function run(key: string, action: () => Promise<{ data: CommentsView }>, done?: string): Promise<boolean> {
     setBusy((b) => new Set(b).add(key));
     try {
       const res = await action();
-      setPages(res.data.pages);
+      show(res.data);
       onChanged();
       if (done) toast.success(done);
       return true;
@@ -55,11 +63,40 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
     }
   }
 
+  /** Post every waiting AI draft (the ones edited here are sent one by one with "Trả lời") */
+  async function sendDrafts() {
+    if (!armed) return setArmed(true);
+    setArmed(false);
+    setBusy((b) => new Set(b).add('r:all'));
+    try {
+      const { data } = await postsApi.sendDrafts(postId);
+      show(data);
+      onChanged();
+      if (data.failed) toast.error(`Đã gửi ${data.sent} câu rồi dừng: ${data.failed}`);
+      else toast.success(data.sent ? `Đã gửi ${data.sent} câu trả lời trên Facebook.` : 'Không còn gợi ý nào để gửi.');
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setBusy((b) => {
+        const next = new Set(b);
+        next.delete('r:all');
+        return next;
+      });
+    }
+  }
+
   const pending = (pages ?? []).reduce((s, p) => s + p.unansweredCount, 0);
   const synced = (pages ?? []).map((p) => p.statsSyncedAt).filter((d): d is string => !!d).sort().pop() ?? null;
+  /** A draft changed in its box: "Gửi N gợi ý" would post it as the AI wrote it, so it is left to its own "Trả lời" button */
+  const edited = (t: CommentThread) => drafts[t.id] !== undefined && drafts[t.id] !== t.draftReply;
+  const draftCount = (pages ?? []).reduce((s, p) => s + p.threads.filter((t) => t.draftReply && !edited(t)).length, 0);
+  const hasEdited = (pages ?? []).some((p) => p.threads.some((t) => t.draftReply && edited(t)));
+  const anyAuto = (pages ?? []).some((p) => p.autoReply);
 
   function thread(p: CommentsPage, t: CommentThread) {
-    const draft = drafts[t.id] ?? '';
+    // The AI draft fills the box until the member types something else
+    const draft = drafts[t.id] ?? t.draftReply ?? '';
+    const fromAi = !!t.draftReply && draft === t.draftReply;
     return (
       <li key={t.id} className={`comment-thread ${t.needsReply ? 'pending' : ''}`}>
         <div className="comment-head">
@@ -78,15 +115,22 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
         <div className="comment-actions">
           {p.canReply && (
             <>
-              <textarea
-                className="form-textarea"
-                rows={2}
-                maxLength={2000}
-                aria-label={`Trả lời ${t.authorName ?? 'bình luận'}`}
-                placeholder="Trả lời bằng tên Page…"
-                value={draft}
-                onChange={(e) => setDrafts({ ...drafts, [t.id]: e.target.value })}
-              />
+              <div className="comment-reply-box">
+                {fromAi && (
+                  <span className="draft-chip">
+                    <Sparkles size={12} aria-hidden="true" /> AI gợi ý — sửa nếu cần rồi gửi
+                  </span>
+                )}
+                <textarea
+                  className="form-textarea"
+                  rows={2}
+                  maxLength={2000}
+                  aria-label={`Trả lời ${t.authorName ?? 'bình luận'}`}
+                  placeholder="Trả lời bằng tên Page…"
+                  value={draft}
+                  onChange={(e) => setDrafts({ ...drafts, [t.id]: e.target.value })}
+                />
+              </div>
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
@@ -94,12 +138,25 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
                 disabled={!draft.trim() || replying}
                 onClick={async () => {
                   const ok = await run(`r:${t.id}`, () => postsApi.replyComment(postId, t.id, draft.trim()), 'Đã trả lời trên Facebook.');
-                  if (ok) setDrafts((d) => ({ ...d, [t.id]: '' }));
+                  if (ok) setDrafts(({ [t.id]: _sent, ...rest }) => rest);
                 }}
               >
                 {busy.has(`r:${t.id}`) ? <div className="spinner" /> : 'Trả lời'}
               </button>
             </>
+          )}
+          {t.draftReply && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={busy.has(`d:${t.id}`)}
+              onClick={async () => {
+                const ok = await run(`d:${t.id}`, () => postsApi.discardDraft(postId, t.id));
+                if (ok) setDrafts(({ [t.id]: _dropped, ...rest }) => rest);
+              }}
+            >
+              Bỏ gợi ý
+            </button>
           )}
           {!t.fromPage && (
             <button type="button" className="btn btn-ghost btn-sm" disabled={busy.has(`h:${t.id}`)} onClick={() => void run(`h:${t.id}`, () => postsApi.markHandled(postId, t.id, !t.handledAt))}>
@@ -130,6 +187,19 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
             </p>
           </div>
           <div className="row" style={{ gap: 6 }}>
+            {draftCount > 0 && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={replying || hasEdited}
+                title={hasEdited ? 'Bạn đang sửa một gợi ý: gửi câu đó bằng nút "Trả lời" trước' : undefined}
+                onClick={() => void sendDrafts()}
+                onBlur={() => setArmed(false)}
+              >
+                {busy.has('r:all') ? <div className="spinner" /> : <Send size={14} aria-hidden="true" />}
+                {armed ? `Bấm lần nữa: gửi ${draftCount} câu lên Facebook` : `Gửi ${draftCount} gợi ý`}
+              </button>
+            )}
             <button type="button" className="btn btn-secondary btn-sm" disabled={busy.has('refresh')} onClick={() => void run('refresh', () => postsApi.refreshComments(postId), 'Đã làm mới.')}>
               {busy.has('refresh') ? <div className="spinner" /> : <RefreshCw size={14} aria-hidden="true" />} Làm mới
             </button>
@@ -147,6 +217,19 @@ export default function CommentsPanel({ postId, onClose, onChanged }: Props) {
               Tất cả
             </button>
           </div>
+          {anyAuto && (
+            <label className="switch comments-auto" title="Tắt: AI không soạn câu trả lời cho bình luận của riêng bài này">
+              <input
+                type="checkbox"
+                checked={!autoReplyOff}
+                disabled={busy.has('auto')}
+                onChange={(e) => void run('auto', () => postsApi.setAutoReplyOff(postId, !e.target.checked))}
+                aria-label="AI soạn trả lời cho bài này"
+              />
+              <span className="switch-track" aria-hidden="true" />
+              <span className="switch-label">AI soạn trả lời cho bài này</span>
+            </label>
+          )}
           {!pages ? (
             <div className="loading-page"><div className="spinner spinner-lg" /></div>
           ) : pages.length === 0 ? (

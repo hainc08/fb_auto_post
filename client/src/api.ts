@@ -343,6 +343,8 @@ export interface PostCommentRow {
 
 export interface CommentThread extends PostCommentRow {
   needsReply: boolean;
+  /** Reply written by AI, waiting to be sent or discarded (null when there is none) */
+  draftReply: string | null;
   replies: PostCommentRow[];
 }
 
@@ -351,6 +353,8 @@ export interface CommentsPage {
   page: { id: string; pageName: string };
   canRead: boolean;
   canReply: boolean;
+  /** "AI soạn trả lời bình luận" is on for this Page */
+  autoReply: boolean;
   commentsError: string | null;
   statsSyncedAt: string | null;
   reactionCount: number | null;
@@ -358,6 +362,12 @@ export interface CommentsPage {
   shareCount: number | null;
   unansweredCount: number;
   threads: CommentThread[];
+}
+
+export interface CommentsView {
+  /** This post is left out of its Pages' AI reply drafts */
+  autoReplyOff: boolean;
+  pages: CommentsPage[];
 }
 
 export type ReelStage = 'voice' | 'render' | 'saving';
@@ -486,12 +496,21 @@ export const postsApi = {
     apiFetch(`/posts/${id}/improve`, { method: 'POST', body: JSON.stringify({ instruction, caption }) }),
 
   /** Publish to `pageIds` (default: the post's Pages), `intervalMinutes` apart. */
-  comments: (id: string) => apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments`),
-  refreshComments: (id: string) => apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments/refresh`, { method: 'POST' }),
+  comments: (id: string) => apiFetch<CommentsView>(`/posts/${id}/comments`),
+  refreshComments: (id: string) => apiFetch<CommentsView>(`/posts/${id}/comments/refresh`, { method: 'POST' }),
   replyComment: (id: string, commentId: string, message: string) =>
-    apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments/${commentId}/reply`, { method: 'POST', body: JSON.stringify({ message }) }),
+    apiFetch<CommentsView>(`/posts/${id}/comments/${commentId}/reply`, { method: 'POST', body: JSON.stringify({ message }) }),
   markHandled: (id: string, commentId: string, handled: boolean) =>
-    apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments/${commentId}`, { method: 'PATCH', body: JSON.stringify({ handled }) }),
+    apiFetch<CommentsView>(`/posts/${id}/comments/${commentId}`, { method: 'PATCH', body: JSON.stringify({ handled }) }),
+
+  /** Drop the AI draft of one comment. */
+  discardDraft: (id: string, commentId: string) => apiFetch<CommentsView>(`/posts/${id}/comments/${commentId}/draft`, { method: 'DELETE' }),
+
+  /** Post every waiting AI draft of the post as the Page; stops at the first failure. */
+  sendDrafts: (id: string) => apiFetch<CommentsView & { sent: number; failed: string | null }>(`/posts/${id}/comments/send-drafts`, { method: 'POST' }),
+
+  /** Leave this post out of (or back in) AI reply drafts. */
+  setAutoReplyOff: (id: string, off: boolean) => apiFetch<CommentsView>(`/posts/${id}/comments/auto-reply`, { method: 'PATCH', body: JSON.stringify({ off }) }),
 
   /** Approve a schedule post for its slot. */
   approve: (id: string) => apiFetch<{ id: string; status: string; scheduledAt: string | null }>(`/posts/${id}/approve`, { method: 'POST' }),
