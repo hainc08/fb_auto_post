@@ -1162,10 +1162,13 @@ tbody tr:hover { background: var(--bg-secondary); }
 .unanswered-badge { border: 0; cursor: pointer; font: inherit; font-size: 12px; }
 .unanswered-badge:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 .comments-panel { max-width: 720px; width: 100%; }
-.comments-body { padding: 16px 24px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
-/* The body scrolls; its children keep their height (else the filter switch is squashed) */
-.comments-body > * { flex-shrink: 0; }
-.comments-body > .segmented { align-self: flex-start; }
+.comments-body { padding: 16px 24px 24px; overflow-y: auto; }
+/* The comments of one post: in the dialog (Posts page) and inline (Bình luận page).
+   The dialog's body scrolls; the board's children keep their height (else the filter switch is squashed) */
+.comments-board { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.comments-board > * { flex-shrink: 0; }
+.comments-board > .segmented { align-self: flex-start; }
+.comments-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .comments-page h3 { font-size: 14px; margin: 0 0 8px; }
 .comments-note svg { vertical-align: -2px; margin-right: 4px; }
 /* Normal text flow: the link stays inside the sentence */
