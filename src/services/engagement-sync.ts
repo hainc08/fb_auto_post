@@ -6,6 +6,7 @@ import { getSettings, revealSecret } from '../lib/settings';
 import { upsertKeyedJob, type JobResult } from '../lib/job-queue';
 import { COMMENT_READ_SCOPE, FacebookClient, isPermissionError, type GraphComment } from '../lib/clients/facebook';
 import { toStringArray } from '../utils/json';
+import { draftReplies } from './reply-drafts';
 
 /**
  * Reactions / comments / shares and the comments themselves, for posts published in
@@ -79,7 +80,12 @@ async function storeComments(targetId: string, pageFbId: string, comments: Graph
 }
 
 /** Sync these targets: counts for all, comments for those that have any. Grouped by Page; one Page failing never stops the others. */
-export async function syncTargets(targetIds: string[], now = new Date()): Promise<void> {
+export async function syncTargets(
+  targetIds: string[],
+  now = new Date(),
+  /** `draftWaitMs`: wait at most this long for AI reply drafts (they are finished in the background); default: wait for them */
+  opts: { draftWaitMs?: number } = {}
+): Promise<void> {
   const targets = await prisma.postTarget.findMany({
     where: { id: { in: targetIds }, fbPostId: { not: null } },
     include: { page: true },
@@ -120,6 +126,12 @@ export async function syncTargets(targetIds: string[], now = new Date()): Promis
           data: c ? { reactionCount: c.reactions, commentCount: c.comments, shareCount: c.shares, statsSyncedAt: now, commentsError } : { statsSyncedAt: now },
         });
         await recountUnanswered(t.id);
+        // "AI soạn trả lời bình luận": drafts only, sent by the member later. A failing AI never fails the sync.
+        if (page.autoReply) {
+          const drafting = draftReplies(t.id, now).catch((error) => logger.warn('[Replies] Drafting failed', { targetId: t.id, error: (error as Error).message }));
+          if (opts.draftWaitMs === undefined) await drafting;
+          else await Promise.race([drafting, new Promise((resolve) => setTimeout(resolve, opts.draftWaitMs).unref())]);
+        }
       }
     } catch (error) {
       logger.warn('[Engagement] Page sync failed', { pageId: page.id, error: (error as Error).message });

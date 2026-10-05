@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown, LogOut, Users, Shapes, X } from 'lucide-react';
-import { pagesApi, postsApi, settingsApi, type PublicSettings } from '../api';
+import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown, LogOut, Users, Shapes, X, MessageCircle } from 'lucide-react';
+import { pagesApi, postsApi, settingsApi, type PublicSettings, commentsApi } from '../api';
+import { COMMENTS_CHANGED } from '../lib/comments-events';
 import { useAuth } from '../auth';
 
 type Health = 'ok' | 'warn' | 'bad';
@@ -52,6 +53,18 @@ export default function Sidebar({ open = false, onClose }: Props) {
   const navigate = useNavigate();
   const [pages, setPages] = useState<any[]>([]);
   const [pending, setPending] = useState(0);
+  /** Comments waiting for an answer, on every Page */
+  const [unanswered, setUnanswered] = useState(0);
+  const loadUnanswered = () =>
+    void commentsApi
+      .overview()
+      .then((r) => setUnanswered(r.data.pages.reduce((sum, p) => sum + p.unanswered, 0)))
+      .catch(() => {});
+  // a reply or "Đã xử lý" anywhere in the app: the badge follows without a navigation
+  useEffect(() => {
+    window.addEventListener(COMMENTS_CHANGED, loadUnanswered);
+    return () => window.removeEventListener(COMMENTS_CHANGED, loadUnanswered);
+  }, []);
   const [settings, setSettings] = useState<PublicSettings | null>(null);
 
   // Refresh counts when navigating, so the badge follows edits/publishes
@@ -61,6 +74,7 @@ export default function Sidebar({ open = false, onClose }: Props) {
       .list({ status: 'READY', limit: '1' })
       .then((r) => setPending(r.pagination?.total ?? 0))
       .catch(() => {});
+    loadUnanswered();
     settingsApi.get().then((r) => setSettings(r.data)).catch(() => {});
   }, [location.pathname]);
 
@@ -130,6 +144,15 @@ export default function Sidebar({ open = false, onClose }: Props) {
             {pending > 0 && (
               <span className="nav-count" aria-label={`${pending} bài chờ duyệt`}>
                 {pending}
+              </span>
+            )}
+          </NavLink>
+          <NavLink to="/comments" className={navClass}>
+            <MessageCircle className="nav-icon" strokeWidth={1.8} />
+            <span className="nav-label">Bình luận</span>
+            {unanswered > 0 && (
+              <span className="nav-count" aria-label={`${unanswered} bình luận cần trả lời`}>
+                {unanswered}
               </span>
             )}
           </NavLink>

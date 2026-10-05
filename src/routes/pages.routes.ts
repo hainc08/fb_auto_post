@@ -11,6 +11,8 @@ import { getSettings } from '../lib/settings';
 import { checkPage, checkPages, withPostable } from '../lib/page-health';
 import { applySync, previewSync, SyncError, syncErrorMessage } from '../lib/page-sync';
 import { redactSecrets } from '../lib/http';
+import { toStringArray } from '../utils/json';
+import { COMMENT_READ_SCOPE, COMMENT_REPLY_SCOPE } from '../lib/clients/facebook';
 
 const router = Router();
 
@@ -32,6 +34,7 @@ const publicPageSelect = {
   tokenCheckedAt: true,
   tokenError: true,
   defaultDomainId: true,
+  autoReply: true,
   createdAt: true,
 } as const;
 
@@ -198,20 +201,28 @@ router.post(
 
 // ─── Default content domain of a Page ───────────
 
+/** A Page's own settings: the domain preselected for new posts, and "AI soạn trả lời bình luận". */
 router.patch(
   '/:id',
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
-    const { defaultDomainId } = z.object({ defaultDomainId: z.string().uuid().nullable() }).parse(req.body);
-    const page = await prisma.facebookPage.findFirst({ where: { id: req.params.id, userId }, select: { id: true } });
+    const body = z.object({ defaultDomainId: z.string().uuid().nullable().optional(), autoReply: z.boolean().optional() }).parse(req.body);
+    const page = await prisma.facebookPage.findFirst({ where: { id: req.params.id, userId }, select: { id: true, grantedScopes: true } });
     if (!page) throw createError(404, 'Page not found');
-    if (defaultDomainId && !(await prisma.contentDomain.findFirst({ where: { id: defaultDomainId, userId, isArchived: false } }))) {
+    if (body.defaultDomainId && !(await prisma.contentDomain.findFirst({ where: { id: body.defaultDomainId, userId, isArchived: false } }))) {
       throw createError(404, 'Lĩnh vực không tồn tại.');
+    }
+    if (body.autoReply) {
+      const scopes = toStringArray(page.grantedScopes);
+      if (!scopes.includes(COMMENT_READ_SCOPE) || !scopes.includes(COMMENT_REPLY_SCOPE)) {
+        throw createError(409, 'Page chưa cấp đủ quyền đọc và trả lời bình luận. Vào Đồng bộ Page và tick đủ quyền rồi bật lại.');
+      }
+      if (!(await getSettings(userId)).geminiApiKey) throw createError(409, 'Chưa có Gemini API key trong Cài đặt nên AI chưa soạn được câu trả lời.');
     }
     const updated = await prisma.facebookPage.update({
       where: { id: page.id },
-      data: { defaultDomainId },
-      select: { id: true, defaultDomainId: true },
+      data: { ...(body.defaultDomainId !== undefined && { defaultDomainId: body.defaultDomainId }), ...(body.autoReply !== undefined && { autoReply: body.autoReply }) },
+      select: { id: true, defaultDomainId: true, autoReply: true },
     });
     res.json({ success: true, data: updated });
   })

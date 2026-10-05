@@ -1162,10 +1162,60 @@ tbody tr:hover { background: var(--bg-secondary); }
 .unanswered-badge { border: 0; cursor: pointer; font: inherit; font-size: 12px; }
 .unanswered-badge:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 .comments-panel { max-width: 720px; width: 100%; }
-.comments-body { padding: 16px 24px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
-/* The body scrolls; its children keep their height (else the filter switch is squashed) */
-.comments-body > * { flex-shrink: 0; }
-.comments-body > .segmented { align-self: flex-start; }
+.comments-body { padding: 16px 24px 24px; overflow-y: auto; }
+/* The comments of one post: in the dialog (Posts page) and inline (Bình luận page).
+   The dialog's body scrolls; the board's children keep their height (else the filter switch is squashed) */
+.comments-board { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.comments-board > * { flex-shrink: 0; }
+.comments-board > .segmented { align-self: flex-start; }
+.comments-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+/* ─── "Bình luận" page: Pages | posts | the comments of one post ─── */
+.hub-stats .stat-value small { font-size: 16px; font-weight: 500; color: var(--text-tertiary); }
+.hub-stats .hub-synced { font-size: 18px; line-height: 1.6; }
+.hub-grid { display: grid; grid-template-columns: 230px 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+.hub-title { font-size: 14px; font-weight: 600; margin: 0; }
+/* sticky under the top bar (which is sticky itself) */
+.hub-pages, .hub-posts { position: sticky; top: calc(var(--topbar-height) + 16px); max-height: calc(100vh - var(--topbar-height) - 32px); display: flex; flex-direction: column; min-width: 0; }
+.hub-pages > .hub-title { padding: 14px 16px 8px; }
+.hub-pages ul, .hub-post-list { list-style: none; margin: 0; padding: 0 8px 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.hub-page, .hub-post { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px; border: none; background: none; border-radius: var(--radius-md); font: inherit; color: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.hub-page:hover, .hub-post:hover { background: var(--bg-tertiary); }
+.hub-page.active, .hub-post.active { background: var(--primary-50, var(--bg-tertiary)); box-shadow: inset 3px 0 0 var(--primary-500); }
+.hub-page:focus-visible, .hub-post:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -2px; }
+.hub-avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--bg-tertiary); display: grid; place-items: center; font-size: 11px; font-weight: 600; flex-shrink: 0; overflow: hidden; }
+.hub-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.hub-page-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 500; }
+.hub-posts-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px 8px; flex-wrap: wrap; }
+.hub-post { align-items: flex-start; }
+.hub-post-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.hub-post-title { font-size: 13.5px; font-weight: 500; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hub-post-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--text-tertiary); }
+.hub-post-meta span { display: inline-flex; align-items: center; gap: 3px; }
+.hub-post-meta .hub-drafts { color: var(--primary-600); font-weight: 600; }
+.hub-board { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.hub-board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.hub-board-head .hub-title { font-size: 16px; }
+.hub-back { display: none; border: none; background: none; padding: 0; font: inherit; cursor: pointer; margin: 0; }
+.hub-empty { padding: 16px; }
+.hub-choose { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 16px; color: var(--text-tertiary); text-align: center; }
+.hub-choose p { margin: 0; }
+@media (max-width: 1400px) {
+  .hub-grid { grid-template-columns: 190px 280px minmax(0, 1fr); }
+}
+@media (max-width: 1200px) {
+  /* Steps instead of panes (three panes next to the menu would squeeze the comments): Pages, then posts;
+     a chosen post takes the screen, with a way back */
+  .hub-grid { grid-template-columns: minmax(0, 1fr); }
+  .hub-pages, .hub-posts { position: static; max-height: none; }
+  .hub-pages ul { flex-direction: row; overflow-x: auto; padding-bottom: 10px; }
+  .hub-pages li { flex-shrink: 0; }
+  .hub-page { width: auto; }
+  .hub-page.active { box-shadow: inset 0 -3px 0 var(--primary-500); }
+  .hub-page-name { max-width: 160px; }
+  .comments-hub:not(.has-post) .hub-board { display: none; }
+  .comments-hub.has-post .hub-pages, .comments-hub.has-post .hub-posts, .comments-hub.has-post .hub-stats { display: none; }
+  .hub-back { display: inline-flex; }
+}
 .comments-page h3 { font-size: 14px; margin: 0 0 8px; }
 .comments-note svg { vertical-align: -2px; margin-right: 4px; }
 /* Normal text flow: the link stays inside the sentence */
@@ -1179,6 +1229,10 @@ tbody tr:hover { background: var(--bg-secondary); }
 .comment-reply.from-page { border-left-color: var(--primary-500); }
 .comment-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 8px; }
 .comment-actions .form-textarea { flex: 1 1 260px; min-height: 56px; }
+.comment-reply-box { flex: 1 1 260px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.comment-reply-box .form-textarea { flex: none; }
+.draft-chip { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; font-size: 11.5px; font-weight: 600; color: var(--primary-600); }
+.comments-auto { align-self: flex-start; }
 
 /* ─── Reel page: scenes on the left, tools and the result on the right ─── */
 .reel-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }

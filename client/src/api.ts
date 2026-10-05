@@ -149,6 +149,8 @@ export interface PageInfo {
   blockMessage: string | null;
   /** Content domain preselected when creating a post for this Page */
   defaultDomainId: string | null;
+  /** "AI soạn trả lời bình luận" is on for this Page */
+  autoReply: boolean;
 }
 
 export type SyncAction = 'update' | 'reconnect' | 'add' | 'disconnect';
@@ -202,6 +204,10 @@ export const pagesApi = {
       method: 'PATCH',
       body: JSON.stringify({ defaultDomainId }),
     }),
+
+  /** Turn "AI soạn trả lời bình luận" on or off for a Page. */
+  setAutoReply: (id: string, autoReply: boolean) =>
+    apiFetch<{ id: string; autoReply: boolean }>(`/pages/${id}`, { method: 'PATCH', body: JSON.stringify({ autoReply }) }),
 };
 
 // ─── Content domains & formats ──────────────────
@@ -239,6 +245,7 @@ export interface ContentDomain {
   defaultHashtags: string[] | null;
   imageStyle: string | null;
   reelInstructions: string | null;
+  replyInstructions: string | null;
   isArchived: boolean;
   sortOrder: number;
   formats: ContentFormat[];
@@ -254,6 +261,7 @@ export interface DomainInput {
   defaultHashtags?: string[];
   imageStyle?: string | null;
   reelInstructions?: string | null;
+  replyInstructions?: string | null;
   isArchived?: boolean;
 }
 
@@ -335,6 +343,8 @@ export interface PostCommentRow {
 
 export interface CommentThread extends PostCommentRow {
   needsReply: boolean;
+  /** Reply written by AI, waiting to be sent or discarded (null when there is none) */
+  draftReply: string | null;
   replies: PostCommentRow[];
 }
 
@@ -343,6 +353,8 @@ export interface CommentsPage {
   page: { id: string; pageName: string };
   canRead: boolean;
   canReply: boolean;
+  /** "AI soạn trả lời bình luận" is on for this Page */
+  autoReply: boolean;
   commentsError: string | null;
   statsSyncedAt: string | null;
   reactionCount: number | null;
@@ -350,6 +362,50 @@ export interface CommentsPage {
   shareCount: number | null;
   unansweredCount: number;
   threads: CommentThread[];
+}
+
+export interface CommentsView {
+  /** This post is left out of its Pages' AI reply drafts */
+  autoReplyOff: boolean;
+  pages: CommentsPage[];
+}
+
+/** One Page in the "Bình luận" dashboard */
+export interface CommentsHubPage {
+  id: string;
+  pageName: string;
+  pageAvatar: string | null;
+  canRead: boolean;
+  canReply: boolean;
+  /** "AI soạn trả lời bình luận" is on */
+  autoReply: boolean;
+  /** The token works with the current Facebook App (else nothing can be synced) */
+  tokenValid: boolean;
+  posts: number;
+  postsWithComments: number;
+  comments: number;
+  unanswered: number;
+  /** AI drafts waiting to be sent */
+  drafts: number;
+  syncedAt: string | null;
+}
+
+/** One published post of a Page in the "Bình luận" dashboard */
+export interface CommentsHubPost {
+  targetId: string;
+  postId: string;
+  caption: string;
+  imageUrl: string | null;
+  hasVideo: boolean;
+  publishedAt: string | null;
+  fbPermalink: string | null;
+  reactionCount: number | null;
+  commentCount: number | null;
+  shareCount: number | null;
+  unansweredCount: number;
+  draftCount: number;
+  statsSyncedAt: string | null;
+  commentsError: string | null;
 }
 
 export type ReelStage = 'voice' | 'render' | 'saving';
@@ -478,12 +534,25 @@ export const postsApi = {
     apiFetch(`/posts/${id}/improve`, { method: 'POST', body: JSON.stringify({ instruction, caption }) }),
 
   /** Publish to `pageIds` (default: the post's Pages), `intervalMinutes` apart. */
-  comments: (id: string) => apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments`),
-  refreshComments: (id: string) => apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments/refresh`, { method: 'POST' }),
+  comments: (id: string) => apiFetch<CommentsView>(`/posts/${id}/comments`),
+  refreshComments: (id: string) => apiFetch<CommentsView>(`/posts/${id}/comments/refresh`, { method: 'POST' }),
   replyComment: (id: string, commentId: string, message: string) =>
-    apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments/${commentId}/reply`, { method: 'POST', body: JSON.stringify({ message }) }),
+    apiFetch<CommentsView>(`/posts/${id}/comments/${commentId}/reply`, { method: 'POST', body: JSON.stringify({ message }) }),
   markHandled: (id: string, commentId: string, handled: boolean) =>
-    apiFetch<{ pages: CommentsPage[] }>(`/posts/${id}/comments/${commentId}`, { method: 'PATCH', body: JSON.stringify({ handled }) }),
+    apiFetch<CommentsView>(`/posts/${id}/comments/${commentId}`, { method: 'PATCH', body: JSON.stringify({ handled }) }),
+
+  /** Drop the AI draft of one comment. */
+  discardDraft: (id: string, commentId: string) => apiFetch<CommentsView>(`/posts/${id}/comments/${commentId}/draft`, { method: 'DELETE' }),
+
+  /** Post these AI drafts (the ones on screen, as shown) as the Page; stops at the first failure. `uncertain`: a reply Facebook may or may not have taken. */
+  sendDrafts: (id: string, drafts: Array<{ commentId: string; reply: string }>) =>
+    apiFetch<CommentsView & { sent: number; failed: string | null; uncertain: { commentId: string; reply: string } | null }>(`/posts/${id}/comments/send-drafts`, {
+      method: 'POST',
+      body: JSON.stringify({ drafts }),
+    }),
+
+  /** Leave this post out of (or back in) AI reply drafts. */
+  setAutoReplyOff: (id: string, off: boolean) => apiFetch<CommentsView>(`/posts/${id}/comments/auto-reply`, { method: 'PATCH', body: JSON.stringify({ off }) }),
 
   /** Approve a schedule post for its slot. */
   approve: (id: string) => apiFetch<{ id: string; status: string; scheduledAt: string | null }>(`/posts/${id}/approve`, { method: 'POST' }),
@@ -640,4 +709,12 @@ export const settingsApi = {
     apiFetch('/settings/facebook/pages', { method: 'POST', body: JSON.stringify({ refs }) }),
   addPageManually: (pageId: string, pageAccessToken: string) =>
     apiFetch('/settings/facebook/pages/manual', { method: 'POST', body: JSON.stringify({ pageId, pageAccessToken }) }),
+};
+
+/** The "Bình luận" page: Pages with their totals, the posts of one Page, refresh a Page. */
+export const commentsApi = {
+  overview: () => apiFetch<{ pages: CommentsHubPage[] }>('/comments/overview'),
+  posts: (pageId: string, filter: 'all' | 'pending') => apiFetch<CommentsHubPost[]>(`/comments/posts?pageId=${pageId}&filter=${filter}`),
+  /** Sync the Page's recent posts now (counts, comments; AI drafts follow a few seconds later). */
+  refresh: (pageId: string) => apiFetch<{ synced: number }>('/comments/refresh', { method: 'POST', body: JSON.stringify({ pageId }) }),
 };

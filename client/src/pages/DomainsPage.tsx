@@ -16,10 +16,11 @@ interface Draft {
   rules: string;
   imageStyle: string;
   reelInstructions: string;
+  replyInstructions: string;
   defaultHashtags: string[];
 }
 
-const EMPTY: Draft = { name: '', description: '', audience: '', voice: '', rules: '', imageStyle: '', reelInstructions: '', defaultHashtags: [] };
+const EMPTY: Draft = { name: '', description: '', audience: '', voice: '', rules: '', imageStyle: '', reelInstructions: '', replyInstructions: '', defaultHashtags: [] };
 const NEW_FORMAT = {
   name: 'Bài chuẩn',
   instructions: 'Mở bằng 1 câu gây chú ý, 3–4 đoạn ngắn dễ đọc trên điện thoại, kết bằng lời mời bình luận.',
@@ -33,6 +34,7 @@ const toDraft = (d: ContentDomain): Draft => ({
   rules: d.rules ?? '',
   imageStyle: d.imageStyle ?? '',
   reelInstructions: d.reelInstructions ?? '',
+  replyInstructions: d.replyInstructions ?? '',
   defaultHashtags: d.defaultHashtags ?? [],
 });
 
@@ -116,6 +118,7 @@ export default function DomainsPage() {
       rules: draft.rules,
       imageStyle: draft.imageStyle,
       reelInstructions: draft.reelInstructions,
+      replyInstructions: draft.replyInstructions,
       defaultHashtags: draft.defaultHashtags,
     };
     if (selectedId === 'new') {
@@ -304,6 +307,21 @@ export default function DomainsPage() {
                   placeholder="VD: Kể một câu chuyện ngắn 60–90 từ về một nhân viên văn phòng. Cảnh đầu là tình huống cụ thể, cảnh giữa là mẹo đã dùng, cảnh cuối là kết quả và một câu hỏi cho người xem."
                 />
                 <p className="field-hint">Dùng khi bấm "AI viết kịch bản" trong Tạo Reel từ bài. Để trống: mở bằng câu hỏi gây tò mò, một ý chính, lời kêu gọi (40–100 từ).</p>
+              </fieldset>
+
+              <fieldset className="domain-block">
+                <legend>Trả lời bình luận</legend>
+                <label htmlFor="d-reply" className="form-label">Hướng dẫn trả lời bình luận</label>
+                <textarea
+                  id="d-reply"
+                  className="form-textarea"
+                  rows={4}
+                  maxLength={2000}
+                  value={draft.replyInstructions}
+                  onChange={(e) => set('replyInstructions')(e.target.value)}
+                  placeholder="VD: Xưng em, gọi anh/chị/bà con. Hỏi giá hoặc nơi mua thì mời nhắn tin cho Page. Hỏi liều lượng thì nhắc xem hướng dẫn trên nhãn."
+                />
+                <p className="field-hint">Dùng khi Page bật "AI trả lời bình luận" (Kênh Facebook). Để trống: trả lời ngắn gọn, thân thiện, không bịa thông tin ngoài bài viết.</p>
               </fieldset>
 
               <div className="row domain-actions">

@@ -16,7 +16,13 @@ export interface GeminiConfig {
 }
 
 export class GeminiError extends Error {
-  constructor(message: string, readonly status?: number, readonly rawMessage?: string) {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly rawMessage?: string,
+    /** Gemini answered, but refused this content or returned something unusable: asking again with the same content will not help */
+    readonly contentRejected = false
+  ) {
     super(message);
     this.name = 'GeminiError';
   }
@@ -94,7 +100,7 @@ export class GeminiClient {
 
       const candidate = res.candidates?.[0];
       if (candidate?.finishReason === FinishReason.SAFETY || res.promptFeedback?.blockReason) {
-        throw new GeminiError('Gemini từ chối tạo nội dung vì bộ lọc an toàn. Hãy diễn đạt chủ đề khác đi.');
+        throw new GeminiError('Gemini từ chối tạo nội dung vì bộ lọc an toàn. Hãy diễn đạt chủ đề khác đi.', undefined, undefined, true);
       }
 
       const text = res.text ?? '';
@@ -107,7 +113,8 @@ export class GeminiClient {
             ? 'Gemini trả về nội dung bị cắt ngang (vượt giới hạn độ dài).'
             : 'Gemini trả về dữ liệu không đúng định dạng JSON yêu cầu.',
           undefined,
-          `finishReason=${candidate?.finishReason ?? 'unknown'}, length=${text.length}`
+          `finishReason=${candidate?.finishReason ?? 'unknown'}, length=${text.length}`,
+          true
         );
       }
     }

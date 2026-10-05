@@ -196,6 +196,9 @@ model FacebookPage {
   /// Domain preselected when creating a post for this Page
   defaultDomainId String?
 
+  /// "AI soạn trả lời bình luận": the sync writes a reply draft for each new comment (src/services/reply-drafts.ts)
+  autoReply Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -297,6 +300,8 @@ model Post {
   inputData Json?
   // "Tạo Reel từ bài": { voice, scenes: [{ id, text, imagePrompt, image }] } (src/lib/reel/scenes.ts)
   reelDraft Json?
+  /// This post is left out of its Pages' AI reply drafts
+  autoReplyOff Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -511,6 +516,8 @@ model PostComment {
   fromPage    Boolean   @default(false)
   pageReplied Boolean   @default(false) // top-level: the Page has replied (in the app or on Facebook)
   handledAt   DateTime? // marked "Đã xử lý" without a reply
+  draftReply     String?   @db.Text // AI-written reply waiting for the member to send (top-level comments only)
+  draftCheckedAt DateTime? // the AI has looked at this comment once (it is never asked again), with or without a draft
   syncedAt    DateTime  @default(now())
 
   target PostTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
@@ -532,6 +539,7 @@ model ContentDomain {
   defaultHashtags Json? // string[] ≤ 10, stored without "#"
   imageStyle      String?  @db.VarChar(500) // English
   reelInstructions String?  @db.Text // how AI writes Reel scripts for this domain; empty = built-in default
+  replyInstructions String?  @db.Text // how AI answers comments for this domain; empty = built-in default
   language        String   @default("vi")
   isArchived      Boolean  @default(false)
   sortOrder       Int      @default(0)
