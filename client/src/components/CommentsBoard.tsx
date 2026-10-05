@@ -4,6 +4,7 @@ import { RefreshCw, Check, Undo2, AlertTriangle, Sparkles, Send } from 'lucide-r
 import { postsApi, type CommentsPage, type CommentsView, type CommentThread } from '../api';
 import { useToast } from './Toast';
 import { formatWhen } from './PostBits';
+import { announceCommentsChanged } from '../lib/comments-events';
 
 interface Props {
   postId: string;
@@ -46,6 +47,7 @@ export default function CommentsBoard({ postId, pageId, onChanged }: Props) {
       const res = await action();
       show(res.data);
       onChanged();
+      announceCommentsChanged();
       if (done) toast.success(done);
       return true;
     } catch (e: any) {
@@ -73,6 +75,7 @@ export default function CommentsBoard({ postId, pageId, onChanged }: Props) {
       const unsure = data.uncertain;
       if (unsure) setDrafts((d) => ({ ...d, [unsure.commentId]: unsure.reply }));
       onChanged();
+      announceCommentsChanged();
       if (data.failed) toast.error(`Đã gửi ${data.sent} câu rồi dừng: ${data.failed}`);
       else toast.success(data.sent ? `Đã gửi ${data.sent} câu trả lời trên Facebook.` : 'Không còn gợi ý nào để gửi.');
     } catch (e: any) {

@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage';
 import PagesPage from './pages/PagesPage';
 import PostsPage from './pages/PostsPage';
 import ReelPage from './pages/ReelPage';
+import CommentsPage from './pages/CommentsPage';
 import CreatePostPage from './pages/CreatePostPage';
 import SchedulesPage from './pages/SchedulesPage';
 import ScheduleDetailPage from './pages/ScheduleDetailPage';
@@ -139,6 +140,16 @@ export default function App() {
             <ProtectedRoute>
               <AppLayout>
                 <ReelPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/comments"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <CommentsPage />
               </AppLayout>
             </ProtectedRoute>
           }

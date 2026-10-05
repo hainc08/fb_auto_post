@@ -370,6 +370,44 @@ export interface CommentsView {
   pages: CommentsPage[];
 }
 
+/** One Page in the "Bình luận" dashboard */
+export interface CommentsHubPage {
+  id: string;
+  pageName: string;
+  pageAvatar: string | null;
+  canRead: boolean;
+  canReply: boolean;
+  /** "AI soạn trả lời bình luận" is on */
+  autoReply: boolean;
+  /** The token works with the current Facebook App (else nothing can be synced) */
+  tokenValid: boolean;
+  posts: number;
+  postsWithComments: number;
+  comments: number;
+  unanswered: number;
+  /** AI drafts waiting to be sent */
+  drafts: number;
+  syncedAt: string | null;
+}
+
+/** One published post of a Page in the "Bình luận" dashboard */
+export interface CommentsHubPost {
+  targetId: string;
+  postId: string;
+  caption: string;
+  imageUrl: string | null;
+  hasVideo: boolean;
+  publishedAt: string | null;
+  fbPermalink: string | null;
+  reactionCount: number | null;
+  commentCount: number | null;
+  shareCount: number | null;
+  unansweredCount: number;
+  draftCount: number;
+  statsSyncedAt: string | null;
+  commentsError: string | null;
+}
+
 export type ReelStage = 'voice' | 'render' | 'saving';
 export type ReelState =
   | { state: 'idle' }
@@ -671,4 +709,12 @@ export const settingsApi = {
     apiFetch('/settings/facebook/pages', { method: 'POST', body: JSON.stringify({ refs }) }),
   addPageManually: (pageId: string, pageAccessToken: string) =>
     apiFetch('/settings/facebook/pages/manual', { method: 'POST', body: JSON.stringify({ pageId, pageAccessToken }) }),
+};
+
+/** The "Bình luận" page: Pages with their totals, the posts of one Page, refresh a Page. */
+export const commentsApi = {
+  overview: () => apiFetch<{ pages: CommentsHubPage[] }>('/comments/overview'),
+  posts: (pageId: string, filter: 'all' | 'pending') => apiFetch<CommentsHubPost[]>(`/comments/posts?pageId=${pageId}&filter=${filter}`),
+  /** Sync the Page's recent posts now (counts, comments; AI drafts follow a few seconds later). */
+  refresh: (pageId: string) => apiFetch<{ synced: number }>('/comments/refresh', { method: 'POST', body: JSON.stringify({ pageId }) }),
 };
