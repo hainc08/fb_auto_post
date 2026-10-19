@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll, vi } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, vi } from 'vitest';
 import '../src/config';
 import prisma from '../src/utils/prisma';
 import { encrypt } from '../src/lib/crypto';
@@ -62,5 +62,88 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('first comment service', { timeout: 6
     const row = await prisma.postTarget.findUniqueOrThrow({ where: { id: target.id } });
     expect(row).toMatchObject({ status: 'PUBLISHED', firstCommentId: null, firstCommentText: 'Link' });
     expect(row.firstCommentError).toMatch(/pages_manage_engagement/);
+  });
+});
+
+// ─── Through the publish worker: the first comment follows each Page's publish ───
+import { runTargetJob } from '../src/services/scheduler.service';
+import type { Job } from '@prisma/client';
+import { saveSettings } from '../src/lib/settings';
+import { REQUIRED_SCOPES } from '../src/lib/clients/facebook';
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+const realFetch = globalThis.fetch;
+
+async function publishSetup(template: string | null) {
+  const { user } = await createTestUser();
+  await saveSettings(user.id, { fbAppId: '111', fbAppSecret: 'fake-secret-first-comment' });
+  const tag = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const domain = await prisma.contentDomain.create({ data: { userId: user.id, name: `FC ${tag}`, firstCommentTemplate: template } });
+  const page = await prisma.facebookPage.create({
+    data: {
+      userId: user.id,
+      pageId: `FCW_${tag}`,
+      pageName: 'Nhà nông',
+      pageAccessToken: encrypt(TOKEN),
+      tokenStatus: 'VALID',
+      tokenAppId: '111',
+      grantedScopes: [...REQUIRED_SCOPES, 'pages_manage_engagement'],
+    },
+  });
+  const post = await prisma.post.create({
+    data: { userId: user.id, pageId: page.id, domainId: domain.id, caption: 'Bài thử bình luận đầu', status: 'GENERATING', targets: { create: { pageId: page.id } } },
+    include: { targets: true },
+  });
+  return { user, page, post, target: post.targets[0], feedId: `FCW_POST_${tag}` };
+}
+
+/** Graph stub: the feed call returns the post id; the comment call answers with `comment()` */
+function stubGraph(feedId: string, comment: () => Response) {
+  const graph = vi.fn(async (input: string) => {
+    const url = new URL(input);
+    if (url.pathname.endsWith('/feed')) return json({ id: feedId });
+    if (url.pathname.endsWith('/comments')) return comment();
+    return json({ permalink_url: 'https://facebook.com/permalink' });
+  });
+  vi.stubGlobal('fetch', (input: string | URL, init?: RequestInit) => (String(input).includes('facebook.com') ? graph(String(input), init) : realFetch(input, init)));
+  return graph;
+}
+
+// Runs the publish_target handler directly, not through a worker: a background worker here would claim other test files' jobs
+const runTarget = (targetId: string, userId: string) => runTargetJob({ payload: { targetId, userId }, attempts: 1, maxAttempts: 3 } as unknown as Job);
+
+describe.skipIf(!process.env.RUN_DB_TESTS)('first comment after the publish step', { timeout: 60_000 }, () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('posts the domain template as the first comment once the Page publishes, and not again on a retry', async () => {
+    const s = await publishSetup('Link: https://example.com/a');
+    const graph = stubGraph(s.feedId, () => json({ id: `${s.feedId}_C1` }));
+    await runTarget(s.target.id, s.user.id);
+    const row = await prisma.postTarget.findUniqueOrThrow({ where: { id: s.target.id } });
+    expect(row).toMatchObject({ status: 'PUBLISHED', fbPostId: s.feedId, firstCommentId: `${s.feedId}_C1`, firstCommentText: 'Link: https://example.com/a' });
+    const commentCalls = () => graph.mock.calls.filter(([u]) => new URL(u as string).pathname.endsWith('/comments')).length;
+    expect(commentCalls()).toBe(1);
+    // the same target again: the publish job returns early and never comments twice
+    await runTarget(s.target.id, s.user.id);
+    expect(commentCalls()).toBe(1);
+  });
+
+  it('a refused first comment leaves the Page published and records why', async () => {
+    const s = await publishSetup('Link: https://example.com/b');
+    stubGraph(s.feedId, () => json({ error: { message: '(#200) Permissions error', code: 200 } }, 400));
+    await runTarget(s.target.id, s.user.id);
+    const row = await prisma.postTarget.findUniqueOrThrow({ where: { id: s.target.id } });
+    expect(row).toMatchObject({ status: 'PUBLISHED', firstCommentId: null });
+    expect(row.firstCommentError).toMatch(/thiếu quyền/);
+  });
+
+  it('a domain without a template posts no first comment at all', async () => {
+    const s = await publishSetup(null);
+    const graph = stubGraph(s.feedId, () => json({ id: 'never' }));
+    await runTarget(s.target.id, s.user.id);
+    expect(graph.mock.calls.some(([u]) => new URL(u as string).pathname.endsWith('/comments'))).toBe(false);
+    expect((await prisma.postTarget.findUniqueOrThrow({ where: { id: s.target.id } })).firstCommentText).toBeNull();
   });
 });
