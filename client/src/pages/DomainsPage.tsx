@@ -17,10 +17,11 @@ interface Draft {
   imageStyle: string;
   reelInstructions: string;
   replyInstructions: string;
+  firstCommentTemplate: string;
   defaultHashtags: string[];
 }
 
-const EMPTY: Draft = { name: '', description: '', audience: '', voice: '', rules: '', imageStyle: '', reelInstructions: '', replyInstructions: '', defaultHashtags: [] };
+const EMPTY: Draft = { name: '', description: '', audience: '', voice: '', rules: '', imageStyle: '', reelInstructions: '', replyInstructions: '', firstCommentTemplate: '', defaultHashtags: [] };
 const NEW_FORMAT = {
   name: 'Bài chuẩn',
   instructions: 'Mở bằng 1 câu gây chú ý, 3–4 đoạn ngắn dễ đọc trên điện thoại, kết bằng lời mời bình luận.',
@@ -35,6 +36,7 @@ const toDraft = (d: ContentDomain): Draft => ({
   imageStyle: d.imageStyle ?? '',
   reelInstructions: d.reelInstructions ?? '',
   replyInstructions: d.replyInstructions ?? '',
+  firstCommentTemplate: d.firstCommentTemplate ?? '',
   defaultHashtags: d.defaultHashtags ?? [],
 });
 
@@ -119,6 +121,7 @@ export default function DomainsPage() {
       imageStyle: draft.imageStyle,
       reelInstructions: draft.reelInstructions,
       replyInstructions: draft.replyInstructions,
+      firstCommentTemplate: draft.firstCommentTemplate,
       defaultHashtags: draft.defaultHashtags,
     };
     if (selectedId === 'new') {
@@ -322,6 +325,21 @@ export default function DomainsPage() {
                   placeholder="VD: Xưng em, gọi anh/chị/bà con. Hỏi giá hoặc nơi mua thì mời nhắn tin cho Page. Hỏi liều lượng thì nhắc xem hướng dẫn trên nhãn."
                 />
                 <p className="field-hint">Dùng khi Page bật "AI trả lời bình luận" (Kênh Facebook). Để trống: trả lời ngắn gọn, thân thiện, không bịa thông tin ngoài bài viết.</p>
+              </fieldset>
+
+              <fieldset className="domain-block">
+                <legend>Bình luận đầu</legend>
+                <label htmlFor="d-first" className="form-label">Bình luận đầu (tự động sau khi đăng bài)</label>
+                <textarea
+                  id="d-first"
+                  className="form-textarea"
+                  rows={3}
+                  maxLength={2000}
+                  value={draft.firstCommentTemplate}
+                  onChange={(e) => set('firstCommentTemplate')(e.target.value)}
+                  placeholder="VD: Sản phẩm trong bài: https://example.com/sp"
+                />
+                <p className="field-hint">Sau khi bài lên mỗi Page, app đăng nội dung này làm bình luận đầu của Page đó. Để trống: không đăng bình luận đầu.</p>
               </fieldset>
 
               <div className="row domain-actions">

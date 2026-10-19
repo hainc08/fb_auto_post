@@ -493,6 +493,10 @@ model PostTarget {
   unansweredCount Int       @default(0)
   statsSyncedAt   DateTime?
   commentsError   String?   @db.Text
+  // First comment (src/services/first-comment.ts): the domain's template as posted, the Facebook id, and the last failure
+  firstCommentId    String?
+  firstCommentText  String?  @db.Text
+  firstCommentError String?  @db.Text
 
   post     Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
   page     FacebookPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
@@ -540,6 +544,7 @@ model ContentDomain {
   imageStyle      String?  @db.VarChar(500) // English
   reelInstructions String?  @db.Text // how AI writes Reel scripts for this domain; empty = built-in default
   replyInstructions String?  @db.Text // how AI answers comments for this domain; empty = built-in default
+  firstCommentTemplate String? @db.Text // text posted as the Page's first comment after each publish; empty = none
   language        String   @default("vi")
   isArchived      Boolean  @default(false)
   sortOrder       Int      @default(0)

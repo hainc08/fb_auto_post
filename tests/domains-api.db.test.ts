@@ -189,4 +189,14 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('domains & formats API', { timeout: 9
     expect(cleared.json.data.replyInstructions).toBeNull();
     expect((await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { replyInstructions: 'x'.repeat(2001) } })).status).toBe(400);
   });
+
+  it('keeps the first comment template per domain; blank clears it; over 2000 characters is refused', async () => {
+    const { cookie } = await createTestUser();
+    const created = (await api(server.baseUrl, 'POST', '/api/domains', { cookie, body: newDomain('Bình luận đầu', { firstCommentTemplate: '  Link: https://example.com/a  ' }) })).json.data;
+    expect(created.firstCommentTemplate).toBe('Link: https://example.com/a');
+    const blank = await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { firstCommentTemplate: '   ' } });
+    expect(blank.json.data.firstCommentTemplate).toBeNull();
+    const long = await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { firstCommentTemplate: 'x'.repeat(2001) } });
+    expect(long.status).toBe(400);
+  });
 });

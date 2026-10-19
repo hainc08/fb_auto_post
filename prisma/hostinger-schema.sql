@@ -281,6 +281,9 @@ CREATE TABLE `post_targets` (
     `unansweredCount` INTEGER NOT NULL DEFAULT 0,
     `statsSyncedAt` DATETIME(3) NULL,
     `commentsError` TEXT NULL,
+    `firstCommentId` VARCHAR(191) NULL,
+    `firstCommentText` TEXT NULL,
+    `firstCommentError` TEXT NULL,
 
     INDEX `post_targets_pageId_idx`(`pageId`),
     UNIQUE INDEX `post_targets_postId_pageId_key`(`postId`, `pageId`),
@@ -322,6 +325,7 @@ CREATE TABLE `content_domains` (
     `imageStyle` VARCHAR(500) NULL,
     `reelInstructions` TEXT NULL,
     `replyInstructions` TEXT NULL,
+    `firstCommentTemplate` TEXT NULL,
     `language` VARCHAR(191) NOT NULL DEFAULT 'vi',
     `isArchived` BOOLEAN NOT NULL DEFAULT false,
     `sortOrder` INTEGER NOT NULL DEFAULT 0,

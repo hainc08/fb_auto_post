@@ -246,6 +246,7 @@ export interface ContentDomain {
   imageStyle: string | null;
   reelInstructions: string | null;
   replyInstructions: string | null;
+  firstCommentTemplate: string | null;
   isArchived: boolean;
   sortOrder: number;
   formats: ContentFormat[];
@@ -262,6 +263,7 @@ export interface DomainInput {
   imageStyle?: string | null;
   reelInstructions?: string | null;
   replyInstructions?: string | null;
+  firstCommentTemplate?: string | null;
   isArchived?: boolean;
 }
 
