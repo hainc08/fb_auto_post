@@ -98,6 +98,7 @@ const ROUTE_CASES: Record<string, Case> = {
   'DELETE /api/posts/:id/comments/:commentId/draft': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/${b.commentId}/draft` },
   'POST /api/posts/:id/comments/send-drafts': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/send-drafts`, body: { drafts: [{ commentId: '00000000-0000-4000-8000-000000000000', reply: 'hack' }] } },
   'PATCH /api/posts/:id/comments/auto-reply': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/comments/auto-reply`, body: { off: true } },
+  'POST /api/posts/:id/targets/:targetId/first-comment': { kind: 'foreign-id', path: (b) => `/api/posts/${b.postId}/targets/${b.targetId}/first-comment` },
   'GET /api/comments/overview': { kind: 'list', path: '/api/comments/overview' },
   'GET /api/comments/posts': { kind: 'foreign-id', path: (b) => `/api/comments/posts?pageId=${b.pageId}` },
   'POST /api/comments/refresh': { kind: 'foreign-id', path: () => '/api/comments/refresh' }, // body = B's pageId (below)
