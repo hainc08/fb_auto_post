@@ -23,6 +23,7 @@ describe('FacebookClient.createComment (first comment)', () => {
   it('a refused comment is a FacebookApiError with Facebook\'s message', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ error: { message: '(#200) Permissions error', code: 200 } }, 400)));
     await expect(client().createComment('P_1', TOKEN, 'x')).rejects.toBeInstanceOf(FacebookApiError);
-    await expect(client().createComment('P_1', TOKEN, 'x')).rejects.toThrow(/Permissions error/);
+    // Permission refusals come back in Vietnamese (see facebook.ts error mapping)
+    await expect(client().createComment('P_1', TOKEN, 'x')).rejects.toThrow(/thiếu quyền/);
   });
 });
