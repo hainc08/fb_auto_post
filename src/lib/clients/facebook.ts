@@ -345,6 +345,11 @@ export class FacebookClient {
     return this.postOnce<{ id: string }>(`${commentId}/comments`, new URLSearchParams({ message, access_token: pageToken }), pageToken);
   }
 
+  /** The Page's first comment under its own post (same permission as a reply). Once, never retried. */
+  async createComment(postId: string, pageToken: string, message: string): Promise<{ id: string }> {
+    return this.postOnce<{ id: string }>(`${postId}/comments`, new URLSearchParams({ message, access_token: pageToken }), pageToken);
+  }
+
   async getPermalink(postId: string, pageToken: string): Promise<string | undefined> {
     try {
       const res = await this.get<{ permalink_url?: string }>(postId, { fields: 'permalink_url', access_token: pageToken }, [pageToken]);
