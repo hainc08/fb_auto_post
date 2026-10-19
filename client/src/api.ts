@@ -573,6 +573,10 @@ export const postsApi = {
   retryTarget: (id: string, targetId: string) =>
     apiFetch(`/posts/${id}/targets/${targetId}/retry`, { method: 'POST' }),
 
+  /** Post the domain's first comment again on one Page (after an earlier refusal). */
+  retryFirstComment: (id: string, targetId: string) =>
+    apiFetch<{ status: 'posted' | 'already' | 'skipped' | 'failed'; error: string | null }>(`/posts/${id}/targets/${targetId}/first-comment`, { method: 'POST' }),
+
   delete: (id: string) =>
     apiFetch(`/posts/${id}`, { method: 'DELETE' }),
 };
