@@ -28,7 +28,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('Page default domain', { timeout: 60_
 
     const set = await api(server.baseUrl, 'PATCH', `/api/pages/${page.id}`, { cookie, body: { defaultDomainId: domain.id } });
     // the route also carries the Page's "AI soạn trả lời bình luận" switch, untouched here
-    expect(set.json.data).toEqual({ id: page.id, defaultDomainId: domain.id, autoReply: false });
+    expect(set.json.data).toEqual({ id: page.id, defaultDomainId: domain.id, autoReply: false, autoSend: false, autoSendPerHour: 10 });
     const listed = (await api(server.baseUrl, 'GET', '/api/pages', { cookie })).json.data;
     expect(listed.find((p: { id: string }) => p.id === page.id).defaultDomainId).toBe(domain.id);
 

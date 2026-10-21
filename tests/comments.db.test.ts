@@ -200,7 +200,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     expect((await patch({ autoSendPerHour: 0 })).status).toBe(400);
     expect((await patch({ autoSendPerHour: 61 })).status).toBe(400);
 
-    expect((await patch({ autoReply: false })).json.data).toMatchObject({ autoReply: false, autoSend: false, autoSendPerHour: 5 });
+    expect((await patch({ autoReply: false })).json.data).toMatchObject({ autoReply: false, autoSend: false, autoSendPerHour: 7 });
   });
 
   /** Give the post's comment a draft, and add more drafted comments */

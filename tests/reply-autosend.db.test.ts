@@ -184,6 +184,7 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('Auto-send reply drafts', { timeout: 
     expect(await autoSendReplies(target.id)).toBe(0);
     expect(await row(unclear.id)).toMatchObject({ draftReply: unclear.draftReply, autoSentAt: expect.any(Date), heldReason: expect.stringContaining('Không chắc') });
     const fb = fakeFacebook();
+    fb.mockClear(); // the same spy as above: forget the failed call
     await comment('hai');
     // it may be live, so it still counts against the hour
     expect(await autoSendReplies(target.id)).toBe(0);
