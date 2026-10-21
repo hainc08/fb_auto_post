@@ -151,6 +151,9 @@ export interface PageInfo {
   defaultDomainId: string | null;
   /** "AI soạn trả lời bình luận" is on for this Page */
   autoReply: boolean;
+  /** "Tự gửi trả lời": the drafts go out on their own, at most autoSendPerHour an hour */
+  autoSend: boolean;
+  autoSendPerHour: number;
 }
 
 export type SyncAction = 'update' | 'reconnect' | 'add' | 'disconnect';
@@ -207,7 +210,11 @@ export const pagesApi = {
 
   /** Turn "AI soạn trả lời bình luận" on or off for a Page. */
   setAutoReply: (id: string, autoReply: boolean) =>
-    apiFetch<{ id: string; autoReply: boolean }>(`/pages/${id}`, { method: 'PATCH', body: JSON.stringify({ autoReply }) }),
+    apiFetch<{ id: string; autoReply: boolean; autoSend: boolean }>(`/pages/${id}`, { method: 'PATCH', body: JSON.stringify({ autoReply }) }),
+
+  /** "Tự gửi trả lời" on/off and its hourly limit (needs the AI drafts on). */
+  setAutoSend: (id: string, change: { autoSend?: boolean; autoSendPerHour?: number }) =>
+    apiFetch<{ id: string; autoSend: boolean; autoSendPerHour: number }>(`/pages/${id}`, { method: 'PATCH', body: JSON.stringify(change) }),
 };
 
 // ─── Content domains & formats ──────────────────
@@ -246,6 +253,8 @@ export interface ContentDomain {
   imageStyle: string | null;
   reelInstructions: string | null;
   replyInstructions: string | null;
+  /** Comments with these words are never answered on their own (comma or line separated); empty = built-in list */
+  replyHoldKeywords: string | null;
   isArchived: boolean;
   sortOrder: number;
   formats: ContentFormat[];
@@ -262,6 +271,7 @@ export interface DomainInput {
   imageStyle?: string | null;
   reelInstructions?: string | null;
   replyInstructions?: string | null;
+  replyHoldKeywords?: string | null;
   isArchived?: boolean;
 }
 
@@ -345,6 +355,10 @@ export interface CommentThread extends PostCommentRow {
   needsReply: boolean;
   /** Reply written by AI, waiting to be sent or discarded (null when there is none) */
   draftReply: string | null;
+  /** Why the draft waits for the member instead of going out on its own ("Tự gửi trả lời") */
+  heldReason: string | null;
+  /** The AI draft was sent on its own */
+  autoSentAt: string | null;
   replies: PostCommentRow[];
 }
 
@@ -355,6 +369,8 @@ export interface CommentsPage {
   canReply: boolean;
   /** "AI soạn trả lời bình luận" is on for this Page */
   autoReply: boolean;
+  /** "Tự gửi trả lời" is on for this Page */
+  autoSend: boolean;
   commentsError: string | null;
   statsSyncedAt: string | null;
   reactionCount: number | null;
@@ -379,6 +395,8 @@ export interface CommentsHubPage {
   canReply: boolean;
   /** "AI soạn trả lời bình luận" is on */
   autoReply: boolean;
+  /** "Tự gửi trả lời" is on */
+  autoSend: boolean;
   /** The token works with the current Facebook App (else nothing can be synced) */
   tokenValid: boolean;
   posts: number;

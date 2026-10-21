@@ -17,10 +17,11 @@ interface Draft {
   imageStyle: string;
   reelInstructions: string;
   replyInstructions: string;
+  replyHoldKeywords: string;
   defaultHashtags: string[];
 }
 
-const EMPTY: Draft = { name: '', description: '', audience: '', voice: '', rules: '', imageStyle: '', reelInstructions: '', replyInstructions: '', defaultHashtags: [] };
+const EMPTY: Draft = { name: '', description: '', audience: '', voice: '', rules: '', imageStyle: '', reelInstructions: '', replyInstructions: '', replyHoldKeywords: '', defaultHashtags: [] };
 const NEW_FORMAT = {
   name: 'Bài chuẩn',
   instructions: 'Mở bằng 1 câu gây chú ý, 3–4 đoạn ngắn dễ đọc trên điện thoại, kết bằng lời mời bình luận.',
@@ -35,6 +36,7 @@ const toDraft = (d: ContentDomain): Draft => ({
   imageStyle: d.imageStyle ?? '',
   reelInstructions: d.reelInstructions ?? '',
   replyInstructions: d.replyInstructions ?? '',
+  replyHoldKeywords: d.replyHoldKeywords ?? '',
   defaultHashtags: d.defaultHashtags ?? [],
 });
 
@@ -119,6 +121,7 @@ export default function DomainsPage() {
       imageStyle: draft.imageStyle,
       reelInstructions: draft.reelInstructions,
       replyInstructions: draft.replyInstructions,
+      replyHoldKeywords: draft.replyHoldKeywords,
       defaultHashtags: draft.defaultHashtags,
     };
     if (selectedId === 'new') {
@@ -322,6 +325,19 @@ export default function DomainsPage() {
                   placeholder="VD: Xưng em, gọi anh/chị/bà con. Hỏi giá hoặc nơi mua thì mời nhắn tin cho Page. Hỏi liều lượng thì nhắc xem hướng dẫn trên nhãn."
                 />
                 <p className="field-hint">Dùng khi Page bật "AI trả lời bình luận" (Kênh Facebook). Để trống: trả lời ngắn gọn, thân thiện, không bịa thông tin ngoài bài viết.</p>
+                <label htmlFor="d-hold" className="form-label">Từ khoá không tự gửi</label>
+                <textarea
+                  id="d-hold"
+                  className="form-textarea"
+                  rows={2}
+                  maxLength={2000}
+                  value={draft.replyHoldKeywords}
+                  onChange={(e) => set('replyHoldKeywords')(e.target.value)}
+                  placeholder="VD: giá, bao nhiêu, khiếu nại, hoàn tiền, hàng giả"
+                />
+                <p className="field-hint">
+                  Khi Page bật "Tự gửi", bình luận có một trong các từ này (cách nhau bằng dấu phẩy hoặc xuống dòng) không được tự trả lời mà chờ bạn duyệt. Bình luận có link hoặc số điện thoại luôn chờ duyệt. Để trống: dùng danh sách có sẵn (giá, bao nhiêu, lừa đảo, khiếu nại, hoàn tiền, đổi trả, bảo hành, hàng giả, thất vọng…).
+                </p>
               </fieldset>
 
               <div className="row domain-actions">
