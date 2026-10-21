@@ -7,6 +7,7 @@ import { upsertKeyedJob, type JobResult } from '../lib/job-queue';
 import { COMMENT_READ_SCOPE, FacebookClient, isPermissionError, type GraphComment } from '../lib/clients/facebook';
 import { toStringArray } from '../utils/json';
 import { draftReplies } from './reply-drafts';
+import { autoSendReplies } from './reply-autosend';
 
 /**
  * Reactions / comments / shares and the comments themselves, for posts published in
@@ -126,9 +127,13 @@ export async function syncTargets(
           data: c ? { reactionCount: c.reactions, commentCount: c.comments, shareCount: c.shares, statsSyncedAt: now, commentsError } : { statsSyncedAt: now },
         });
         await recountUnanswered(t.id);
-        // "AI soạn trả lời bình luận": drafts only, sent by the member later. A failing AI never fails the sync.
+        // "AI soạn trả lời bình luận": drafts, sent by the member later or, with "Tự gửi trả lời", by the sync
+        // right after. A failing AI or Facebook never fails the sync.
         if (page.autoReply) {
-          const drafting = draftReplies(t.id, now).catch((error) => logger.warn('[Replies] Drafting failed', { targetId: t.id, error: (error as Error).message }));
+          const drafting: Promise<unknown> = draftReplies(t.id, now)
+            .catch((error) => logger.warn('[Replies] Drafting failed', { targetId: t.id, error: (error as Error).message }))
+            .then(() => (page.autoSend ? autoSendReplies(t.id, now) : 0))
+            .catch((error) => logger.warn('[Replies] Auto-send failed', { targetId: t.id, error: (error as Error).message }));
           if (opts.draftWaitMs === undefined) await drafting;
           else await Promise.race([drafting, new Promise((resolve) => setTimeout(resolve, opts.draftWaitMs).unref())]);
         }

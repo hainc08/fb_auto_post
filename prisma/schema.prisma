@@ -198,6 +198,10 @@ model FacebookPage {
 
   /// "AI soạn trả lời bình luận": the sync writes a reply draft for each new comment (src/services/reply-drafts.ts)
   autoReply Boolean @default(false)
+  /// "Tự gửi trả lời": the sync also sends those drafts on its own (src/services/reply-autosend.ts), at most autoSendPerHour per hour
+  autoSend        Boolean @default(false)
+  autoSendPerHour Int     @default(10)
+  autoSendSince   DateTime? // when it was turned on: only drafts written since then go out on their own
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -518,6 +522,8 @@ model PostComment {
   handledAt   DateTime? // marked "Đã xử lý" without a reply
   draftReply     String?   @db.Text // AI-written reply waiting for the member to send (top-level comments only)
   draftCheckedAt DateTime? // the AI has looked at this comment once (it is never asked again), with or without a draft
+  autoSentAt     DateTime? // the draft was sent on its own ("Tự gửi trả lời")
+  heldReason     String?   @db.VarChar(300) // why the draft waits for the member instead of being sent on its own
   syncedAt    DateTime  @default(now())
 
   target PostTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
@@ -540,6 +546,7 @@ model ContentDomain {
   imageStyle      String?  @db.VarChar(500) // English
   reelInstructions String?  @db.Text // how AI writes Reel scripts for this domain; empty = built-in default
   replyInstructions String?  @db.Text // how AI answers comments for this domain; empty = built-in default
+  replyHoldKeywords String?  @db.Text // comments with these words are never answered on their own; empty = built-in list
   language        String   @default("vi")
   isArchived      Boolean  @default(false)
   sortOrder       Int      @default(0)
