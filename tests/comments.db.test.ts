@@ -179,6 +179,30 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('comments API', { timeout: 60_000 }, 
     expect((await patch({ autoReply: false }, readOnly.cookie, readOnly.post.pageId)).status).toBe(200);
   });
 
+  it('the Page switch "Tự gửi trả lời" needs the AI drafts on, keeps an hourly limit of 1–60, and goes off with the drafts', async () => {
+    const { cookie, post } = await setup();
+    const patch = (body: Record<string, unknown>) => api(server.baseUrl, 'PATCH', `/api/pages/${post.pageId}`, { cookie, body });
+    const early = await patch({ autoSend: true });
+    expect(early.status).toBe(409);
+    expect(early.json.error).toMatch(/AI soạn trả lời/);
+
+    await saveSettings(post.userId, { geminiApiKey: 'AIzaFakeKeyCommentsSwitch00000000000000' });
+    const both = await patch({ autoReply: true, autoSend: true, autoSendPerHour: 5 });
+    expect(both.status).toBe(200);
+    expect(both.json.data).toMatchObject({ autoReply: true, autoSend: true, autoSendPerHour: 5 });
+    const listed = (await api(server.baseUrl, 'GET', '/api/pages', { cookie })).json.data.find((p: { id: string }) => p.id === post.pageId);
+    expect(listed).toMatchObject({ autoSend: true, autoSendPerHour: 5 });
+    const since = (await prisma.facebookPage.findUniqueOrThrow({ where: { id: post.pageId } })).autoSendSince;
+    expect(since).toBeInstanceOf(Date);
+    // changing the limit, or turning it on again while on, keeps the moment it was turned on
+    await patch({ autoSendPerHour: 7, autoSend: true });
+    expect((await prisma.facebookPage.findUniqueOrThrow({ where: { id: post.pageId } })).autoSendSince).toEqual(since);
+    expect((await patch({ autoSendPerHour: 0 })).status).toBe(400);
+    expect((await patch({ autoSendPerHour: 61 })).status).toBe(400);
+
+    expect((await patch({ autoReply: false })).json.data).toMatchObject({ autoReply: false, autoSend: false, autoSendPerHour: 5 });
+  });
+
   /** Give the post's comment a draft, and add more drafted comments */
   async function drafted(target: { id: string }, commentId: string, more = 0) {
     await prisma.postComment.update({ where: { id: commentId }, data: { draftReply: 'Dạ mời anh nhắn tin cho Page ạ.', draftCheckedAt: new Date() } });
