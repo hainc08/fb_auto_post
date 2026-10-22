@@ -112,6 +112,7 @@ export default function CommentsBoard({ postId, pageId, onChanged, refreshKey = 
           <span className="muted">{formatWhen(t.commentedAt)}</span>
           {t.needsReply && <span className="badge badge-ready">Cần trả lời</span>}
           {t.handledAt && <span className="badge badge-draft">Đã xử lý</span>}
+          {t.autoSentAt && !t.needsReply && <span className="badge badge-draft" title="Câu trả lời do AI soạn và tự gửi">AI tự trả lời</span>}
         </div>
         <p className="comment-body">{t.message || <em className="muted">(bình luận không có chữ)</em>}</p>
         {t.replies.map((r) => (
@@ -129,6 +130,7 @@ export default function CommentsBoard({ postId, pageId, onChanged, refreshKey = 
                     <Sparkles size={12} aria-hidden="true" /> AI gợi ý — sửa nếu cần rồi gửi
                   </span>
                 )}
+                {fromAi && t.heldReason && <span className="draft-held">Không tự gửi — {t.heldReason}</span>}
                 <textarea
                   className="form-textarea"
                   rows={2}

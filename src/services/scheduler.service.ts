@@ -21,6 +21,7 @@ import { sendPostNotification } from './email.service';
 import { bookScheduleTick, runPrepareJob, runScheduleTickJob } from './schedule-runner';
 import { bookEngagementSync, runEngagementSyncJob } from './engagement-sync';
 import { runReelJob } from './reel.service';
+import { postFirstComment } from './first-comment';
 
 /**
  * Scheduler Service - background work on the MariaDB job queue (src/lib/job-queue.ts)
@@ -239,7 +240,7 @@ export async function runPublishJob(job: Job): Promise<void> {
 }
 
 /** Publish the prepared post to one Page. */
-async function runTargetJob(job: Job): Promise<void> {
+export async function runTargetJob(job: Job): Promise<void> {
   const { targetId, userId } = job.payload as unknown as TargetJob;
   const attempt = job.attempts;
   const maxAttempts = job.maxAttempts;
@@ -330,6 +331,14 @@ async function runTargetJob(job: Job): Promise<void> {
     }
     await logStep(post.id, 'published', { page: page.pageName, fbPostId: published.postId, permalink: permalink ?? null });
     logger.info('[Pipeline] Published on Page', { postId: post.id, page: page.pageName, fbPostId: published.postId });
+
+    // The domain's first comment. Best effort: the post is live already, so a refused comment never fails this target
+    try {
+      const domain = post.domainId ? await prisma.contentDomain.findUnique({ where: { id: post.domainId }, select: { firstCommentTemplate: true } }) : null;
+      await postFirstComment(targetId, facebook, pageToken, domain?.firstCommentTemplate ?? null);
+    } catch (error) {
+      logger.warn('[Pipeline] First comment could not be recorded', { postId: post.id, page: page.pageName, error: (error as Error).message });
+    }
   } catch (error) {
     const failure = classifyFailure(error, 'publish_facebook');
     const isFinal = !failure.retryable || attempt >= maxAttempts;

@@ -46,6 +46,9 @@ interface TargetData {
   publishedAt: string | null;
   fbPermalink: string | null;
   errorMessage: string | null;
+  /** The domain's first comment: its Facebook id once posted, the last refusal until then */
+  firstCommentId: string | null;
+  firstCommentError: string | null;
   page: { id: string; pageName: string };
 }
 
@@ -122,6 +125,7 @@ export default function PostsPage() {
   const [acting, setActing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [retryingFirst, setRetryingFirst] = useState<string | null>(null);
   /** Inline "Duyệt & đăng" waiting for its second click */
   const [armed, setArmed] = useState<string | null>(null);
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
@@ -286,6 +290,21 @@ export default function PostsPage() {
   function confirmPublish() {
     if (confirming !== 'publish') return setConfirming('publish');
     void publish(selectedId!).finally(() => setConfirming(null));
+  }
+
+  async function retryFirstComment(targetId: string) {
+    if (!selectedId) return;
+    setRetryingFirst(targetId);
+    try {
+      const res = await postsApi.retryFirstComment(selectedId, targetId);
+      if (res.data.status === 'posted') toast.success('Đã đăng bình luận đầu.');
+      else if (res.data.error) toast.error(`Chưa đăng được bình luận đầu: ${res.data.error}`);
+      await load();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setRetryingFirst(null);
+    }
   }
 
   async function retryTarget(targetId: string) {
@@ -573,6 +592,20 @@ export default function PostsPage() {
                                   ? `Dự kiến lúc ${timeOf(t.scheduledAt)}`
                                   : 'Chưa đăng'}
                       </span>
+                      {t.status === 'PUBLISHED' && (t.firstCommentId || t.firstCommentError) && (
+                        <div className={`first-comment ${t.firstCommentId ? '' : 'warn'}`}>
+                          {t.firstCommentId ? (
+                            'Đã đăng bình luận đầu.'
+                          ) : (
+                            <>
+                              Chưa đăng được bình luận đầu: {t.firstCommentError}
+                              <button type="button" className="btn btn-secondary btn-sm" onClick={() => retryFirstComment(t.id)} disabled={!!retryingFirst}>
+                                {retryingFirst === t.id ? <div className="spinner" /> : null} Đăng lại bình luận đầu
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

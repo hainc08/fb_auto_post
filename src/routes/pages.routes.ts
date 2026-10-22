@@ -35,6 +35,8 @@ const publicPageSelect = {
   tokenError: true,
   defaultDomainId: true,
   autoReply: true,
+  autoSend: true,
+  autoSendPerHour: true,
   createdAt: true,
 } as const;
 
@@ -201,13 +203,23 @@ router.post(
 
 // ─── Default content domain of a Page ───────────
 
-/** A Page's own settings: the domain preselected for new posts, and "AI soạn trả lời bình luận". */
+/**
+ * A Page's own settings: the domain preselected for new posts, "AI soạn trả lời bình luận", and "Tự gửi trả lời"
+ * (the drafts go out on their own, at most `autoSendPerHour` an hour; it needs the AI drafts on).
+ */
 router.patch(
   '/:id',
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
-    const body = z.object({ defaultDomainId: z.string().uuid().nullable().optional(), autoReply: z.boolean().optional() }).parse(req.body);
-    const page = await prisma.facebookPage.findFirst({ where: { id: req.params.id, userId }, select: { id: true, grantedScopes: true } });
+    const body = z
+      .object({
+        defaultDomainId: z.string().uuid().nullable().optional(),
+        autoReply: z.boolean().optional(),
+        autoSend: z.boolean().optional(),
+        autoSendPerHour: z.number().int().min(1, 'Tối thiểu 1 câu trả lời mỗi giờ.').max(60, 'Tối đa 60 câu trả lời mỗi giờ.').optional(),
+      })
+      .parse(req.body);
+    const page = await prisma.facebookPage.findFirst({ where: { id: req.params.id, userId }, select: { id: true, grantedScopes: true, autoReply: true, autoSend: true } });
     if (!page) throw createError(404, 'Page not found');
     if (body.defaultDomainId && !(await prisma.contentDomain.findFirst({ where: { id: body.defaultDomainId, userId, isArchived: false } }))) {
       throw createError(404, 'Lĩnh vực không tồn tại.');
@@ -219,10 +231,22 @@ router.patch(
       }
       if (!(await getSettings(userId)).geminiApiKey) throw createError(409, 'Chưa có Gemini API key trong Cài đặt nên AI chưa soạn được câu trả lời.');
     }
+    if (body.autoSend && !(body.autoReply ?? page.autoReply)) {
+      throw createError(409, 'Hãy bật "AI soạn trả lời bình luận" cho Page trước khi bật tự gửi.');
+    }
     const updated = await prisma.facebookPage.update({
       where: { id: page.id },
-      data: { ...(body.defaultDomainId !== undefined && { defaultDomainId: body.defaultDomainId }), ...(body.autoReply !== undefined && { autoReply: body.autoReply }) },
-      select: { id: true, defaultDomainId: true, autoReply: true },
+      data: {
+        ...(body.defaultDomainId !== undefined && { defaultDomainId: body.defaultDomainId }),
+        ...(body.autoReply !== undefined && { autoReply: body.autoReply }),
+        // no drafts, nothing to send: turning the drafts off turns sending off too
+        ...(body.autoReply === false && { autoSend: false }),
+        ...(body.autoSend !== undefined && { autoSend: body.autoSend }),
+        // switched on now: only drafts written from here on go out on their own
+        ...(body.autoSend && !page.autoSend && { autoSendSince: new Date() }),
+        ...(body.autoSendPerHour !== undefined && { autoSendPerHour: body.autoSendPerHour }),
+      },
+      select: { id: true, defaultDomainId: true, autoReply: true, autoSend: true, autoSendPerHour: true },
     });
     res.json({ success: true, data: updated });
   })

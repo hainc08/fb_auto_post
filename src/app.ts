@@ -18,6 +18,7 @@ import postsRoutes from './routes/posts.routes';
 import commentsRoutes from './routes/comments.routes';
 import commentsHubRoutes from './routes/comments-hub.routes';
 import reelRoutes from './routes/reel.routes';
+import firstCommentRoutes from './routes/first-comment.routes';
 import schedulesRoutes from './routes/schedules.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import settingsRoutes from './routes/settings.routes';
@@ -37,6 +38,7 @@ export const API_ROUTERS: ReadonlyArray<readonly [string, Router]> = [
   ['/api/posts', postsRoutes],
   ['/api/posts', commentsRoutes],
   ['/api/posts', reelRoutes],
+  ['/api/posts', firstCommentRoutes],
   ['/api/comments', commentsHubRoutes],
   ['/api/schedules', schedulesRoutes],
   ['/api/analytics', analyticsRoutes],
