@@ -46,7 +46,7 @@ router.get(
     const userId = req.user!.id;
     const pages = await prisma.facebookPage.findMany({
       where: { userId, isActive: true },
-      select: { id: true, pageName: true, pageAvatar: true, grantedScopes: true, autoReply: true, tokenStatus: true },
+      select: { id: true, pageName: true, pageAvatar: true, grantedScopes: true, autoReply: true, autoSend: true, tokenStatus: true },
       orderBy: { pageName: 'asc' },
     });
     const targets = await prisma.postTarget.findMany({
@@ -68,6 +68,7 @@ router.get(
             canRead: scopes.includes(COMMENT_READ_SCOPE),
             canReply: scopes.includes(COMMENT_REPLY_SCOPE),
             autoReply: p.autoReply,
+            autoSend: p.autoReply && p.autoSend,
             tokenValid: p.tokenStatus === 'VALID',
             posts: mine.length,
             postsWithComments: mine.filter((t) => (t.commentCount ?? 0) > 0).length,

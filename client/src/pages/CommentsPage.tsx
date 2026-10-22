@@ -135,7 +135,7 @@ export default function CommentsPage() {
             <span className="stat-label">Gợi ý AI chờ duyệt</span>
             <span className="stat-value">{current.drafts}</span>
             {current.autoReply ? (
-              <span className="stat-change">AI đang soạn trả lời cho Page này</span>
+              <span className="stat-change">{current.autoSend ? 'AI tự gửi trả lời; bình luận nhạy cảm chờ bạn duyệt' : 'AI đang soạn trả lời cho Page này'}</span>
             ) : (
               <Link to="/pages" className="stat-change" style={{ color: 'var(--primary-500)', fontWeight: 500 }}>Bật AI trả lời ở Kênh Facebook →</Link>
             )}

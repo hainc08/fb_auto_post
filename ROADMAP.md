@@ -84,6 +84,7 @@ Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `
 - ✅ (2026-10-05) AI soạn trả lời bình luận: bật theo từng Page, AI soạn sẵn câu trả lời cho bình luận mới theo "Hướng dẫn trả lời bình luận" của lĩnh vực; người dùng sửa, gửi từng câu hoặc gửi tất cả, bỏ gợi ý, tắt riêng cho một bài — plan docs/superpowers/plans/2026-10-05-comment-reply-drafts.md
 - ✅ (2026-10-05) Trang Bình luận: chọn Page → danh sách bài đã đăng kèm số bình luận chờ trả lời và số gợi ý AI → đọc và trả lời ngay trong trang; ô tổng quan cho từng Page, nút "Làm mới Page", huy hiệu số bình luận chờ trên menu — plan docs/superpowers/plans/2026-10-05-comments-hub.md
 - ✅ (2026-10-19) Bình luận đầu theo lĩnh vực: mẫu cấu hình trong trang Lĩnh vực; sau khi bài lên mỗi Page, app tự đăng mẫu làm bình luận đầu; lỗi không làm bài thất bại, có nút đăng lại — plan docs/superpowers/plans/2026-10-19-first-comment.md
+- ✅ (2026-10-21) Tự gửi trả lời bình luận: bật theo từng Page (cần bật AI soạn trả lời), câu AI soạn được gửi luôn, tối đa N câu mỗi giờ cho mỗi Page; bình luận có từ khoá nhạy cảm (đặt theo lĩnh vực, để trống dùng danh sách có sẵn), link hoặc số điện thoại vẫn chờ duyệt; câu Facebook từ chối hoặc không rõ đã nhận hay chưa thì chuyển về chờ duyệt, không bao giờ tự gửi lại
 
 ## Phase 3 — "Bộ não marketing" ⬜
 - **Brand Profile theo Page**: giọng văn, chân dung khách hàng, USP, từ cấm, CTA mặc định, emoji level

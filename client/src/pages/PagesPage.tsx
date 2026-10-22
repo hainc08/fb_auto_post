@@ -58,9 +58,25 @@ export default function PagesPage() {
 
   async function setAutoReply(id: string, autoReply: boolean) {
     try {
-      await pagesApi.setAutoReply(id, autoReply);
-      setPages((list) => list.map((p) => (p.id === id ? { ...p, autoReply } : p)));
+      const { data } = await pagesApi.setAutoReply(id, autoReply);
+      setPages((list) => list.map((p) => (p.id === id ? { ...p, autoReply, autoSend: data.autoSend } : p)));
       toast.success(autoReply ? 'Đã bật: AI sẽ soạn sẵn câu trả lời cho bình luận mới, bạn duyệt rồi gửi.' : 'Đã tắt AI soạn trả lời cho Page này.');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  }
+
+  async function setAutoSend(id: string, change: { autoSend?: boolean; autoSendPerHour?: number }) {
+    try {
+      const { data } = await pagesApi.setAutoSend(id, change);
+      setPages((list) => list.map((p) => (p.id === id ? { ...p, autoSend: data.autoSend, autoSendPerHour: data.autoSendPerHour } : p)));
+      if (change.autoSend !== undefined) {
+        toast.success(
+          change.autoSend
+            ? `Đã bật tự gửi: AI gửi tối đa ${data.autoSendPerHour} câu trả lời mỗi giờ; bình luận có từ khoá nhạy cảm, link hoặc số điện thoại vẫn chờ bạn duyệt.`
+            : 'Đã tắt tự gửi: các gợi ý AI chờ bạn duyệt như trước.'
+        );
+      } else toast.success(`Tối đa ${data.autoSendPerHour} câu tự gửi mỗi giờ.`);
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -206,6 +222,7 @@ export default function PagesPage() {
                       domains={domains}
                       onDomain={(domainId) => setDefaultDomain(p.id, domainId)}
                       onAutoReply={(on) => setAutoReply(p.id, on)}
+                      onAutoSend={(change) => setAutoSend(p.id, change)}
                       onCheck={() => checkOne(p.id)}
                       onDisconnect={() => disconnect(p.id)}
                     />
@@ -252,11 +269,12 @@ interface RowProps {
   domains: ContentDomain[];
   onDomain: (domainId: string | null) => void;
   onAutoReply: (on: boolean) => void;
+  onAutoSend: (change: { autoSend?: boolean; autoSendPerHour?: number }) => void;
   onCheck: () => void;
   onDisconnect: () => void;
 }
 
-function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onAutoReply, onCheck, onDisconnect }: RowProps) {
+function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onAutoReply, onAutoSend, onCheck, onDisconnect }: RowProps) {
   const expiresSoon = p.tokenExpiresAt && new Date(p.tokenExpiresAt).getTime() - Date.now() < 7 * DAY;
   return (
     <tr className={p.postable ? '' : 'blocked'}>
@@ -293,6 +311,27 @@ function PageRow({ page: p, appId, busy, confirming, domains, onDomain, onAutoRe
           <span className="switch-track" aria-hidden="true" />
           <span className="switch-label">{p.autoReply ? 'Đang bật' : 'Tắt'}</span>
         </label>
+        {p.autoReply && (
+          <div className="auto-send">
+            <label className="switch" title="Gửi luôn câu trả lời AI soạn, không chờ duyệt. Bình luận có từ khoá nhạy cảm (đặt trong Lĩnh vực), link hoặc số điện thoại vẫn chờ bạn duyệt.">
+              <input type="checkbox" checked={p.autoSend} onChange={(e) => onAutoSend({ autoSend: e.target.checked })} aria-label={`Tự gửi trả lời bình luận cho ${p.pageName}`} />
+              <span className="switch-track" aria-hidden="true" />
+              <span className="switch-label">{p.autoSend ? 'Tự gửi' : 'Duyệt rồi gửi'}</span>
+            </label>
+            {p.autoSend && (
+              <select
+                className="form-select select-sm"
+                aria-label={`Số câu tự gửi mỗi giờ cho ${p.pageName}`}
+                value={p.autoSendPerHour}
+                onChange={(e) => onAutoSend({ autoSendPerHour: Number(e.target.value) })}
+              >
+                {[...new Set([5, 10, 20, 30, 60, p.autoSendPerHour])].sort((a, b) => a - b).map((n) => (
+                  <option key={n} value={n}>Tối đa {n} câu/giờ</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
       </td>
       <td className="mono" data-label="Token do app">
         {p.tokenAppId ? (

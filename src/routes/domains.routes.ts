@@ -36,6 +36,7 @@ export const domainFields = {
   reelInstructions: text(2000),
   replyInstructions: text(2000),
   firstCommentTemplate: text(2000),
+  replyHoldKeywords: text(2000),
   sortOrder: z.number().int().min(0).max(1000).optional(),
 };
 
