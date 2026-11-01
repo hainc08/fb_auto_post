@@ -31,7 +31,7 @@ function listApiRoutes(): string[] {
   return out.sort();
 }
 
-type Ids = { postId: string; pageId: string; targetId: string; commentId: string; scheduleId: string; ideaId: string; templateId: string; domainId: string; formatId: string };
+type Ids = { postId: string; pageId: string; targetId: string; commentId: string; scheduleId: string; ideaId: string; templateId: string; domainId: string; formatId: string; productId: string };
 type Case =
   | { kind: 'foreign-id'; path: (b: Ids) => string; body?: unknown } // must 404
   | { kind: 'list'; path: string } // must not contain B's markers
@@ -153,6 +153,15 @@ const ROUTE_CASES: Record<string, Case> = {
   },
   'PATCH /api/domains/:id': { kind: 'foreign-id', path: (b) => `/api/domains/${b.domainId}`, body: { name: 'hack' } },
   'DELETE /api/domains/:id': { kind: 'foreign-id', path: (b) => `/api/domains/${b.domainId}` },
+  'GET /api/products': { kind: 'list', path: '/api/products?archived=1' },
+  'POST /api/products': {
+    kind: 'own-scope',
+    path: '/api/products',
+    body: { platform: 'SHOPEE', name: 'iso', url: 'https://s.shopee.vn/iso' },
+    why: 'gắn req.user.id',
+  },
+  'PATCH /api/products/:id': { kind: 'foreign-id', path: (b) => `/api/products/${b.productId}`, body: { name: 'hack' } },
+  'DELETE /api/products/:id': { kind: 'foreign-id', path: (b) => `/api/products/${b.productId}` },
   'POST /api/domains/:id/formats': {
     kind: 'foreign-id',
     path: (b) => `/api/domains/${b.domainId}/formats`,
@@ -278,6 +287,11 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       templateId: template.id,
       domainId: domain.id,
       formatId: domain.formats[0].id,
+      productId: (
+        await prisma.affiliateProduct.create({
+          data: { userId: userB.id, domainId: domain.id, platform: 'SHOPEE', name: `${B_MARK} sản phẩm`, url: 'https://s.shopee.vn/isob' },
+        })
+      ).id,
     };
   });
 
