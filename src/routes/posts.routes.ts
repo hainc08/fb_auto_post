@@ -213,7 +213,8 @@ router.get(
       include: {
         page: { select: { id: true, pageName: true, pageAvatar: true, pageId: true } },
         template: { select: { id: true, name: true } },
-        schedule: { select: { id: true, name: true } },
+        // paused or ended: the post page says why a queued post does not go out
+        schedule: { select: { id: true, name: true, isActive: true, endDate: true } },
         ...domainFormatSelect,
         logs: { orderBy: { createdAt: 'asc' } },
         ...targetInclude,
@@ -695,6 +696,10 @@ router.post(
     if (!post.scheduleQueued || post.status !== 'READY') {
       throw createError(400, 'Chỉ duyệt được bài của lịch đăng đã viết xong và đang chờ duyệt.');
     }
+    // No slot left (past the schedule's end date): approved, it would wait for ever
+    if (!post.scheduledAt) {
+      throw createError(409, 'Lịch đã hết khung giờ cho bài này (qua ngày kết thúc). Hãy đăng ngay hoặc hẹn giờ đăng riêng cho bài.');
+    }
     // Same Page checks as "Đăng": approving a post that cannot go out would fail silently later
     await assertOwnPages(req.user!.id, post.targets.map((t) => t.pageId));
     const { count } = await prisma.post.updateMany({
@@ -731,9 +736,6 @@ router.post(
 
     const post = await prisma.post.findFirst({ where: { id: req.params.id, userId: req.user!.id } });
     if (!post) throw createError(404, 'Post not found');
-    if (post.scheduleQueued) {
-      throw createError(400, 'Bài này thuộc một lịch đăng: hãy duyệt để đăng theo khung giờ của lịch, hoặc đăng ngay.');
-    }
     if (!post.caption?.trim() && !post.imagePath && !post.videoPath) {
       throw createError(400, 'Bài chưa có nội dung để hẹn giờ đăng.');
     }
@@ -748,14 +750,16 @@ router.post(
     if (!pageIds) await assertOwnPages(req.user!.id, targets.map((t) => t.pageId));
 
     const { count } = await prisma.post.updateMany({
-      where: { id: post.id, status: { in: TIMEABLE }, scheduleQueued: false },
-      data: { status: 'SCHEDULED', scheduledAt: at, approvedAt: new Date(), errorMessage: null, errorStep: null, errorCode: null },
+      where: { id: post.id, status: { in: TIMEABLE } },
+      // A post of a slot schedule leaves it, as with "Đăng ngay": the tick never takes it again
+      data: { status: 'SCHEDULED', scheduleQueued: false, scheduledAt: at, approvedAt: new Date(), errorMessage: null, errorStep: null, errorCode: null },
     });
     if (count === 0) throw createError(409, 'Bài đang được xử lý hoặc đang đăng, hãy chờ xong rồi thử lại.');
 
     // A job booked for an earlier time stays in the queue and does nothing (see claimTimedPost)
     // skipAi: the user approved what they saw; nothing is written by AI at the time
     await enqueuePost(post.id, req.user!.id, { scheduledFor: at, skipAi: true, intervalMs: intervalMinutes * 60_000 });
+    if (post.scheduleQueued) await prisma.postLog.create({ data: { postId: post.id, action: 'left_schedule', details: { scheduleId: post.scheduleId } } });
     await prisma.postLog.create({
       data: { postId: post.id, action: 'scheduled', details: { scheduledAt: at.toISOString(), pages: targets.length } },
     });
