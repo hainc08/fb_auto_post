@@ -35,3 +35,14 @@ export async function productsView(postId: string): Promise<{ products: PostProd
   const products = await productsOf(postId);
   return { products, affiliateBlock: linkBlock(products) };
 }
+
+/** A rotating schedule's next product: the domain's active product used least recently (never used first) */
+export async function pickNextProduct(tx: Prisma.TransactionClient, userId: string, domainId: string | null): Promise<string | null> {
+  if (!domainId) return null;
+  const next = await tx.affiliateProduct.findFirst({
+    where: { userId, domainId, isArchived: false },
+    orderBy: [{ lastUsedAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'asc' }],
+    select: { id: true },
+  });
+  return next?.id ?? null;
+}

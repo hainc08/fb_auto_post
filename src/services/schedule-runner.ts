@@ -13,6 +13,7 @@ import { config } from '../config';
 import { imageStyleOf, writePost } from './post-writer';
 import { cloudflareConfigFrom, generateImage } from './image.service';
 import { enqueuePost } from './scheduler.service';
+import { pickNextProduct, setPostProducts } from '../lib/post-products';
 
 /**
  * Slot schedules (Phase 2): posts written ahead by AI, approved by the user,
@@ -192,6 +193,9 @@ export async function tickSchedule(scheduleId: string, now = new Date()): Promis
         },
       });
       await tx.scheduleIdea.update({ where: { id: idea.id }, data: { postId: created.id } });
+      // "Tự gắn sản phẩm affiliate": the domain's products take turns
+      const productId = schedule.affiliateRotate ? await pickNextProduct(tx, schedule.userId, schedule.domainId) : null;
+      if (productId) await setPostProducts(tx, schedule.userId, created.id, [productId]);
       return created;
     });
     if (!post) continue;
