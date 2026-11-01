@@ -122,8 +122,12 @@ export async function reslot(scheduleId: string, now = new Date()): Promise<void
   for (const [i, post] of posts.entries()) {
     const at = slots[i] ?? null; // no slot left (end date): the post stays, without a time
     if (at?.getTime() === post.scheduledAt?.getTime()) continue;
-    await prisma.post.update({ where: { id: post.id }, data: { scheduledAt: at } });
-    await log(post.id, 'slot_moved', { to: at?.toISOString() ?? null });
+    // Only while it is still in the queue: a post published or timed by hand meanwhile keeps its own time
+    const { count } = await prisma.post.updateMany({
+      where: { id: post.id, scheduleQueued: true, status: { in: PENDING_STATUSES } },
+      data: { scheduledAt: at },
+    });
+    if (count) await log(post.id, 'slot_moved', { to: at?.toISOString() ?? null });
   }
 }
 

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import '../src/config';
 import prisma from '../src/utils/prisma';
 import { createApp } from '../src/app';
-import { runScheduleTick } from '../src/services/schedule-runner';
+import { reslot, runScheduleTick } from '../src/services/schedule-runner';
 import { saveSettings } from '../src/lib/settings';
 import { startTestServer, api } from './helpers/http';
 import { cleanupTestUsers, createTestUser } from './helpers/users';
@@ -122,5 +122,15 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('approving schedule posts', { timeout
     const post = await waiting();
     const detail = await api(server.baseUrl, 'GET', `/api/posts/${post.id}`, { cookie });
     expect(detail.json.data.schedule).toEqual({ id: scheduleId, name: 'L', isActive: true, endDate: null });
+  });
+  it('a post timed by hand while the schedule moves its slots keeps the time it was given', async () => {
+    const post = await waiting('READY', new Date(Date.now() - 60_000));
+    // reslot read the queue a moment ago, when the post was still in it
+    const stale = await prisma.post.findMany({ where: { id: post.id }, select: { id: true, status: true, scheduledAt: true, caption: true, imagePath: true, userId: true } });
+    const at = new Date(Math.ceil((Date.now() + 21 * 86_400_000) / 60_000) * 60_000);
+    expect((await api(server.baseUrl, 'POST', `/api/posts/${post.id}/schedule`, { cookie, body: { scheduledAt: at.toISOString() } })).status).toBe(200);
+    vi.spyOn(prisma.post, 'findMany').mockResolvedValueOnce(stale as never);
+    await reslot(scheduleId);
+    expect(await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).toMatchObject({ scheduleQueued: false, status: 'SCHEDULED', scheduledAt: at });
   });
 });
