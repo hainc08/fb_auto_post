@@ -5,6 +5,8 @@ import { toStringArray } from '../utils/json';
 import { getSettings, revealSecret } from '../lib/settings';
 import { readImage, saveImage } from '../lib/image-store';
 import { composeMessage } from '../lib/format-post';
+import { renderFirstComment, withLinkBlock } from '../lib/affiliate';
+import { productsOf } from '../lib/post-products';
 import { FacebookClient } from '../lib/clients/facebook';
 import { classifyFailure, UNCERTAIN_PUBLISH_MESSAGE } from '../lib/job-failure';
 import { enqueue, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobHandler, JobResult, JobType, JobWorker, WorkerOptions } from '../lib/job-queue';
@@ -55,6 +57,12 @@ export interface TargetJob {
 }
 
 // ─── Publish Pipeline ───────────────────────────
+
+/** The text published for a post: caption, hashtags, call to action, then its affiliate product links */
+export async function postMessageOf(post: { id: string; caption: string | null; hashtags: Prisma.JsonValue; callToAction: string | null }): Promise<string> {
+  return withLinkBlock(composeMessage(post.caption, toStringArray(post.hashtags), post.callToAction), await productsOf(post.id));
+}
+
 
 /**
  * The core auto-post pipeline that mirrors the n8n workflow, in two job types:
@@ -162,7 +170,7 @@ export async function runPublishJob(job: Job): Promise<void> {
     // ─── Step 3: Edit/Format Fields ───────────────
     // Built from the stored fields every time; `caption` itself is never modified
     step = 'compose_fields';
-    const finalMessage = composeMessage(post.caption, toStringArray(post.hashtags), post.callToAction);
+    const finalMessage = await postMessageOf(post);
 
     // ─── Step 4: Image (stored → publish as-is; else generate + store) ──
     // Generated once here, so every Page gets the same image
@@ -275,7 +283,7 @@ export async function runTargetJob(job: Job): Promise<void> {
     const blocked = blockReason(page, current.fbAppId);
     if (blocked) throw new UnrecoverableJobError(`Không đăng được lên Page này: ${blockMessage(blocked, page)}`);
 
-    const finalMessage = post.message ?? composeMessage(post.caption, toStringArray(post.hashtags), post.callToAction);
+    const finalMessage = post.message ?? (await postMessageOf(post));
     const image = post.imagePath ? await readImage(post.imagePath) : null;
     if (post.imagePath && !image) throw new UnrecoverableJobError('Không đọc được ảnh của bài trên máy chủ. Hãy tạo lại hoặc tải lại ảnh.');
     const video = post.videoPath ? await openVideo(post.videoPath) : null;
@@ -335,7 +343,7 @@ export async function runTargetJob(job: Job): Promise<void> {
     // The domain's first comment. Best effort: the post is live already, so a refused comment never fails this target
     try {
       const domain = post.domainId ? await prisma.contentDomain.findUnique({ where: { id: post.domainId }, select: { firstCommentTemplate: true } }) : null;
-      await postFirstComment(targetId, facebook, pageToken, domain?.firstCommentTemplate ?? null);
+      await postFirstComment(targetId, facebook, pageToken, renderFirstComment(domain?.firstCommentTemplate ?? null, await productsOf(post.id)));
     } catch (error) {
       logger.warn('[Pipeline] First comment could not be recorded', { postId: post.id, page: page.pageName, error: (error as Error).message });
     }

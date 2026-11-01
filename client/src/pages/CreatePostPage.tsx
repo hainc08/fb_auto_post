@@ -9,7 +9,9 @@ import {
   MAX_UPLOAD_BYTES,
   UPLOAD_TYPES,
   EMPTY_VIDEO,
+  linkBlockOf,
   type ContentDomain,
+  type PostProduct,
   type PageInfo,
   type PostUpdate,
   type VideoState,
@@ -17,6 +19,7 @@ import {
 import { useToast } from '../components/Toast';
 import { wordCount, pageInitials } from '../components/PostBits';
 import PromptPreview from '../components/PromptPreview';
+import ProductPicker from '../components/ProductPicker';
 import VideoField from '../components/VideoField';
 import SchedulePicker from '../components/SchedulePicker';
 import { slotLabel } from '../components/ScheduleBits';
@@ -92,6 +95,9 @@ export default function CreatePostPage() {
   const [savedPick, setSavedPick] = useState<{ domainId: string; formatId: string } | null>(null);
   const [writtenPick, setWrittenPick] = useState<string | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [productIds, setProductIds] = useState<string[]>([]);
+  const [pickedProducts, setPickedProducts] = useState<PostProduct[]>([]);
+  const [savedProductIds, setSavedProductIds] = useState<string[]>([]);
   const autoRan = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -175,15 +181,18 @@ export default function CreatePostPage() {
       const body: PostUpdate = {};
       if (idea.trim() !== savedIdea) body.idea = idea.trim();
       if (pick && (pick.domainId !== savedPick?.domainId || pick.formatId !== savedPick?.formatId)) Object.assign(body, pick);
+      if (productIds.join() !== savedProductIds.join()) body.productIds = productIds;
       if (Object.keys(body).length) {
         await postsApi.update(postId, body);
         setSavedIdea(idea.trim());
         if (pick) setSavedPick(pick);
+        setSavedProductIds(productIds);
       }
       return postId;
     }
-    const res = await postsApi.create({ pageIds: selectedPages.map((p) => p.id), inputData: { basicInfo: idea.trim() }, ...pick });
+    const res = await postsApi.create({ pageIds: selectedPages.map((p) => p.id), inputData: { basicInfo: idea.trim() }, ...pick, productIds });
     setPostId(res.data.id);
+    setSavedProductIds(productIds);
     setSavedIdea(idea.trim());
     setSavedPick({ domainId: res.data.domainId, formatId: res.data.formatId });
     return res.data.id;
@@ -265,9 +274,11 @@ export default function CreatePostPage() {
     if (!postId) return false;
     const body: PostUpdate = { caption, hashtags, imagePrompt };
     if (idea.trim() !== savedIdea) body.idea = idea.trim();
+    if (productIds.join() !== savedProductIds.join()) body.productIds = productIds;
     try {
       await postsApi.update(postId, body);
       setSavedIdea(idea.trim());
+      setSavedProductIds(productIds);
       if (!quiet) toast.success('Đã lưu bài vào danh sách "Chờ duyệt".');
       return true;
     } catch (e: any) {
@@ -495,6 +506,15 @@ export default function CreatePostPage() {
           {showPrompt && format && domain && (
             <PromptPreview key={`${formatId}:${idea}`} formats={domain.formats} formatId={formatId} idea={idea || 'ý tưởng của bạn'} pageId={page?.id} compact />
           )}
+          <ProductPicker
+            domainId={domainId || null}
+            value={productIds}
+            disabled={busy === 'writing' || busy === 'rewriting'}
+            onChange={(ids, picked) => {
+              setProductIds(ids);
+              setPickedProducts(picked);
+            }}
+          />
         </section>
 
         <section className="card stack" style={{ gap: 12 }}>
@@ -511,6 +531,12 @@ export default function CreatePostPage() {
             disabled={busy === 'writing' || busy === 'rewriting'}
             placeholder={busy === 'writing' ? 'AI đang viết…' : 'Nội dung sẽ hiện ở đây sau khi AI viết — bạn có thể sửa trực tiếp.'}
           />
+          {pickedProducts.length > 0 && (
+            <div className="affiliate-preview" aria-label="Link sản phẩm thêm vào cuối bài">
+              <span className="muted">Thêm tự động vào cuối bài và bình luận đầu khi đăng:</span>
+              <pre>{linkBlockOf(pickedProducts)}</pre>
+            </div>
+          )}
           <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
             <span className="muted" style={{ fontSize: 12.5 }}>Viết lại nhanh:</span>
             {QUICK_REWRITES.map((q) => (

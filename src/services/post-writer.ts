@@ -3,11 +3,13 @@ import prisma from '../utils/prisma';
 import { createError } from '../middleware/error.middleware';
 import type { AppSettings } from '../lib/settings';
 import { formatForPost } from '../lib/domains';
+import { productsOf } from '../lib/post-products';
 import { generatePostContent, generateWithFormat, type GeneratedContent } from './ai.service';
 
 /** One place that turns a post's idea into text — used by the route and the worker. */
 
 export interface WritablePost {
+  id: string;
   userId: string;
   pageId: string;
   formatId: string | null;
@@ -36,7 +38,8 @@ export async function writePost(post: WritablePost, settings: AppSettings): Prom
   if (!idea) throw createError(400, 'Hãy nhập ý tưởng / thông tin cơ bản cho bài viết.');
   const { domain, format } = await formatForPost(post);
   const page = await prisma.facebookPage.findUnique({ where: { id: post.pageId }, select: { pageName: true } });
-  const { prompt, ...generated } = await generateWithFormat({ gemini, domain, format, idea, pageName: page?.pageName });
+  const products = await productsOf(post.id);
+  const { prompt, ...generated } = await generateWithFormat({ gemini, domain, format, idea, pageName: page?.pageName, products });
   return { generated, aiPrompt: prompt, domainId: domain.id, formatId: format.id };
 }
 

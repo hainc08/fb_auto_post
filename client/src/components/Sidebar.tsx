@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown, LogOut, Users, Shapes, X, MessageCircle } from 'lucide-react';
+import { LayoutDashboard, PenLine, FileText, CalendarDays, Layers, SlidersHorizontal, ChevronsUpDown, LogOut, Users, Shapes, X, MessageCircle, ShoppingBag } from 'lucide-react';
 import { pagesApi, postsApi, settingsApi, type PublicSettings, commentsApi } from '../api';
 import { COMMENTS_CHANGED } from '../lib/comments-events';
 import { useAuth } from '../auth';
@@ -163,6 +163,10 @@ export default function Sidebar({ open = false, onClose }: Props) {
           <NavLink to="/domains" className={navClass}>
             <Shapes className="nav-icon" strokeWidth={1.8} />
             <span className="nav-label">Lĩnh vực</span>
+          </NavLink>
+          <NavLink to="/products" className={navClass}>
+            <ShoppingBag className="nav-icon" strokeWidth={1.8} />
+            <span className="nav-label">Sản phẩm affiliate</span>
           </NavLink>
         </div>
 

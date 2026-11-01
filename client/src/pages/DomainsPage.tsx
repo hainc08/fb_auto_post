@@ -355,7 +355,7 @@ export default function DomainsPage() {
                   onChange={(e) => set('firstCommentTemplate')(e.target.value)}
                   placeholder="VD: Sản phẩm trong bài: https://example.com/sp"
                 />
-                <p className="field-hint">Sau khi bài lên mỗi Page, app đăng nội dung này làm bình luận đầu của Page đó. Để trống: không đăng bình luận đầu.</p>
+                <p className="field-hint">Sau khi bài lên mỗi Page, app đăng nội dung này làm bình luận đầu của Page đó. Để trống: không đăng bình luận đầu. Viết <code>{'{san_pham}'}</code> để chèn link các sản phẩm affiliate của bài vào đúng chỗ đó; không có thì link được thêm ở cuối.</p>
               </fieldset>
 
               <div className="row domain-actions">

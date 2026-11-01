@@ -720,11 +720,12 @@ export default function PostsPage() {
   );
 }
 
-/** Same composition the publish worker uses (caption + hashtags + CTA). */
+/** Same composition the publish worker uses (caption + hashtags + CTA + affiliate product links). */
 function composeMessage(post: any): string {
   let msg = (post.caption ?? '').trim();
   const tags: string[] = Array.isArray(post.hashtags) ? post.hashtags : [];
   if (tags.length) msg += `\n\n${tags.map((h) => `#${h.replace(/^#+/, '')}`).join(' ')}`;
   if (post.callToAction) msg += `\n\n👉 ${post.callToAction}`;
+  if (post.affiliateBlock) msg += `\n\n${post.affiliateBlock}`;
   return msg;
 }

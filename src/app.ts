@@ -13,6 +13,7 @@ import adminRoutes from './routes/admin.routes';
 import pagesRoutes from './routes/pages.routes';
 import templatesRoutes from './routes/templates.routes';
 import domainsRoutes from './routes/domains.routes';
+import productsRoutes from './routes/products.routes';
 import formatsRoutes from './routes/formats.routes';
 import postsRoutes from './routes/posts.routes';
 import commentsRoutes from './routes/comments.routes';
@@ -34,6 +35,7 @@ export const API_ROUTERS: ReadonlyArray<readonly [string, Router]> = [
   ['/api/pages', pagesRoutes],
   ['/api/templates', templatesRoutes],
   ['/api/domains', domainsRoutes],
+  ['/api/products', productsRoutes],
   ['/api/formats', formatsRoutes],
   ['/api/posts', postsRoutes],
   ['/api/posts', commentsRoutes],

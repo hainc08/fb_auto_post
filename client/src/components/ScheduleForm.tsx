@@ -26,6 +26,7 @@ export default function ScheduleForm({ initial, onClose, onSaved }: Props) {
   const [weekdays, setWeekdays] = useState<number[]>(initial?.weekdays ?? [1, 2, 3, 4, 5]);
   const [slots, setSlots] = useState<string[]>(initial?.slots ?? ['08:00']);
   const [bufferSize, setBufferSize] = useState(initial?.bufferSize ?? 3);
+  const [affiliateRotate, setAffiliateRotate] = useState(initial?.affiliateRotate ?? false);
   const [domainId, setDomainId] = useState(initial?.domain?.id ?? '');
   const [formatId, setFormatId] = useState(initial?.format?.id ?? '');
   const [startDay, setStartDay] = useState(initial ? isoToDay(initial.startDate) : todayVN());
@@ -54,6 +55,7 @@ export default function ScheduleForm({ initial, onClose, onSaved }: Props) {
         weekdays,
         slots,
         bufferSize,
+        affiliateRotate,
         startDate: dayStartIso(startDay || todayVN()),
         endDate: endDay ? dayStartIso(endDay) : null,
         ...(domain && { domainId: domain.id }),
@@ -203,6 +205,14 @@ export default function ScheduleForm({ initial, onClose, onSaved }: Props) {
               <label className="form-label" htmlFor="sf-end">Kết thúc (tuỳ chọn)</label>
               <input id="sf-end" type="date" className="form-input" value={endDay} onChange={(e) => setEndDay(e.target.value)} />
             </div>
+          </div>
+
+          <div className="form-group">
+            <label className="check-item">
+              <input type="checkbox" checked={affiliateRotate} onChange={(e) => setAffiliateRotate(e.target.checked)} />
+              Tự gắn sản phẩm affiliate của lĩnh vực (xoay vòng)
+            </label>
+            <p className="field-hint">Mỗi bài lịch viết được gắn lần lượt một sản phẩm của lĩnh vực (trang Sản phẩm affiliate): AI nhắc sản phẩm, link được thêm vào cuối bài và bình luận đầu.</p>
           </div>
 
           {!initial && (

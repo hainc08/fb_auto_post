@@ -15,6 +15,7 @@ import SchedulesPage from './pages/SchedulesPage';
 import ScheduleDetailPage from './pages/ScheduleDetailPage';
 import SettingsPage from './pages/SettingsPage';
 import DomainsPage from './pages/DomainsPage';
+import ProductsPage from './pages/ProductsPage';
 import UsersPage from './pages/UsersPage';
 import { ProtectedRoute } from './auth';
 
@@ -120,6 +121,16 @@ export default function App() {
             <ProtectedRoute>
               <AppLayout>
                 <DomainsPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/products"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <ProductsPage />
               </AppLayout>
             </ProtectedRoute>
           }

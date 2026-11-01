@@ -26,6 +26,12 @@ enum UserRole {
 }
 
 /// Target length of a post format: SHORT 80–120 · MEDIUM 150–250 · LONG 300–450 words
+enum AffiliatePlatform {
+  SHOPEE
+  LAZADA
+  TIKTOK
+}
+
 enum FormatLength {
   SHORT
   MEDIUM
@@ -136,6 +142,7 @@ model User {
   apiKeys   ApiKey[]
   settings  Setting[]
   domains   ContentDomain[]
+  affiliateProducts AffiliateProduct[]
 
   @@map("users")
 }
@@ -320,6 +327,7 @@ model Post {
   logs     PostLog[]
   steps    PostStep[]
   targets  PostTarget[]
+  products PostProduct[]
 
   @@index([userId, status])
   @@index([scheduledAt])
@@ -386,6 +394,8 @@ model PostSchedule {
   slots      Json?
   /// Posts kept written ahead for the next slots
   bufferSize Int   @default(3)
+  /// Each post the schedule writes gets the domain's next affiliate product (src/lib/post-products.ts pickNextProduct)
+  affiliateRotate Boolean @default(false)
 
   // Tracking
   lastRunAt DateTime?
@@ -560,6 +570,7 @@ model ContentDomain {
 
   user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   formats   ContentFormat[]
+  affiliateProducts AffiliateProduct[]
   pages     FacebookPage[]
   posts     Post[]
   schedules PostSchedule[]
@@ -590,4 +601,42 @@ model ContentFormat {
 
   @@unique([domainId, name])
   @@map("content_formats")
+}
+
+// ─── Affiliate products (Shopee, Lazada, TikTok Shop links of the member) ───
+
+model AffiliateProduct {
+  id         String            @id @default(uuid())
+  userId     String
+  domainId   String?
+  platform   AffiliatePlatform
+  name       String            @db.VarChar(200)
+  url        String            @db.Text
+  price      String?           @db.VarChar(50)
+  highlights String?           @db.VarChar(500) // selling points the AI may mention
+  isArchived Boolean           @default(false)
+  lastUsedAt DateTime? // last attached to a post: the least recently used is suggested and rotated first
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domain ContentDomain? @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  posts  PostProduct[]
+
+  @@index([userId, domainId])
+  @@map("affiliate_products")
+}
+
+/// The products a post promotes (≤ 3), in order
+model PostProduct {
+  postId    String
+  productId String
+  sortOrder Int    @default(0)
+
+  post    Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
+  product AffiliateProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([postId, productId])
+  @@index([productId])
+  @@map("post_products")
 }

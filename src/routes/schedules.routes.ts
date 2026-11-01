@@ -37,6 +37,8 @@ const scheduleFields = {
   endDate: z.string().datetime().nullable(),
   domainId: z.string().uuid(),
   formatId: z.string().uuid(),
+  /** Each post the schedule writes gets the domain's next affiliate product */
+  affiliateRotate: z.boolean(),
 };
 
 const createSchema = z.object({
@@ -46,6 +48,7 @@ const createSchema = z.object({
   endDate: scheduleFields.endDate.optional(),
   domainId: scheduleFields.domainId.optional(),
   formatId: scheduleFields.formatId.optional(),
+  affiliateRotate: scheduleFields.affiliateRotate.default(false),
   ideas: z.array(z.string()).max(50, 'Tối đa 50 ý tưởng mỗi lần').optional(),
 });
 const updateSchema = z
@@ -161,6 +164,7 @@ router.post(
         endDate,
         domainId: picked.domain.id,
         formatId: picked.format.id,
+        affiliateRotate: data.affiliateRotate,
         pages: { create: pageIds.map((pageId) => ({ pageId })) },
       },
     });
@@ -197,6 +201,7 @@ router.put(
           endDate,
           ...(pageIds && { pageId: pageIds[0] }),
           ...(picked && { domainId: picked.domain.id, formatId: picked.format.id }),
+          ...(data.affiliateRotate !== undefined && { affiliateRotate: data.affiliateRotate }),
         },
       }),
       ...(pageIds

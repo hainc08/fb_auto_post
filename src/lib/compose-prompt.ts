@@ -3,6 +3,8 @@
  * Pure functions: no I/O, fully unit-tested.
  */
 
+import { productPromptBlock, type LinkProduct } from './affiliate';
+
 export type FormatLength = 'SHORT' | 'MEDIUM' | 'LONG';
 
 export const LENGTH_WORDS: Record<FormatLength, string> = { SHORT: '80–120', MEDIUM: '150–250', LONG: '300–450' };
@@ -41,10 +43,16 @@ export function buildIdeaPrompt(systemPrompt: string, idea: string): string {
   return withIdea !== systemPrompt ? withIdea : `${systemPrompt}\n\nThông tin cơ bản:\n${idea.trim()}`;
 }
 
-export function composePrompt(input: { domain: PromptDomain; format: PromptFormat; idea: string; pageName?: string | null }): string {
+export function composePrompt(input: { domain: PromptDomain; format: PromptFormat; idea: string; pageName?: string | null; products?: LinkProduct[] }): string {
   const { domain, format } = input;
   const idea = input.idea.trim();
-  if (format.legacyPrompt) return buildIdeaPrompt(format.instructions, input.idea);
+  const products = productPromptBlock(input.products ?? []);
+  if (format.legacyPrompt) {
+    const legacy = buildIdeaPrompt(format.instructions, input.idea);
+    return products ? `${legacy}
+
+${products}` : legacy;
+  }
 
   let ideaUsed = false;
   const audience = (domain.audience ?? '').trim();
@@ -78,6 +86,7 @@ export function composePrompt(input: { domain: PromptDomain; format: PromptForma
       format.withImage
         ? `image_prompt: tiếng Anh; mô tả chủ thể, bối cảnh, ánh sáng${style ? `; phong cách: ${style}` : ''}; không chữ, không logo, không người nổi tiếng.`
         : '',
+      products,
       'Chỉ trả về JSON đúng schema.',
     ],
   ];
