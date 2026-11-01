@@ -207,6 +207,7 @@ CREATE TABLE `post_schedules` (
     `weekdays` JSON NULL,
     `slots` JSON NULL,
     `bufferSize` INTEGER NOT NULL DEFAULT 3,
+    `affiliateRotate` BOOLEAN NOT NULL DEFAULT false,
     `lastRunAt` DATETIME(3) NULL,
     `nextRunAt` DATETIME(3) NULL,
     `totalRuns` INTEGER NOT NULL DEFAULT 0,
@@ -362,6 +363,35 @@ CREATE TABLE `content_formats` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `affiliate_products` (
+    `id` VARCHAR(191) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `domainId` VARCHAR(191) NULL,
+    `platform` ENUM('SHOPEE', 'LAZADA', 'TIKTOK') NOT NULL,
+    `name` VARCHAR(200) NOT NULL,
+    `url` TEXT NOT NULL,
+    `price` VARCHAR(50) NULL,
+    `highlights` VARCHAR(500) NULL,
+    `isArchived` BOOLEAN NOT NULL DEFAULT false,
+    `lastUsedAt` DATETIME(3) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `affiliate_products_userId_domainId_idx`(`userId`, `domainId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `post_products` (
+    `postId` VARCHAR(191) NOT NULL,
+    `productId` VARCHAR(191) NOT NULL,
+    `sortOrder` INTEGER NOT NULL DEFAULT 0,
+
+    INDEX `post_products_productId_idx`(`productId`),
+    PRIMARY KEY (`postId`, `productId`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `api_keys` ADD CONSTRAINT `api_keys_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -437,3 +467,14 @@ ALTER TABLE `content_domains` ADD CONSTRAINT `content_domains_userId_fkey` FOREI
 -- AddForeignKey
 ALTER TABLE `content_formats` ADD CONSTRAINT `content_formats_domainId_fkey` FOREIGN KEY (`domainId`) REFERENCES `content_domains`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE `affiliate_products` ADD CONSTRAINT `affiliate_products_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `affiliate_products` ADD CONSTRAINT `affiliate_products_domainId_fkey` FOREIGN KEY (`domainId`) REFERENCES `content_domains`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `post_products` ADD CONSTRAINT `post_products_postId_fkey` FOREIGN KEY (`postId`) REFERENCES `posts`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `post_products` ADD CONSTRAINT `post_products_productId_fkey` FOREIGN KEY (`productId`) REFERENCES `affiliate_products`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
