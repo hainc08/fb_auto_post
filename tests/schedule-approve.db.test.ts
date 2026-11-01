@@ -13,7 +13,7 @@ let userId: string;
 let pageId: string;
 let scheduleId: string;
 
-async function waiting(status: 'READY' | 'DRAFT' = 'READY', at = new Date(Date.now() + 3600_000)) {
+async function waiting(status: 'READY' | 'DRAFT' | 'SCHEDULED' = 'READY', at: Date | null = new Date(Date.now() + 3600_000)) {
   return prisma.post.create({
     data: {
       userId,
@@ -22,7 +22,8 @@ async function waiting(status: 'READY' | 'DRAFT' = 'READY', at = new Date(Date.n
       scheduleQueued: true,
       scheduledAt: at,
       status,
-      caption: status === 'READY' ? 'Bài' : null,
+      caption: status === 'DRAFT' ? null : 'Bài',
+      approvedAt: status === 'SCHEDULED' ? new Date() : null,
       targets: { create: { pageId } },
     },
   });
@@ -95,5 +96,31 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('approving schedule posts', { timeout
     await prisma.post.update({ where: { id: post.id }, data: { status: 'SCHEDULED' } }); // even if it looked approved
     await runScheduleTick(new Date(), { id: scheduleId });
     expect(await prisma.job.count({ where: { type: 'publish_post', payload: { path: '$.postId', equals: post.id } } })).toBe(1);
+  });
+
+  it('"Đăng ngay" publishes an approved post whose slot passed in a paused schedule, and the tick leaves it', async () => {
+    const post = await waiting('SCHEDULED', new Date(Date.now() - 2 * 3600_000));
+    await prisma.postSchedule.update({ where: { id: scheduleId }, data: { isActive: false } });
+    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/publish`, { cookie, body: {} });
+    await prisma.postSchedule.update({ where: { id: scheduleId }, data: { isActive: true } });
+    expect(res.status).toBe(200);
+    expect(await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).toMatchObject({ scheduleQueued: false, status: 'GENERATING' });
+    await runScheduleTick(new Date(), { id: scheduleId });
+    expect(await prisma.job.count({ where: { type: 'publish_post', payload: { path: '$.postId', equals: post.id } } })).toBe(1);
+  });
+
+  it('approving a post with no slot left is refused with the way out', async () => {
+    const post = await waiting('READY', null);
+    const res = await api(server.baseUrl, 'POST', `/api/posts/${post.id}/approve`, { cookie });
+    expect(res.status).toBe(409);
+    expect(res.json.error).toMatch(/hết khung giờ/);
+    expect(res.json.error).toMatch(/hẹn giờ/);
+    expect((await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).status).toBe('READY');
+  });
+
+  it('the post page tells whether the schedule is paused or ended', async () => {
+    const post = await waiting();
+    const detail = await api(server.baseUrl, 'GET', `/api/posts/${post.id}`, { cookie });
+    expect(detail.json.data.schedule).toEqual({ id: scheduleId, name: 'L', isActive: true, endDate: null });
   });
 });

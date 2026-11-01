@@ -102,11 +102,18 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('timed posts: API', { timeout: 60_000
     expect(await jobsOf(post.id)).toHaveLength(0);
   });
 
-  it('refuses a post of a slot schedule, a post with no content, and a post in progress', async () => {
+  it('a post of a slot schedule can be timed: it leaves the schedule', async () => {
     const owned = await draft({ scheduleQueued: true, scheduledAt: inHours(3) });
-    const res = await setTime(owned.id, inHours(5));
-    expect(res.status).toBe(400);
-    expect(res.json.error).toMatch(/lịch đăng/);
+    const at = inHours(5);
+    expect((await setTime(owned.id, at)).status).toBe(200);
+    expect(await row(owned.id)).toMatchObject({ scheduleQueued: false, status: 'SCHEDULED', scheduledAt: at });
+    expect(await jobsOf(owned.id)).toHaveLength(1);
+    // cancelling makes it an ordinary post waiting for approval; it does not rejoin the schedule
+    expect((await api(server.baseUrl, 'DELETE', `/api/posts/${owned.id}/schedule`, { cookie })).status).toBe(200);
+    expect(await row(owned.id)).toMatchObject({ status: 'READY', scheduleQueued: false, scheduledAt: null });
+  });
+
+  it('refuses a post with no content and a post in progress', async () => {
     const empty = await draft({ caption: null, status: 'DRAFT' });
     expect((await setTime(empty.id, inHours(5))).json.error).toMatch(/chưa có nội dung/);
     const busy = await draft({ status: 'PUBLISHING' });
@@ -121,7 +128,6 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('timed posts: API', { timeout: 60_000
     const again = await setTime(live.id, inHours(5));
     expect(again.status).toBe(400);
     expect(again.json.error).toMatch(/đã được đăng/);
-    expect((await api(server.baseUrl, 'DELETE', `/api/posts/${owned.id}/schedule`, { cookie })).status).toBe(400);
   });
 
   it('a blocked Page refuses the time', async () => {
