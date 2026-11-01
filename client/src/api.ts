@@ -294,6 +294,71 @@ export interface FormatPreview {
   imagePrompt?: string;
 }
 
+// ─── Affiliate products ─────────────────────────
+
+export type AffiliatePlatform = 'SHOPEE' | 'LAZADA' | 'TIKTOK';
+
+export const PLATFORM_LABEL: Record<AffiliatePlatform, string> = { SHOPEE: 'Shopee', LAZADA: 'Lazada', TIKTOK: 'TikTok Shop' };
+
+/** Mirrors platformOf in src/lib/affiliate.ts: the platform guessed from a pasted link */
+export function platformOf(url: string): AffiliatePlatform | null {
+  let host: string;
+  try {
+    host = new URL(url.trim()).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  const on = (...domains: string[]) => domains.some((d) => host === d || host.endsWith(`.${d}`));
+  if (on('shopee.vn', 'shope.ee')) return 'SHOPEE';
+  if (on('lazada.vn')) return 'LAZADA';
+  if (on('tiktok.com')) return 'TIKTOK';
+  return null;
+}
+
+/** Mirrors linkBlock in src/lib/affiliate.ts: what is added at the end of the post and in the first comment */
+export function linkBlockOf(products: Array<{ name: string; url: string; platform: AffiliatePlatform }>): string {
+  if (!products.length) return '';
+  return ['🛒 Mua ở đây:', ...products.map((p) => `👉 ${p.name} (${PLATFORM_LABEL[p.platform]}): ${p.url}`)].join('\n');
+}
+
+export interface AffiliateProduct {
+  id: string;
+  platform: AffiliatePlatform;
+  name: string;
+  url: string;
+  price: string | null;
+  highlights: string | null;
+  domainId: string | null;
+  isArchived: boolean;
+  lastUsedAt: string | null;
+  /** Posts it is attached to */
+  usedCount?: number;
+}
+
+/** A product as a post carries it */
+export type PostProduct = Pick<AffiliateProduct, 'id' | 'platform' | 'name' | 'url' | 'price' | 'highlights' | 'isArchived'>;
+
+export interface ProductInput {
+  platform?: AffiliatePlatform;
+  name?: string;
+  url?: string;
+  price?: string | null;
+  highlights?: string | null;
+  domainId?: string | null;
+  isArchived?: boolean;
+}
+
+export const productsApi = {
+  list: (opts: { archived?: boolean; domainId?: string } = {}) => {
+    const q = new URLSearchParams({ ...(opts.archived && { archived: '1' }), ...(opts.domainId && { domainId: opts.domainId }) }).toString();
+    return apiFetch<AffiliateProduct[]>(`/products${q ? `?${q}` : ''}`);
+  },
+  create: (body: ProductInput & { platform: AffiliatePlatform; name: string; url: string }) =>
+    apiFetch<AffiliateProduct>('/products', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: ProductInput) => apiFetch<AffiliateProduct>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  remove: (id: string) => apiFetch(`/products/${id}`, { method: 'DELETE' }),
+};
+
 export const domainsApi = {
   list: (archived = false) => apiFetch<ContentDomain[]>(`/domains${archived ? '?archived=1' : ''}`),
   create: (body: DomainInput & { name: string; format: FormatInput & { name: string; instructions: string } }) =>
@@ -341,6 +406,8 @@ export interface PostUpdate {
   domainId?: string;
   formatId?: string;
   videoKind?: VideoKind;
+  /** Affiliate products, in order (≤ 3) */
+  productIds?: string[];
 }
 
 export interface PostCommentRow {
@@ -638,6 +705,8 @@ export interface ScheduleSummary {
   queuedCount: number;
   awaitingApproval: number;
   nextSlotAt: string | null;
+  /** Each post the schedule writes gets the domain's next affiliate product */
+  affiliateRotate: boolean;
 }
 
 export interface ScheduleDetail extends ScheduleSummary {
@@ -655,6 +724,7 @@ export interface ScheduleInput {
   endDate?: string | null;
   domainId?: string;
   formatId?: string;
+  affiliateRotate?: boolean;
   ideas?: string[];
 }
 

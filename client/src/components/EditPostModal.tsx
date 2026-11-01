@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { X, Save, Wand2, Hash, Lock, RefreshCw, Upload, Trash2, ImageIcon } from 'lucide-react';
-import { postsApi, assetUrl, MAX_UPLOAD_BYTES, UPLOAD_TYPES, EMPTY_VIDEO, type PostUpdate, type VideoState } from '../api';
+import { postsApi, assetUrl, linkBlockOf, MAX_UPLOAD_BYTES, UPLOAD_TYPES, EMPTY_VIDEO, type PostProduct, type PostUpdate, type VideoState } from '../api';
 import { useToast } from './Toast';
 import VideoField from './VideoField';
+import ProductPicker from './ProductPicker';
 
 interface Props {
   postId: string;
@@ -15,6 +16,8 @@ interface FormState {
   hashtags: string[];
   callToAction: string;
   imagePrompt: string;
+  /** Affiliate products, in order */
+  productIds: string[];
 }
 
 const EDITABLE = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'];
@@ -37,14 +40,17 @@ function toForm(post: any): FormState {
     hashtags: Array.isArray(post.hashtags) ? post.hashtags.map(normalizeTag).filter(Boolean) : [],
     callToAction: post.callToAction ?? '',
     imagePrompt: post.imagePrompt ?? '',
+    productIds: (post.products ?? []).map((p: PostProduct) => p.id),
   };
 }
 
-/** Same composition the publish worker uses */
-function composeMessage(f: FormState): string {
+/** Same composition the publish worker uses, product links last */
+function composeMessage(f: FormState, products: PostProduct[]): string {
   let msg = f.caption;
   if (f.hashtags.length) msg += `\n\n${f.hashtags.map((h) => `#${h}`).join(' ')}`;
   if (f.callToAction.trim()) msg += `\n\n👉 ${f.callToAction.trim()}`;
+  const links = linkBlockOf(products);
+  if (links) msg += `\n\n${links}`;
   return msg;
 }
 
@@ -61,12 +67,15 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [imageBusy, setImageBusy] = useState<null | 'generate' | 'upload' | 'remove'>(null);
   const [videoBusy, setVideoBusy] = useState(false);
+  /** The products ticked now, for the preview */
+  const [picked, setPicked] = useState<PostProduct[]>([]);
 
   useEffect(() => {
     postsApi
       .get(postId)
       .then((r) => {
         setPost(r.data);
+        setPicked(r.data.products ?? []);
         setForm(toForm(r.data));
         setInitial(toForm(r.data));
       })
@@ -86,6 +95,7 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
     if (JSON.stringify(form.hashtags) !== JSON.stringify(initial.hashtags)) out.hashtags = form.hashtags;
     if (form.callToAction !== initial.callToAction) out.callToAction = form.callToAction;
     if (form.imagePrompt !== initial.imagePrompt) out.imagePrompt = form.imagePrompt;
+    if (form.productIds.join() !== initial.productIds.join()) out.productIds = form.productIds;
     return out;
   };
 
@@ -234,7 +244,7 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
 
   const hook = form.caption.slice(0, HOOK_LENGTH);
   const rest = form.caption.slice(HOOK_LENGTH);
-  const message = composeMessage(form);
+  const message = composeMessage(form, picked);
   const video: VideoState = {
     videoUrl: post.videoUrl ?? null,
     videoKind: post.videoKind ?? null,
@@ -329,6 +339,19 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
               <input id="edit-cta" className="form-input" value={form.callToAction} disabled={!editable}
                 placeholder="VD: Bạn đang giao việc gì cho AI? Kể mình nghe dưới bình luận 👇"
                 onChange={(e) => setForm({ ...form, callToAction: e.target.value })} />
+            </div>
+
+            <div className="form-group">
+              <ProductPicker
+                domainId={post.domainId ?? null}
+                value={form.productIds}
+                attached={post.products ?? []}
+                disabled={!editable}
+                onChange={(ids, products) => {
+                  setForm({ ...form, productIds: ids });
+                  setPicked(products);
+                }}
+              />
             </div>
 
             {video.videoUrl ? (
