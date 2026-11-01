@@ -5,6 +5,8 @@ import { asyncHandler, createError } from '../middleware/error.middleware';
 import { getSettings, revealSecret } from '../lib/settings';
 import { FacebookClient } from '../lib/clients/facebook';
 import { postFirstComment } from '../services/first-comment';
+import { renderFirstComment } from '../lib/affiliate';
+import { productsOf } from '../lib/post-products';
 
 /**
  * "Đăng lại bình luận đầu" (mounted at /api/posts): post the domain's first comment again on one Page
@@ -28,12 +30,13 @@ router.post(
     const domain = target.post.domainId
       ? await prisma.contentDomain.findFirst({ where: { id: target.post.domainId, userId: req.user!.id }, select: { firstCommentTemplate: true } })
       : null;
-    if (!domain?.firstCommentTemplate?.trim()) throw createError(400, 'Lĩnh vực của bài chưa có mẫu bình luận đầu.');
+    const text = renderFirstComment(domain?.firstCommentTemplate ?? null, await productsOf(target.postId));
+    if (!text) throw createError(400, 'Lĩnh vực của bài chưa có mẫu bình luận đầu.');
 
     const settings = await getSettings(req.user!.id);
     const pageToken = revealSecret(target.page.pageAccessToken);
     const facebook = new FacebookClient({ appId: settings.fbAppId, appSecret: settings.fbAppSecret, graphVersion: settings.fbGraphVersion }, [pageToken]);
-    const status = await postFirstComment(target.id, facebook, pageToken, domain.firstCommentTemplate);
+    const status = await postFirstComment(target.id, facebook, pageToken, text);
     const after = await prisma.postTarget.findUniqueOrThrow({ where: { id: target.id }, select: { firstCommentError: true } });
     res.json({ success: true, data: { status, error: after.firstCommentError } });
   })

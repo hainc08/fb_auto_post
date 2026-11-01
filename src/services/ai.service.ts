@@ -7,6 +7,7 @@ import { buildIdeaPrompt, composePrompt, mergeHashtags, type PromptDomain, type 
 
 export { buildIdeaPrompt };
 import { buildIdeaSuggestPrompt, cleanSuggestions } from '../lib/idea-suggest';
+import type { LinkProduct } from '../lib/affiliate';
 
 /**
  * AI Service - Google Gemini Integration
@@ -70,6 +71,8 @@ export async function generateWithFormat(input: {
   format: PromptFormat;
   idea: string;
   pageName?: string | null;
+  /** Affiliate products the post promotes: the AI mentions them, the links are added when publishing */
+  products?: LinkProduct[];
 }): Promise<GeneratedContent & { prompt: string }> {
   const prompt = composePrompt(input);
   const request = { systemInstruction: prompt, prompt: `Viết bài Facebook cho ý tưởng: ${input.idea.trim()}`, temperature: 0.7 };

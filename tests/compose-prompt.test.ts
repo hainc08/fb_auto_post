@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildIdeaPrompt, composePrompt, mergeHashtags, styledImagePrompt, type PromptDomain, type PromptFormat } from '../src/lib/compose-prompt';
+import { productPromptBlock, type LinkProduct } from '../src/lib/affiliate';
 
 const domain: PromptDomain = {
   name: 'Tiếng Nhật',
@@ -95,5 +96,28 @@ describe('styledImagePrompt', () => {
   it('prefixes the domain style when there is one', () => {
     expect(styledImagePrompt(' watercolor ', ' a cat ')).toBe('watercolor. a cat');
     expect(styledImagePrompt(null, 'a cat')).toBe('a cat');
+  });
+});
+
+const products: LinkProduct[] = [{ name: 'Bình xịt 16L', url: 'https://s.shopee.vn/a', platform: 'SHOPEE', price: '450.000đ', highlights: 'pin 12 tiếng' }];
+
+describe('composePrompt with affiliate products', () => {
+  it('adds the product block before the JSON line', () => {
+    const prompt = composePrompt({ domain, format, idea: 'Cách chào sếp', products });
+    expect(prompt).toContain(`${productPromptBlock(products)}
+Chỉ trả về JSON đúng schema.`);
+    expect(prompt).not.toContain('https://s.shopee.vn/a');
+  });
+
+  it('no products, no block', () => {
+    expect(composePrompt({ domain, format, idea: 'Cách chào sếp', products: [] })).toBe(composePrompt({ domain, format, idea: 'Cách chào sếp' }));
+  });
+
+  it('the legacy prompt gets the block after the idea', () => {
+    const legacy = { ...format, legacyPrompt: true, instructions: 'Viết bài về: {{basicInfo}}' };
+    const prompt = composePrompt({ domain, format: legacy, idea: 'Cách chào sếp', products });
+    expect(prompt).toBe(`${buildIdeaPrompt(legacy.instructions, 'Cách chào sếp')}
+
+${productPromptBlock(products)}`);
   });
 });

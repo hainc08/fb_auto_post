@@ -73,6 +73,15 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('re-post a failed first comment', { t
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it('re-posting from the post page renders {san_pham}', async () => {
+    const s = await setup('Mua tại:\n{san_pham}');
+    const product = await prisma.affiliateProduct.create({ data: { userId: s.post.userId, platform: 'TIKTOK', name: 'Hạt giống', url: 'https://vt.tiktok.com/x' } });
+    await prisma.postProduct.create({ data: { postId: s.post.id, productId: product.id } });
+    const spy = vi.spyOn(FacebookClient.prototype, 'createComment').mockResolvedValue({ id: 'FCR_C_2' });
+    expect((await repost(s.cookie, s.post.id, s.target.id)).json.data.status).toBe('posted');
+    expect(spy.mock.calls[0][2]).toBe('Mua tại:\n🛒 Mua ở đây:\n👉 Hạt giống (TikTok Shop): https://vt.tiktok.com/x');
+  });
+
   it('another member gets 404 for the post and its Page', async () => {
     const s = await setup('Link');
     const other = await createTestUser();

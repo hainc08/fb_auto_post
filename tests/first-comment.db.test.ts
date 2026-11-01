@@ -139,6 +139,15 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('first comment after the publish step
     expect(row.firstCommentError).toMatch(/thiếu quyền/);
   });
 
+  it('a domain without a template still comments the links of a post with products', async () => {
+    const s = await publishSetup(null);
+    const product = await prisma.affiliateProduct.create({ data: { userId: s.user.id, platform: 'LAZADA', name: 'Phân bón', url: 'https://c.lazada.vn/b' } });
+    await prisma.postProduct.create({ data: { postId: s.post.id, productId: product.id } });
+    stubGraph(s.feedId, () => json({ id: `${s.feedId}_C1` }));
+    await runTarget(s.target.id, s.user.id);
+    expect((await prisma.postTarget.findUniqueOrThrow({ where: { id: s.target.id } })).firstCommentText).toBe('🛒 Mua ở đây:\n👉 Phân bón (Lazada): https://c.lazada.vn/b');
+  });
+
   it('a domain without a template posts no first comment at all', async () => {
     const s = await publishSetup(null);
     const graph = stubGraph(s.feedId, () => json({ id: 'never' }));
