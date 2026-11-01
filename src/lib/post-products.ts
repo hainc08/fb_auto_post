@@ -9,12 +9,15 @@ export const MAX_POST_PRODUCTS = 3;
 
 /**
  * Replace the post's products with `productIds`, in that order, and mark them used. 404 when one is not the
- * user's or is archived, 400 over the limit; nothing changes then (the caller's transaction is rolled back).
+ * user's, or is archived and not already on this post (an archived product may stay where it is); 400 over the
+ * limit; nothing changes then (the caller's transaction is rolled back).
  */
 export async function setPostProducts(tx: Prisma.TransactionClient, userId: string, postId: string, productIds: string[]): Promise<void> {
   const ids = [...new Set(productIds)];
   if (ids.length > MAX_POST_PRODUCTS) throw createError(400, `Mỗi bài tối đa ${MAX_POST_PRODUCTS} sản phẩm.`);
-  const found = await tx.affiliateProduct.count({ where: { id: { in: ids }, userId, isArchived: false } });
+  const found = await tx.affiliateProduct.count({
+    where: { id: { in: ids }, userId, OR: [{ isArchived: false }, { posts: { some: { postId } } }] },
+  });
   if (found !== ids.length) throw createError(404, 'Không tìm thấy sản phẩm.');
   await tx.postProduct.deleteMany({ where: { postId } });
   if (!ids.length) return;

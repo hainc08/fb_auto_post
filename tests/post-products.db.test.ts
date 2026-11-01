@@ -85,6 +85,23 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('products attached to posts', { timeo
     expect((await prisma.postProduct.findMany({ where: { postId: id } })).map((p) => p.productId)).toEqual([mine.id]);
   });
 
+  it('an archived product already on the post can stay while the others change; it cannot be newly attached', async () => {
+    const s = await setup();
+    const a = await s.make('A');
+    const b = await s.make('B');
+    const c = await s.make('C');
+    const id = (await createPost(s, [a.id, b.id])).json.data.id;
+    await prisma.affiliateProduct.update({ where: { id: a.id }, data: { isArchived: true } });
+    const patch = (productIds: string[]) => api(server.baseUrl, 'PATCH', `/api/posts/${id}`, { cookie: s.cookie, body: { productIds } });
+
+    const kept = await patch([a.id, c.id]);
+    expect(kept.status).toBe(200);
+    expect(kept.json.data.products.map((p: { id: string }) => p.id)).toEqual([a.id, c.id]);
+    // once removed, an archived product cannot come back
+    expect((await patch([c.id])).status).toBe(200);
+    expect((await patch([a.id, c.id])).status).toBe(404);
+  });
+
   it('four products are refused (400)', async () => {
     const s = await setup();
     const ids = [];

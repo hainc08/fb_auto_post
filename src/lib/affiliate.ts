@@ -84,8 +84,18 @@ export function productPromptBlock(products: LinkProduct[]): string {
   ].join('\n');
 }
 
-/** Every link in the reply is exactly one of the allowed ones (trailing punctuation aside) */
+/**
+ * Anything Facebook would make clickable: with a scheme, starting with www., or a bare host.tld (with or without
+ * a path). Dotted numbers ("1.500.000đ") are not links: the last label must be letters.
+ */
+const LINK = /(?:https?:\/\/|www\.)\S+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b(?:\/\S*)?/gi;
+const withoutScheme = (url: string) => url.replace(/^https?:\/\//i, '');
+
+/** Every link in the reply is exactly one of the allowed ones, with or without its scheme (trailing punctuation aside) */
 export function replyLinksAllowed(reply: string, allowedUrls: string[]): boolean {
-  const links = reply.match(/https?:\/\/\S+/gi) ?? [];
-  return links.every((link) => allowedUrls.includes(link.replace(/[.,;:!?)]+$/, '')));
+  const links = reply.match(LINK) ?? [];
+  return links.every((raw) => {
+    const link = raw.replace(/[.,;:!?)]+$/, '');
+    return allowedUrls.includes(link) || allowedUrls.some((url) => withoutScheme(url) === link);
+  });
 }

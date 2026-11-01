@@ -53,5 +53,13 @@ describe('affiliate', () => {
     expect(replyLinksAllowed('https://s.shopee.vn/a?x=1', ['https://s.shopee.vn/a'])).toBe(false);
     expect(replyLinksAllowed('https://evil.example', [])).toBe(false);
     expect(replyLinksAllowed('Dạ mời anh nhắn tin', [])).toBe(true);
+    // links without a scheme: Facebook makes them clickable too
+    expect(replyLinksAllowed('Mua ở shopee.vn/abc-xyz nhé', ['https://s.shopee.vn/a'])).toBe(false);
+    expect(replyLinksAllowed('Vào www.example.com', [])).toBe(false);
+    expect(replyLinksAllowed('link: s.shopee.vn/a', ['https://s.shopee.vn/a'])).toBe(true);
+    expect(replyLinksAllowed('link: s.shopee.vn/b', ['https://s.shopee.vn/a'])).toBe(false);
+    expect(replyLinksAllowed('Xem shopee.vn nha', [])).toBe(false);
+    // ordinary text with dots is not a link
+    expect(replyLinksAllowed('Giá 1.500.000đ, pha 1.5 lít. Dạ.', [])).toBe(true);
   });
 });
