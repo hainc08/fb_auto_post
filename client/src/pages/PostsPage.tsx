@@ -353,6 +353,9 @@ export default function PostsPage() {
     if (p.status === 'READY' && p.scheduleQueued) {
       a.push({ key: 'approve', label: 'Duyệt (đăng theo lịch)', icon: <CalendarClock size={15} aria-hidden="true" />, onSelect: () => void approve(p.id) });
     }
+    if ((p.status === 'READY' || p.status === 'SCHEDULED') && p.scheduleQueued && p.caption) {
+      a.push({ key: 'publish-now', label: 'Đăng ngay (bỏ khung giờ)', icon: <Send size={15} aria-hidden="true" />, confirmLabel: 'Bấm lần nữa để đăng công khai', onSelect: () => void publish(p.id) });
+    }
     if (p.status === 'READY' && !p.scheduleQueued && p.caption) {
       a.push({ key: 'publish', label: 'Duyệt & đăng', icon: <Send size={15} aria-hidden="true" />, confirmLabel: 'Bấm lần nữa để đăng công khai', onSelect: () => void publish(p.id) });
     }
@@ -412,7 +415,20 @@ export default function PostsPage() {
       : composeMessage(detail);
   /** A post waiting for a time the user picked (not a slot of a schedule) */
   const timed = !!detail && detail.status === 'SCHEDULED' && !detail.scheduleQueued;
-  const canTime = !!detail && PUBLISHABLE.includes(detail.status) && !detail.scheduleQueued && !!detail.caption;
+  /** A schedule post the member approved: it waits for its slot, but can still go out by hand */
+  const queuedApproved = !!detail && detail.scheduleQueued && detail.status === 'SCHEDULED';
+  // A schedule post can get its own time too: it leaves the schedule
+  const canTime = !!detail && (PUBLISHABLE.includes(detail.status) || queuedApproved) && !!detail.caption;
+  /** Why a schedule post is not going out on its own, if it is stuck */
+  const queuedReason = !detail?.scheduleQueued
+    ? null
+    : !detail.scheduledAt
+      ? 'Lịch đã hết khung giờ (qua ngày kết thúc): bài sẽ không tự đăng. Hãy đăng ngay hoặc hẹn giờ riêng.'
+      : detail.schedule && !detail.schedule.isActive
+        ? 'Lịch đang tạm dừng: bài chưa được đăng. Bật lại lịch, hoặc đăng ngay / hẹn giờ riêng.'
+        : detail.status === 'READY' && new Date(detail.scheduledAt).getTime() < Date.now()
+          ? 'Đã qua giờ đăng mà chưa được duyệt: lịch sẽ dời bài sang khung giờ kế tiếp. Duyệt để đăng ở khung đó, hoặc đăng ngay.'
+          : null;
 
   return (
     <div className="split-view">
@@ -652,7 +668,8 @@ export default function PostsPage() {
                   </span>
                 </div>
               )}
-              {detail.scheduleQueued && detail.status === 'READY' && (
+              {queuedReason && <p className="cell-note warn-text">{queuedReason}</p>}
+              {detail.scheduleQueued && detail.status === 'READY' && detail.scheduledAt && (
                 <button type="button" className="btn btn-primary btn-lg btn-block" onClick={() => void approve(selectedId!)} disabled={acting || !detail.caption}>
                   <CalendarClock size={16} aria-hidden="true" /> Duyệt — đăng lúc {slotLabel(detail.scheduledAt)}
                 </button>
@@ -663,7 +680,7 @@ export default function PostsPage() {
                   <span>Hẹn giờ đăng: <strong>{slotLabel(detail.scheduledAt)}</strong></span>
                 </div>
               )}
-              {(PUBLISHABLE.includes(detail.status) || timed) && (
+              {(PUBLISHABLE.includes(detail.status) || timed || queuedApproved) && (
                 <button type="button" className={detail.scheduleQueued || timed ? 'btn btn-secondary btn-block' : 'btn btn-primary btn-lg btn-block'} onClick={confirmPublish} disabled={acting || !detail.caption}>
                   {acting && confirming === 'publish' ? <div className="spinner" /> : <Send size={16} aria-hidden="true" />}
                   {confirming === 'publish'
@@ -685,7 +702,7 @@ export default function PostsPage() {
                   />
                 ) : (
                   <button type="button" className="btn btn-secondary btn-block" onClick={() => setTiming(true)} disabled={acting}>
-                    <CalendarClock size={15} aria-hidden="true" /> {timed ? 'Đổi giờ đăng' : 'Hẹn giờ đăng'}
+                    <CalendarClock size={15} aria-hidden="true" /> {timed ? 'Đổi giờ đăng' : detail.scheduleQueued ? 'Hẹn giờ riêng (bỏ khung giờ)' : 'Hẹn giờ đăng'}
                   </button>
                 ))}
               {timed && (
