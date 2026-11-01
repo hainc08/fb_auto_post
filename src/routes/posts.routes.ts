@@ -22,6 +22,7 @@ import { removeKeyedJob } from '../lib/job-queue';
 import { reelJobKey } from '../services/reel.service';
 
 import { assertOwnTemplate } from '../lib/ownership';
+import { productsView, setPostProducts } from '../lib/post-products';
 import { randomUUID } from 'node:crypto';
 import { mkdir, unlink } from 'node:fs/promises';
 import { MAX_VIDEO_BYTES, VIDEO_TMP_DIR, removeVideo, saveUploadedVideo } from '../lib/video-store';
@@ -50,6 +51,8 @@ const createPostSchema = z.object({
   callToAction: z.string().optional(),
   inputData: z.record(z.string()).optional(),
   scheduledAt: z.string().datetime().optional(),
+  /** Affiliate products, in order (src/lib/post-products.ts) */
+  productIds: z.array(z.string().uuid()).max(3, 'Mỗi bài tối đa 3 sản phẩm.').optional(),
 });
 
 const EDITABLE_STATUSES: PostStatus[] = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'];
@@ -119,6 +122,7 @@ const updatePostSchema = z
     domainId: z.string().uuid(),
     formatId: z.string().uuid(),
     videoKind: z.enum(['FEED', 'REEL']),
+    productIds: z.array(z.string().uuid()).max(3, 'Mỗi bài tối đa 3 sản phẩm.'),
   })
   .partial()
   .refine((d) => Object.keys(d).length > 0, 'Không có trường nào để cập nhật');
@@ -218,7 +222,7 @@ router.get(
 
     if (!post) throw createError(404, 'Post not found');
 
-    res.json({ success: true, data: { ...post, reelsProblem: videoProblem(post.videoMeta) } });
+    res.json({ success: true, data: { ...post, reelsProblem: videoProblem(post.videoMeta), ...(await productsView(post.id)) } });
   })
 );
 
@@ -261,29 +265,33 @@ router.post(
       throw createError(400, 'Bài hẹn giờ cần có caption, mẫu nội dung hoặc ý tưởng để AI viết.');
     }
 
-    const post = await prisma.post.create({
-      data: {
-        userId,
-        // First Page = the one shown in previews; every Page is a target
-        pageId: pageIds[0],
-        targets: { create: pageIds.map((pageId) => ({ pageId })) },
-        templateId: data.templateId,
-        domainId: domain.id,
-        formatId: format.id,
-        caption: data.caption,
-        imageUrl: data.imageUrl,
-        imagePrompt: data.imagePrompt,
-        hashtags: data.hashtags || [],
-        callToAction: data.callToAction,
-        inputData: data.inputData || undefined,
-        scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : undefined,
-        status: data.scheduledAt ? 'SCHEDULED' : 'DRAFT',
-      },
-      include: {
-        page: { select: { id: true, pageName: true } },
-        template: { select: { id: true, name: true } },
-        ...domainFormatSelect,
-      },
+    const post = await prisma.$transaction(async (tx) => {
+      const created = await tx.post.create({
+        data: {
+          userId,
+          // First Page = the one shown in previews; every Page is a target
+          pageId: pageIds[0],
+          targets: { create: pageIds.map((pageId) => ({ pageId })) },
+          templateId: data.templateId,
+          domainId: domain.id,
+          formatId: format.id,
+          caption: data.caption,
+          imageUrl: data.imageUrl,
+          imagePrompt: data.imagePrompt,
+          hashtags: data.hashtags || [],
+          callToAction: data.callToAction,
+          inputData: data.inputData || undefined,
+          scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : undefined,
+          status: data.scheduledAt ? 'SCHEDULED' : 'DRAFT',
+        },
+        include: {
+          page: { select: { id: true, pageName: true } },
+          template: { select: { id: true, name: true } },
+          ...domainFormatSelect,
+        },
+      });
+      if (data.productIds?.length) await setPostProducts(tx, userId, created.id, data.productIds);
+      return created;
     });
 
     // Log creation
@@ -300,7 +308,7 @@ router.post(
       });
     }
 
-    res.status(201).json({ success: true, data: post });
+    res.status(201).json({ success: true, data: { ...post, ...(await productsView(post.id)) } });
   })
 );
 
@@ -341,33 +349,36 @@ router.patch(
     const status: PostStatus =
       caption && (post.status === 'FAILED' || post.status === 'DRAFT') ? 'READY' : post.status;
 
-    const updated = await prisma.post.update({
-      where: { id: post.id },
-      data: {
-        ...(data.caption !== undefined && { caption: data.caption.trim() }),
-        ...(data.hashtags !== undefined && { hashtags: data.hashtags }),
-        ...(data.callToAction !== undefined && { callToAction: data.callToAction.trim() || null }),
-        ...(data.imagePrompt !== undefined && { imagePrompt: data.imagePrompt.trim() || null }),
-        ...(data.idea !== undefined && {
-          inputData: { ...((post.inputData as Record<string, string>) ?? {}), basicInfo: data.idea },
-        }),
-        status,
-        ...(picked && { domainId: picked.domain.id, formatId: picked.format.id }),
-        ...(data.videoKind && { videoKind: data.videoKind }),
-        ...(status !== post.status && { errorMessage: null, errorStep: null, errorCode: null }),
-      },
-      include: {
-        page: { select: { id: true, pageName: true, pageAvatar: true } },
-        template: { select: { id: true, name: true } },
-        ...domainFormatSelect,
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      if (data.productIds) await setPostProducts(tx, req.user!.id, post.id, data.productIds);
+      return tx.post.update({
+        where: { id: post.id },
+        data: {
+          ...(data.caption !== undefined && { caption: data.caption.trim() }),
+          ...(data.hashtags !== undefined && { hashtags: data.hashtags }),
+          ...(data.callToAction !== undefined && { callToAction: data.callToAction.trim() || null }),
+          ...(data.imagePrompt !== undefined && { imagePrompt: data.imagePrompt.trim() || null }),
+          ...(data.idea !== undefined && {
+            inputData: { ...((post.inputData as Record<string, string>) ?? {}), basicInfo: data.idea },
+          }),
+          status,
+          ...(picked && { domainId: picked.domain.id, formatId: picked.format.id }),
+          ...(data.videoKind && { videoKind: data.videoKind }),
+          ...(status !== post.status && { errorMessage: null, errorStep: null, errorCode: null }),
+        },
+        include: {
+          page: { select: { id: true, pageName: true, pageAvatar: true } },
+          template: { select: { id: true, name: true } },
+          ...domainFormatSelect,
+        },
+      });
     });
 
     await prisma.postLog.create({
       data: { postId: post.id, action: 'edited', details: { fields: Object.keys(data) } },
     });
 
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: { ...updated, ...(await productsView(post.id)) } });
   })
 );
 
