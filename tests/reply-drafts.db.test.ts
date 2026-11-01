@@ -73,6 +73,23 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('AI reply drafts', { timeout: 60_000 
     for (const untouched of [answered, handled, ours, reply]) expect(await row(untouched.id)).toMatchObject({ draftReply: null, draftCheckedAt: null });
   });
 
+  it('a post with a product sends the product to Gemini and keeps a reply that carries its link', async () => {
+    const { post, target, comment, row } = await setup();
+    const product = await prisma.affiliateProduct.create({ data: { userId: post.userId, platform: 'SHOPEE', name: 'Bình xịt 16L', url: 'https://s.shopee.vn/a' } });
+    await prisma.postProduct.create({ data: { postId: post.id, productId: product.id } });
+    const where = await comment('Mua ở đâu shop?');
+    const other = await comment('Có link không?');
+    const gemini = fakeGemini([
+      { key: 'c1', reply: 'Dạ anh mua ở đây ạ: https://s.shopee.vn/a', skip: false },
+      { key: 'c2', reply: 'Dạ link: https://shopee.vn/khac', skip: false },
+    ]);
+    expect(await draftReplies(target.id)).toBe(1);
+    expect(gemini.mock.calls[0][0].systemInstruction).toContain('- Bình xịt 16L — https://s.shopee.vn/a');
+    expect((await row(where.id)).draftReply).toBe('Dạ anh mua ở đây ạ: https://s.shopee.vn/a');
+    // a link that is not the product's: looked at, no draft
+    expect(await row(other.id)).toMatchObject({ draftReply: null, draftCheckedAt: expect.any(Date) });
+  });
+
   it('never asks twice about the same comment; a new comment is asked about alone', async () => {
     const { target, comment, row } = await setup();
     await comment('Cho hỏi mua ở đâu?');

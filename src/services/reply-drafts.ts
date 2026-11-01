@@ -6,6 +6,7 @@ import { getSettings } from '../lib/settings';
 import { GeminiClient, GeminiError } from '../lib/clients/gemini';
 import { COMMENT_REPLY_SCOPE } from '../lib/clients/facebook';
 import { buildReplyPrompt, cleanReplies } from '../lib/reply-prompt';
+import { productsOf } from '../lib/post-products';
 
 /**
  * "AI soạn trả lời bình luận": a reply draft for each comment that waits for an answer, on Pages that
@@ -58,6 +59,7 @@ export async function draftReplies(targetId: string, now = new Date()): Promise<
     asked.length && target.post.domainId
       ? await prisma.contentDomain.findUnique({ where: { id: target.post.domainId }, select: { name: true, audience: true, voice: true, rules: true, replyInstructions: true } })
       : null;
+  const products = asked.length ? await productsOf(target.postId) : [];
   /** One Gemini call: the reply (or null) for each of these comments, in order */
   const ask = async (comments: typeof asked): Promise<Array<string | null>> => {
     const keys = comments.map((_, i) => `c${i + 1}`);
@@ -66,6 +68,7 @@ export async function draftReplies(targetId: string, now = new Date()): Promise<
       caption: target.post.caption ?? '',
       domain,
       comments: comments.map((c, i) => ({ key: keys[i], author: c.authorName, message: c.message })),
+      products,
     });
     const result = await new GeminiClient({ apiKey: settings.geminiApiKey, model: settings.geminiModel }).generateJson({
       systemInstruction,
@@ -74,7 +77,7 @@ export async function draftReplies(targetId: string, now = new Date()): Promise<
       validator,
       temperature: 0.6,
     });
-    const cleaned = cleanReplies(result.replies, keys);
+    const cleaned = cleanReplies(result.replies, keys, products.map((p) => p.url));
     return keys.map((key) => cleaned.get(key) ?? null);
   };
   const contentRejected = (error: unknown) => error instanceof GeminiError && error.contentRejected;

@@ -65,3 +65,39 @@ describe('reply prompt', () => {
     expect(cleaned.has('c9')).toBe(false);
   });
 });
+
+describe('reply prompt with the post\'s products', () => {
+  const products = [{ name: 'Bình xịt 16L', url: 'https://s.shopee.vn/a' }];
+
+  it("lists the post's products and allows only their links", () => {
+    const { systemInstruction } = buildReplyPrompt({ pageName: 'P', caption: 'x', comments, products });
+    expect(systemInstruction).toContain('chỉ được dùng đường link có trong danh sách sản phẩm bên dưới, và chỉ khi người bình luận hỏi mua, hỏi link hoặc nơi mua');
+    expect(systemInstruction).toContain('Sản phẩm của bài (tên — link):\n- Bình xịt 16L — https://s.shopee.vn/a');
+    expect(systemInstruction).not.toContain('không đường link');
+  });
+
+  it('without products the prompt still forbids links', () => {
+    for (const p of [undefined, []]) {
+      const { systemInstruction } = buildReplyPrompt({ pageName: 'P', caption: 'x', comments, products: p });
+      expect(systemInstruction).toContain('không hashtag, không đường link');
+      expect(systemInstruction).not.toContain('Sản phẩm của bài');
+    }
+  });
+
+  it('a reply with a link outside the list gets no draft; the exact product link is kept', () => {
+    const cleaned = cleanReplies(
+      [
+        { key: 'c1', reply: 'Dạ anh mua ở đây ạ: https://s.shopee.vn/a', skip: false },
+        { key: 'c2', reply: 'Dạ link: https://s.shopee.vn/a?ref=x', skip: false },
+        { key: 'c3', reply: 'Xem https://evil.example nhé', skip: false },
+      ],
+      ['c1', 'c2', 'c3'],
+      ['https://s.shopee.vn/a']
+    );
+    expect(cleaned.get('c1')).toBe('Dạ anh mua ở đây ạ: https://s.shopee.vn/a');
+    expect(cleaned.get('c2')).toBeNull();
+    expect(cleaned.get('c3')).toBeNull();
+    // no allowed links: any link means no draft
+    expect(cleanReplies([{ key: 'c1', reply: 'https://s.shopee.vn/a' }], ['c1']).get('c1')).toBeNull();
+  });
+});
