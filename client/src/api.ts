@@ -707,6 +707,8 @@ export interface ScheduleSummary {
   nextSlotAt: string | null;
   /** Each post the schedule writes gets the domain's next affiliate product */
   affiliateRotate: boolean;
+  /** Only in the answer of an update that just turned rotation on: how many waiting posts got a product */
+  attachedProducts?: number;
 }
 
 export interface ScheduleDetail extends ScheduleSummary {

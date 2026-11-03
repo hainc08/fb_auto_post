@@ -70,7 +70,12 @@ export default function ScheduleForm({ initial, onClose, onSaved }: Props) {
               .map((l) => l.trim())
               .filter(Boolean),
           });
-      toast.success(initial ? 'Đã lưu lịch.' : 'Đã tạo lịch — AI sẽ viết sẵn bài cho các khung giờ tới.');
+      const attached = res.data.attachedProducts ?? 0;
+      toast.success(
+        initial
+          ? `Đã lưu lịch.${attached > 0 ? ` Đã gắn sản phẩm cho ${attached} bài đang chờ.` : ''}`
+          : 'Đã tạo lịch — AI sẽ viết sẵn bài cho các khung giờ tới.'
+      );
       onSaved(res.data);
     } catch (e: any) {
       toast.error(e.message);
@@ -212,7 +217,7 @@ export default function ScheduleForm({ initial, onClose, onSaved }: Props) {
               <input type="checkbox" checked={affiliateRotate} onChange={(e) => setAffiliateRotate(e.target.checked)} />
               Tự gắn sản phẩm affiliate của lĩnh vực (xoay vòng)
             </label>
-            <p className="field-hint">Mỗi bài lịch viết được gắn lần lượt một sản phẩm của lĩnh vực (trang Sản phẩm affiliate): AI nhắc sản phẩm, link được thêm vào cuối bài và bình luận đầu.</p>
+            <p className="field-hint">Mỗi bài lịch viết được gắn lần lượt một sản phẩm của lĩnh vực (trang Sản phẩm affiliate): AI nhắc sản phẩm, link được thêm vào cuối bài và bình luận đầu. Khi bật, các bài lịch đã viết sẵn nhưng chưa đăng (chưa có sản phẩm) cũng được gắn luôn; nội dung đã viết giữ nguyên, link được thêm khi đăng.</p>
           </div>
 
           {!initial && (
