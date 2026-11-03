@@ -153,6 +153,11 @@ const ROUTE_CASES: Record<string, Case> = {
   },
   'PATCH /api/domains/:id': { kind: 'foreign-id', path: (b) => `/api/domains/${b.domainId}`, body: { name: 'hack' } },
   'DELETE /api/domains/:id': { kind: 'foreign-id', path: (b) => `/api/domains/${b.domainId}` },
+  'GET /api/telegram': { kind: 'list', path: '/api/telegram' },
+  'PUT /api/telegram': { kind: 'own-scope', path: '/api/telegram', body: { enabled: true }, why: 'chỉ bot của chính user (khoá theo userId)' },
+  'POST /api/telegram/link-code': { kind: 'own-scope', path: '/api/telegram/link-code', why: 'chỉ bot của chính user' },
+  'POST /api/telegram/test': { kind: 'own-scope', path: '/api/telegram/test', why: 'chỉ bot của chính user' },
+  'DELETE /api/telegram': { kind: 'own-scope', path: '/api/telegram', why: 'chỉ bot của chính user' },
   'GET /api/products': { kind: 'list', path: '/api/products?archived=1' },
   'POST /api/products': {
     kind: 'own-scope',
@@ -273,6 +278,9 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       },
       include: { formats: true },
     });
+    await prisma.telegramBot.create({
+      data: { userId: userB.id, botToken: 'enc-fake', botUsername: `${B_MARK}_bot`, webhookSecret: 'b'.repeat(64), chatId: '999', digestTime: '06:30' },
+    });
     b = {
       postId: post.id,
       pageId: page.id,
@@ -333,6 +341,8 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('data isolation between users', { tim
       if (res.text.includes(B_MARK) || res.text.includes(b.postId) || res.text.includes(b.pageId)) leaks.push(route);
     }
     expect(leaks).toEqual([]);
+    // A's own-scope calls (PUT, link-code, test, DELETE on /api/telegram) never touched B's bot
+    expect(await prisma.telegramBot.findFirstOrThrow({ where: { botUsername: `${B_MARK}_bot` } })).toMatchObject({ chatId: '999', digestTime: '06:30', enabled: true });
   });
 
   it("user A cannot attach user B's Page or template to A's own posts and schedules (ids in the body)", async () => {

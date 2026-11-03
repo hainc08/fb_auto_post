@@ -14,6 +14,7 @@ import pagesRoutes from './routes/pages.routes';
 import templatesRoutes from './routes/templates.routes';
 import domainsRoutes from './routes/domains.routes';
 import productsRoutes from './routes/products.routes';
+import telegramRoutes from './routes/telegram.routes';
 import formatsRoutes from './routes/formats.routes';
 import postsRoutes from './routes/posts.routes';
 import commentsRoutes from './routes/comments.routes';
@@ -36,6 +37,7 @@ export const API_ROUTERS: ReadonlyArray<readonly [string, Router]> = [
   ['/api/templates', templatesRoutes],
   ['/api/domains', domainsRoutes],
   ['/api/products', productsRoutes],
+  ['/api/telegram', telegramRoutes],
   ['/api/formats', formatsRoutes],
   ['/api/posts', postsRoutes],
   ['/api/posts', commentsRoutes],
