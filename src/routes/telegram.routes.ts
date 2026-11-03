@@ -5,16 +5,13 @@ import prisma from '../utils/prisma';
 import { AuthRequest, authenticate } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
 import { encrypt } from '../lib/crypto';
-import { revealSecret } from '../lib/settings';
 import { TelegramApiError, TelegramClient } from '../lib/clients/telegram';
 import { DIGEST_TIME_PATTERN } from '../lib/telegram-format';
-import { linkUrl, newLinkCode, newSecret, publicUrl, webhookUrl } from '../lib/telegram-link';
+import { botClient, linkUrl, newLinkCode, newSecret, publicUrl, webhookUrl } from '../lib/telegram-link';
 
 /** The member's own Telegram bot: connect it, link a chat, switch the morning digest (mounted at /api/telegram). */
 const router = Router();
 router.use(authenticate);
-
-export const botClient = (row: TelegramBot) => new TelegramClient(revealSecret(row.botToken));
 
 /** What the Settings screen needs. Never the token, the secret or the chat id. */
 function status(row: TelegramBot | null) {

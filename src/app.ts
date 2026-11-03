@@ -15,6 +15,7 @@ import templatesRoutes from './routes/templates.routes';
 import domainsRoutes from './routes/domains.routes';
 import productsRoutes from './routes/products.routes';
 import telegramRoutes from './routes/telegram.routes';
+import telegramWebhookRoutes from './routes/telegram-webhook.routes';
 import formatsRoutes from './routes/formats.routes';
 import postsRoutes from './routes/posts.routes';
 import commentsRoutes from './routes/comments.routes';
@@ -119,6 +120,9 @@ export function createApp() {
       res.json(report);
     })
   );
+
+  // Telegram delivers a member's bot updates here; the secret header is the only key (see the router)
+  app.use('/telegram', telegramWebhookRoutes);
 
   app.use('/api', csrfGuard);
   for (const [mount, router] of API_ROUTERS) app.use(mount, router);
