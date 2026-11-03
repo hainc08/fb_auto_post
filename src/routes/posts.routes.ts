@@ -21,8 +21,9 @@ import { removeSceneImages } from '../lib/reel/scene-store';
 import { removeKeyedJob } from '../lib/job-queue';
 import { reelJobKey } from '../services/reel.service';
 
-import { assertOwnTemplate } from '../lib/ownership';
+import { assertOwnPages, assertOwnTemplate } from '../lib/ownership';
 import { productsView, setPostProducts } from '../lib/post-products';
+import { approveSchedulePost } from '../services/post-approval';
 import { randomUUID } from 'node:crypto';
 import { mkdir, unlink } from 'node:fs/promises';
 import { MAX_VIDEO_BYTES, VIDEO_TMP_DIR, removeVideo, saveUploadedVideo } from '../lib/video-store';
@@ -71,33 +72,6 @@ export const videoState = (p: { videoUrl: string | null; videoKind: string | nul
 const noVideo = { videoPath: null, videoUrl: null, videoMime: null, videoMeta: Prisma.DbNull, videoKind: null };
 
 const LOCKED_MESSAGE = 'Bài đã lên ít nhất 1 Page nên không sửa nội dung được nữa (để mọi Page giống nhau). Bạn vẫn có thể đăng lại các Page lỗi.';
-
-/**
- * All given Pages must belong to the user and be postable with the current
- * Facebook App (connected, token valid, issued by the App ID in Settings).
- */
-async function assertOwnPages(userId: string, pageIds: string[]) {
-  const unique = [...new Set(pageIds)];
-  const [pages, settings] = await Promise.all([
-    prisma.facebookPage.findMany({ where: { id: { in: unique }, userId } }),
-    getSettings(userId),
-  ]);
-  if (pages.length !== unique.length) throw createError(404, 'Có Page không tồn tại.');
-
-  const blocked = pages.flatMap((page) => {
-    const reason = blockReason(page, settings.fbAppId);
-    return reason ? [{ page, reason }] : [];
-  });
-  if (blocked.length) {
-    const first = blocked[0];
-    throw createError(
-      409,
-      `Không đăng được lên ${blocked.map((b) => `"${b.page.pageName}"`).join(', ')}: ${blockMessage(first.reason, first.page)} ` +
-        'Vào Kênh Facebook → Đồng bộ Page, hoặc bỏ chọn các Page này.'
-    );
-  }
-  return unique;
-}
 
 const targetInclude = {
   targets: {
@@ -691,24 +665,7 @@ router.post(
 router.post(
   '/:id/approve',
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const post = await prisma.post.findFirst({ where: { id: req.params.id, userId: req.user!.id }, include: { targets: true } });
-    if (!post) throw createError(404, 'Post not found');
-    if (!post.scheduleQueued || post.status !== 'READY') {
-      throw createError(400, 'Chỉ duyệt được bài của lịch đăng đã viết xong và đang chờ duyệt.');
-    }
-    // No slot left (past the schedule's end date): approved, it would wait for ever
-    if (!post.scheduledAt) {
-      throw createError(409, 'Lịch đã hết khung giờ cho bài này (qua ngày kết thúc). Hãy đăng ngay hoặc hẹn giờ đăng riêng cho bài.');
-    }
-    // Same Page checks as "Đăng": approving a post that cannot go out would fail silently later
-    await assertOwnPages(req.user!.id, post.targets.map((t) => t.pageId));
-    const { count } = await prisma.post.updateMany({
-      where: { id: post.id, status: 'READY', scheduleQueued: true },
-      data: { status: 'SCHEDULED', approvedAt: new Date() },
-    });
-    if (!count) throw createError(409, 'Bài vừa thay đổi, hãy tải lại.');
-    await prisma.postLog.create({ data: { postId: post.id, action: 'approved', details: { slot: post.scheduledAt?.toISOString() ?? null } } });
-    const saved = await prisma.post.findUniqueOrThrow({ where: { id: post.id }, select: { id: true, status: true, approvedAt: true, scheduledAt: true } });
+    const saved = await approveSchedulePost(req.user!.id, req.params.id);
     res.json({ success: true, data: saved });
   })
 );

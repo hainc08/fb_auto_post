@@ -7,6 +7,7 @@ import { readImage, saveImage } from '../lib/image-store';
 import { composeMessage } from '../lib/format-post';
 import { renderFirstComment, withLinkBlock } from '../lib/affiliate';
 import { productsOf } from '../lib/post-products';
+import { bookTelegramTick, runTelegramTickJob } from './telegram-digest';
 import { FacebookClient } from '../lib/clients/facebook';
 import { classifyFailure, UNCERTAIN_PUBLISH_MESSAGE } from '../lib/job-failure';
 import { enqueue, startJobWorker, UnrecoverableJobError, upsertKeyedJob, JobHandler, JobResult, JobType, JobWorker, WorkerOptions } from '../lib/job-queue';
@@ -409,6 +410,7 @@ export function startWorkers(options: WorkerOptions & { only?: JobType[] } = {})
   void backfillTargets().catch((e) => logger.error('[Targets] Backfill failed', { error: (e as Error).message }));
   void bookScheduleTick().catch((e) => logger.error('[Schedules] Could not book the tick', { error: (e as Error).message }));
   void bookTokenCheck();
+  void bookTelegramTick().catch((e) => logger.error('[Telegram] Could not book the tick', { error: (e as Error).message }));
   void bookEngagementSync().catch((e) => logger.error('[Engagement] Could not book the sync', { error: (e as Error).message }));
   const handlers: Partial<Record<JobType, JobHandler>> = {
     publish_post: runPublishJob,
@@ -419,6 +421,7 @@ export function startWorkers(options: WorkerOptions & { only?: JobType[] } = {})
     sync_engagement: runEngagementSyncJob,
     render_reel: runReelJob,
     check_page_tokens: runTokenCheckJob,
+    telegram_tick: runTelegramTickJob,
   };
   if (only) for (const type of Object.keys(handlers) as JobType[]) if (!only.includes(type)) delete handlers[type];
   worker = startJobWorker(handlers, workerOptions);

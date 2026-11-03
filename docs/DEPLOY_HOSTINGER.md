@@ -84,6 +84,7 @@ Video bài viết nằm ở `STORAGE_DIR/videos` (tối đa 100 MB mỗi video).
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | lần deploy đầu: tài khoản quản trị (mật khẩu ≥ 8 ký tự). Xoá `ADMIN_PASSWORD` sau khi đăng nhập được |
 | `STORAGE_DIR` | mục 1.3 |
 | `CRON_SECRET` | chuỗi ngẫu nhiên — cho Cron Job ở mục 4 |
+| `PUBLIC_URL` | tuỳ chọn — địa chỉ **https** công khai của app, nếu khác `CLIENT_URL`. Bot Telegram dùng nó làm địa chỉ nhận tin (Telegram chỉ gửi tin về địa chỉ https) và cho nút "Mở trên web" |
 | `VITE_FB_APP_ID` | Facebook App ID (dùng lúc build giao diện, cho nút "Kết nối Page") |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | tuỳ chọn — có thể nhập sau trong **Cấu hình** |
 | `GEMINI_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | tuỳ chọn — có thể nhập sau trong **Cấu hình** |
@@ -128,6 +129,11 @@ Worker đăng bài chạy **chung tiến trình** với web. Nếu Hostinger cho
    ```
    Mỗi lần gọi: đánh thức app, chạy hết job tới hạn (tối đa ~45 giây) rồi trả `{"ok":true,"processed":N}`. Không cần đăng nhập; sai/thiếu key → 401.
    Lịch đăng được xử lý mỗi phút (đăng bài đã duyệt, dời bài chưa duyệt, AI viết sẵn bài), nên cron nên chạy **mỗi phút**. Nếu gói chỉ cho mỗi 5 phút thì giờ đăng có thể trễ tới 5 phút.
+   Bản tin Telegram buổi sáng cũng chạy nhờ cron này: app ngủ lúc giờ gửi thì bản tin tới muộn trong cùng ngày.
+
+**4.1b Bot Telegram (tuỳ chọn, từng thành viên)**
+- Mỗi thành viên tự tạo bot: Telegram → @BotFather → `/newbot` → dán token vào **Cài đặt → Telegram** → bấm "Mở Telegram để liên kết" → Start.
+- Cần `CLIENT_URL` (hoặc `PUBLIC_URL`) là địa chỉ https của app: Telegram gọi về `https://ten-mien/telegram/webhook/<id thành viên>`. Không cần mở thêm cổng hay thêm Cron Job.
 
 **4.2 Theo dõi**
 - `https://ten-mien/health` có mục `worker.lastPollAt` (lần quét gần nhất) và `dueJobs` (job tới hạn chưa chạy). `dueJobs` tăng dần ⇒ worker không chạy.

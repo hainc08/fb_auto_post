@@ -1431,3 +1431,6 @@ tbody tr:hover { background: var(--bg-secondary); }
 .affiliate-preview pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-family: inherit; font-size: 13px; color: var(--text-primary); }
 .product-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .product-url a { word-break: break-all; }
+
+/* ─── Settings: Telegram ─── */
+.telegram-steps { margin: 0 0 14px; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }

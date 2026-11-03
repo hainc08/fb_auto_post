@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Save, PlugZap, Sparkles, Image as ImageIcon, KeyRound, CheckCircle2, XCircle, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { Save, PlugZap, Sparkles, Image as ImageIcon, KeyRound, CheckCircle2, XCircle, RefreshCw, SlidersHorizontal, Send } from 'lucide-react';
 import {
   settingsApi,
   pagesApi,
@@ -12,7 +12,11 @@ import {
 } from '../api';
 import { useToast } from '../components/Toast';
 import PageSync from '../components/PageSync';
+import TelegramSettings from '../components/TelegramSettings';
 import { PageStatusBadge, notifyPagesChanged } from '../components/PageStatus';
+
+/** A section of the page: a settings group, or the Telegram bot (kept apart from the key-value settings) */
+type SettingsSection = SettingsGroup | 'telegram';
 
 type FieldKey = Exclude<keyof PublicSettings, 'systemPrompt'>;
 
@@ -49,12 +53,12 @@ export default function SettingsPage() {
   const [results, setResults] = useState<Partial<Record<string, ConnectionTestResult>>>({});
   const [pages, setPages] = useState<PageInfo[]>([]);
   const [appId, setAppId] = useState('');
-  const [section, setSection] = useState<SettingsGroup>(() => {
+  const [section, setSection] = useState<SettingsSection>(() => {
     const hash = window.location.hash.replace('#', '');
-    return hash === 'gemini' || hash === 'cloudflare' || hash === 'facebook' ? hash : 'facebook';
+    return hash === 'gemini' || hash === 'cloudflare' || hash === 'facebook' || hash === 'telegram' ? hash : 'facebook';
   });
 
-  const openSection = (group: SettingsGroup) => {
+  const openSection = (group: SettingsSection) => {
     setSection(group);
     window.history.replaceState(null, '', `#${group}`);
   };
@@ -145,10 +149,11 @@ export default function SettingsPage() {
   const sourceDot = (status: SecretStatus) =>
     status.source === 'db' ? null : <span className={`dot ${status.source === 'env' ? 'warn' : 'bad'}`} aria-label={status.source === 'env' ? 'Đang dùng khoá tạm' : 'Chưa cấu hình'} />;
 
-  const NAV: Array<{ group: SettingsGroup; label: string; icon: ReactNode; dot: ReactNode }> = [
+  const NAV: Array<{ group: SettingsSection; label: string; icon: ReactNode; dot: ReactNode }> = [
     { group: 'gemini', label: 'AI viết bài', icon: <Sparkles size={16} aria-hidden="true" />, dot: sourceDot(saved.geminiApiKey) },
     { group: 'cloudflare', label: 'Tạo ảnh', icon: <ImageIcon size={16} aria-hidden="true" />, dot: sourceDot(saved.cfApiToken) },
     { group: 'facebook', label: 'Facebook', icon: <KeyRound size={16} aria-hidden="true" />, dot: pages.length === 0 ? <span className="dot bad" aria-label="Chưa kết nối Page" /> : null },
+    { group: 'telegram', label: 'Telegram', icon: <Send size={16} aria-hidden="true" />, dot: null },
   ];
 
   return (
@@ -172,6 +177,8 @@ export default function SettingsPage() {
         </nav>
 
         <div className="settings-stack">
+          {section === 'telegram' && <TelegramSettings />}
+
           {section === 'gemini' && (
             <section className="card settings-card">
               <GroupHeader icon={<Sparkles size={18} />} title="Google Gemini" subtitle="Viết nội dung bài và prompt ảnh" />

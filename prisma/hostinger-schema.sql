@@ -392,6 +392,26 @@ CREATE TABLE `post_products` (
     PRIMARY KEY (`postId`, `productId`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `telegram_bots` (
+    `id` VARCHAR(191) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `botToken` TEXT NOT NULL,
+    `botUsername` VARCHAR(100) NOT NULL,
+    `webhookSecret` VARCHAR(64) NOT NULL,
+    `chatId` VARCHAR(40) NULL,
+    `linkCode` VARCHAR(40) NULL,
+    `enabled` BOOLEAN NOT NULL DEFAULT true,
+    `digestTime` VARCHAR(5) NOT NULL DEFAULT '08:00',
+    `lastDigestOn` VARCHAR(10) NULL,
+    `lastError` TEXT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `telegram_bots_userId_key`(`userId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `api_keys` ADD CONSTRAINT `api_keys_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -478,3 +498,6 @@ ALTER TABLE `post_products` ADD CONSTRAINT `post_products_postId_fkey` FOREIGN K
 
 -- AddForeignKey
 ALTER TABLE `post_products` ADD CONSTRAINT `post_products_productId_fkey` FOREIGN KEY (`productId`) REFERENCES `affiliate_products`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `telegram_bots` ADD CONSTRAINT `telegram_bots_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
