@@ -131,6 +131,39 @@ export async function reslot(scheduleId: string, now = new Date()): Promise<void
   }
 }
 
+/**
+ * Rotation was just turned on: the posts already waiting in the schedule's queue (written, not yet published, no
+ * product of their own) get the domain's products in turn, in slot order. One transaction per post, so a product
+ * picked for one post counts as used before the next pick. Returns how many posts got a product.
+ */
+export async function attachRotationToQueue(scheduleId: string): Promise<number> {
+  const schedule = await prisma.postSchedule.findUnique({ where: { id: scheduleId }, select: { userId: true, domainId: true } });
+  if (!schedule) return 0;
+  const waiting = await prisma.post.findMany({
+    where: {
+      scheduleId,
+      scheduleQueued: true,
+      // being written (GENERATING) or published (PUBLISHING) is left alone
+      status: { in: ['DRAFT', 'READY', 'SCHEDULED', 'FAILED'] },
+      products: { none: {} },
+    },
+    orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],
+    select: { id: true },
+  });
+  let attached = 0;
+  for (const { id } of waiting) {
+    const done = await prisma.$transaction(async (tx) => {
+      const productId = await pickNextProduct(tx, schedule.userId, schedule.domainId);
+      if (!productId) return false;
+      await setPostProducts(tx, schedule.userId, id, [productId]);
+      return true;
+    });
+    if (!done) break; // no active product left for the domain: the rest would find none either
+    attached++;
+  }
+  return attached;
+}
+
 /** One schedule, one minute: publish the approved post that is due, move the late ones, write ahead. */
 export async function tickSchedule(scheduleId: string, now = new Date()): Promise<void> {
   const schedule = await prisma.postSchedule.findUnique({

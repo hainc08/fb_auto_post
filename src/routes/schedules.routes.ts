@@ -7,7 +7,7 @@ import { asyncHandler, createError } from '../middleware/error.middleware';
 import { formatForPost, resolveDomainFormat } from '../lib/domains';
 import { getSettings } from '../lib/settings';
 import { nextSlots, SLOT_PATTERN, VN_TZ } from '../lib/schedule-time';
-import { PENDING_STATUSES, reslot, slotTiming } from '../services/schedule-runner';
+import { PENDING_STATUSES, attachRotationToQueue, reslot, slotTiming } from '../services/schedule-runner';
 import { suggestIdeas } from '../services/ai.service';
 
 /** Slot schedules (Phase 2): weekdays + 1–3 times a day, several Pages, an idea queue. */
@@ -219,8 +219,10 @@ router.put(
       startDate.getTime() !== s.startDate.getTime() ||
       (endDate?.getTime() ?? null) !== (s.endDate?.getTime() ?? null);
     if (timingChanged) await reslot(s.id);
+    // Rotation just turned on: the posts already waiting get their products too (saving again attaches nothing)
+    const attachedProducts = data.affiliateRotate === true && !s.affiliateRotate ? await attachRotationToQueue(s.id) : 0;
     const updated = await prisma.postSchedule.findUniqueOrThrow({ where: { id: s.id }, include: scheduleInclude });
-    res.json({ success: true, data: await summary(updated) });
+    res.json({ success: true, data: { ...(await summary(updated)), attachedProducts } });
   })
 );
 

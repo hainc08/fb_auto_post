@@ -48,6 +48,26 @@ async function postsOf(scheduleId: string) {
   return posts.map((p) => p.products.map((pp) => pp.product.name));
 }
 
+/** A post of the schedule waiting in its queue (written, not yet published) */
+async function queued(s: Awaited<ReturnType<typeof setup>>, scheduleId: string, minutes: number, data: Record<string, unknown> = {}) {
+  return prisma.post.create({
+    data: {
+      userId: s.user.id,
+      pageId: s.schedule.pageId,
+      scheduleId,
+      scheduleQueued: true,
+      scheduledAt: new Date(NOW.getTime() + minutes * 60_000),
+      status: 'READY',
+      caption: 'Bài đã viết',
+      targets: { create: { pageId: s.schedule.pageId } },
+      ...data,
+    },
+  });
+}
+
+const namesOf = async (postId: string) =>
+  (await prisma.postProduct.findMany({ where: { postId }, orderBy: { sortOrder: 'asc' }, include: { product: true } })).map((p) => p.product.name);
+
 describe.skipIf(!process.env.RUN_DB_TESTS)('schedules rotating affiliate products', { timeout: 90_000 }, () => {
   beforeAll(async () => {
     server = await startTestServer(createApp());
@@ -89,5 +109,62 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('schedules rotating affiliate product
     expect(res.json.data.affiliateRotate).toBe(true);
     const withIt = await api(server.baseUrl, 'POST', '/api/schedules', { cookie, body: { pageIds: [page.id], name: 'Lịch 2', weekdays: [1], slots: ['08:00'], affiliateRotate: true } });
     expect(withIt.json.data.affiliateRotate).toBe(true);
+  });
+
+  const put = (s: Awaited<ReturnType<typeof setup>>, body: Record<string, unknown>) => api(server.baseUrl, 'PUT', `/api/schedules/${s.schedule.id}`, { cookie: s.cookie, body });
+
+  it('attaches products to the posts waiting in the queue, in slot order', async () => {
+    const s = await setup({ rotate: false, products: ['A', 'B'] });
+    const third = await queued(s, s.schedule.id, 180, { status: 'DRAFT' });
+    const first = await queued(s, s.schedule.id, 60, { status: 'READY' });
+    const second = await queued(s, s.schedule.id, 120, { status: 'SCHEDULED', approvedAt: new Date() });
+    const res = await put(s, { affiliateRotate: true });
+    expect(res.status).toBe(200);
+    expect(res.json.data).toMatchObject({ affiliateRotate: true, attachedProducts: 3 });
+    expect([await namesOf(first.id), await namesOf(second.id), await namesOf(third.id)]).toEqual([['A'], ['B'], ['A']]);
+  });
+
+  it('leaves posts that have products, are being written or published, left the queue or belong to another schedule', async () => {
+    const s = await setup({ rotate: false, products: ['A', 'B'] });
+    const other = await prisma.postSchedule.create({
+      data: { userId: s.user.id, pageId: s.schedule.pageId, domainId: s.schedule.domainId, name: 'Lịch khác', frequency: 'SLOTS', weekdays: [1], slots: ['08:00'], startDate: new Date('2026-09-01T00:00:00Z'), pages: { create: { pageId: s.schedule.pageId } } },
+    });
+    const own = await queued(s, s.schedule.id, 60);
+    const manual = await queued(s, s.schedule.id, 90);
+    const manualProduct = await prisma.affiliateProduct.create({ data: { userId: s.user.id, platform: 'TIKTOK', name: 'X', url: 'https://vt.tiktok.com/x' } });
+    await prisma.postProduct.create({ data: { postId: manual.id, productId: manualProduct.id } });
+    const writing = await queued(s, s.schedule.id, 100, { status: 'GENERATING' });
+    const publishing = await queued(s, s.schedule.id, 110, { status: 'PUBLISHING' });
+    const left = await queued(s, s.schedule.id, 120, { scheduleQueued: false });
+    const foreign = await queued(s, other.id, 130);
+    const res = await put(s, { affiliateRotate: true });
+    expect(res.json.data.attachedProducts).toBe(1);
+    expect(await namesOf(own.id)).toEqual(['A']);
+    expect(await namesOf(manual.id)).toEqual(['X']);
+    for (const untouched of [writing, publishing, left, foreign]) expect(await namesOf(untouched.id)).toEqual([]);
+  });
+
+  it('saving again while it is on, other edits and turning it off attach or detach nothing', async () => {
+    const s = await setup({ rotate: false, products: ['A', 'B'] });
+    const first = await queued(s, s.schedule.id, 60);
+    expect((await put(s, { affiliateRotate: true })).json.data.attachedProducts).toBe(1);
+    const later = await queued(s, s.schedule.id, 120);
+    for (const body of [{ affiliateRotate: true }, { name: 'Đổi tên' }, { affiliateRotate: false }]) {
+      const res = await put(s, body);
+      expect(res.status).toBe(200);
+      expect(res.json.data.attachedProducts).toBe(0);
+    }
+    expect(await namesOf(later.id)).toEqual([]);
+    expect(await namesOf(first.id)).toEqual(['A']);
+  });
+
+  it('turning it on with no active product in the domain attaches nothing and still saves', async () => {
+    const s = await setup({ rotate: false, products: ['Cũ'] });
+    await prisma.affiliateProduct.updateMany({ where: { id: s.products[0].id }, data: { isArchived: true } });
+    const waiting = await queued(s, s.schedule.id, 60);
+    const res = await put(s, { affiliateRotate: true });
+    expect(res.status).toBe(200);
+    expect(res.json.data).toMatchObject({ affiliateRotate: true, attachedProducts: 0 });
+    expect(await namesOf(waiting.id)).toEqual([]);
   });
 });
