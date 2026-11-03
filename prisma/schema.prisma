@@ -143,6 +143,7 @@ model User {
   settings  Setting[]
   domains   ContentDomain[]
   affiliateProducts AffiliateProduct[]
+  telegramBot       TelegramBot?
 
   @@map("users")
 }
@@ -639,4 +640,27 @@ model PostProduct {
   @@id([postId, productId])
   @@index([productId])
   @@map("post_products")
+}
+
+// ─── Telegram bot of a member (morning list of posts to approve, approve with a button) ───
+
+model TelegramBot {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  botToken      String    @db.Text // encrypted
+  botUsername   String    @db.VarChar(100)
+  /// Telegram sends it back in a header on every webhook call; the webhook trusts nothing without it
+  webhookSecret String    @db.VarChar(64)
+  chatId        String?   @db.VarChar(40) // the linked chat; null until the member presses Start with the link code
+  linkCode      String?   @db.VarChar(40) // one-time code of the t.me link
+  enabled       Boolean   @default(true)
+  digestTime    String    @default("08:00") @db.VarChar(5) // Vietnam time
+  lastDigestOn  String?   @db.VarChar(10) // "YYYY-MM-DD" of the last digest (the day is claimed before sending)
+  lastError     String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("telegram_bots")
 }
