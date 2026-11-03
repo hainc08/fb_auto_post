@@ -86,6 +86,7 @@ Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `
 - ✅ (2026-10-19) Bình luận đầu theo lĩnh vực: mẫu cấu hình trong trang Lĩnh vực; sau khi bài lên mỗi Page, app tự đăng mẫu làm bình luận đầu; lỗi không làm bài thất bại, có nút đăng lại — plan docs/superpowers/plans/2026-10-19-first-comment.md
 - ✅ (2026-10-21) Tự gửi trả lời bình luận: bật theo từng Page (cần bật AI soạn trả lời), câu AI soạn được gửi luôn, tối đa N câu mỗi giờ cho mỗi Page; bình luận có từ khoá nhạy cảm (đặt theo lĩnh vực, để trống dùng danh sách có sẵn), link hoặc số điện thoại vẫn chờ duyệt; câu Facebook từ chối hoặc không rõ đã nhận hay chưa thì chuyển về chờ duyệt, không bao giờ tự gửi lại
 - ✅ (2026-11-01) Sản phẩm affiliate: kho link Shopee / Lazada / TikTok Shop theo lĩnh vực; gắn tối đa 3 sản phẩm vào bài; AI nhắc sản phẩm (không tự viết link), link được thêm vào cuối bài và bình luận đầu ({san_pham}); lịch đăng có thể xoay vòng sản phẩm của lĩnh vực; AI trả lời bình luận được kèm đúng link sản phẩm của bài — plan docs/superpowers/plans/2026-11-01-affiliate-products.md
+- ✅ (2026-11-03) Bot Telegram theo từng thành viên (Cài đặt → Telegram): mỗi sáng gửi danh sách bài của lịch đang chờ duyệt, mỗi bài một tin có ảnh, nội dung rút gọn và nút Duyệt / Xem đủ / Mở web; duyệt ngay trong Telegram, /danhsach để nhận lại danh sách — plan docs/superpowers/plans/2026-11-03-telegram-approvals.md
 
 ## Phase 3 — "Bộ não marketing" ⬜
 - **Brand Profile theo Page**: giọng văn, chân dung khách hàng, USP, từ cấm, CTA mặc định, emoji level
