@@ -7,6 +7,7 @@ import { asyncHandler, createError } from '../middleware/error.middleware';
 import { encrypt } from '../lib/crypto';
 import { TelegramApiError, TelegramClient } from '../lib/clients/telegram';
 import { DIGEST_TIME_PATTERN } from '../lib/telegram-format';
+import { sendDigestNow } from '../services/telegram-digest';
 import { botClient, linkUrl, newLinkCode, newSecret, publicUrl, webhookUrl } from '../lib/telegram-link';
 
 /** The member's own Telegram bot: connect it, link a chat, switch the morning digest (mounted at /api/telegram). */
@@ -121,6 +122,18 @@ router.post(
       throw createError(502, `Telegram từ chối gửi tin: ${(error as Error).message}`);
     }
     res.json({ success: true });
+  })
+);
+
+router.post(
+  '/digest',
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    await linkedBot(req.user!.id);
+    try {
+      res.json({ success: true, data: await sendDigestNow(req.user!.id) });
+    } catch (error) {
+      throw createError(502, `Telegram từ chối gửi tin: ${(error as Error).message}`);
+    }
   })
 );
 

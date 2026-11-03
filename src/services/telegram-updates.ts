@@ -2,6 +2,7 @@ import type { TelegramBot } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { logger } from '../utils/logger';
 import { approveSchedulePost } from './post-approval';
+import { sendDigestNow } from './telegram-digest';
 import { postMessageOf } from './scheduler.service';
 import type { TelegramClient } from '../lib/clients/telegram';
 import { botClient } from '../lib/telegram-link';
@@ -30,7 +31,13 @@ interface TgChat {
 async function onMessage(bot: TelegramBot, client: TelegramClient, message: { message_id?: number; chat?: TgChat; text?: string }) {
   const chatId = message.chat?.id;
   const text = (message.text ?? '').trim();
-  if (chatId === undefined || !text.startsWith('/start')) return;
+  if (chatId === undefined) return;
+  // "Send me the list now": only from the linked chat
+  if (text.startsWith('/danhsach')) {
+    if (bot.chatId && String(chatId) === bot.chatId) await sendDigestNow(bot.userId);
+    return;
+  }
+  if (!text.startsWith('/start')) return;
   const code = text.split(/\s+/)[1] ?? '';
   if (message.chat?.type === 'private' && code && bot.linkCode && code === bot.linkCode) {
     await prisma.telegramBot.update({ where: { id: bot.id }, data: { chatId: String(chatId), linkCode: null, lastError: null } });

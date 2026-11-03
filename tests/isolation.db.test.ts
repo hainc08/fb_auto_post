@@ -157,6 +157,7 @@ const ROUTE_CASES: Record<string, Case> = {
   'PUT /api/telegram': { kind: 'own-scope', path: '/api/telegram', body: { enabled: true }, why: 'chỉ bot của chính user (khoá theo userId)' },
   'POST /api/telegram/link-code': { kind: 'own-scope', path: '/api/telegram/link-code', why: 'chỉ bot của chính user' },
   'POST /api/telegram/test': { kind: 'own-scope', path: '/api/telegram/test', why: 'chỉ bot của chính user' },
+  'POST /api/telegram/digest': { kind: 'own-scope', path: '/api/telegram/digest', why: 'chỉ bot của chính user' },
   'DELETE /api/telegram': { kind: 'own-scope', path: '/api/telegram', why: 'chỉ bot của chính user' },
   'GET /api/products': { kind: 'list', path: '/api/products?archived=1' },
   'POST /api/products': {
