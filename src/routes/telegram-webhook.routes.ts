@@ -14,11 +14,12 @@ const router = Router();
 router.post(
   '/webhook/:userId',
   asyncHandler(async (req, res) => {
-    const bot = await prisma.telegramBot.findUnique({ where: { userId: req.params.userId } });
+    const bot = await prisma.telegramBot.findUnique({ where: { userId: req.params.userId }, include: { user: { select: { isActive: true } } } });
     const given = String(req.get('x-telegram-bot-api-secret-token') ?? '');
     if (!bot || !given || !safeEqual(given, bot.webhookSecret)) return void res.status(401).json({ ok: false });
     // Always 200 once the secret matched: an error answer makes Telegram send the same update again
-    await handleTelegramUpdate(bot, req.body);
+    // A member an admin disabled is ignored, as at the web login
+    if (bot.user.isActive) await handleTelegramUpdate(bot, req.body);
     res.json({ ok: true });
   })
 );

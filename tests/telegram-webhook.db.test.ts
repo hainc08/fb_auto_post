@@ -152,6 +152,18 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('Telegram webhook', { timeout: 60_000
     expect(await statusOf(waiting.id)).toBe('READY'); // reading never approves
   });
 
+  it("a disabled member's chat can no longer approve or read posts; the answer is still 200", async () => {
+    const s = await setup(true);
+    const waiting = await s.waiting();
+    await prisma.user.update({ where: { id: s.user.id }, data: { isActive: false } });
+    const calls = stubTelegram();
+    for (const update of [press(111, `a:${waiting.id}`), press(111, `f:${waiting.id}`), text(111, '/danhsach')]) {
+      expect((await post(s.user.id, update)).status).toBe(200);
+    }
+    expect(calls).toHaveLength(0);
+    expect(await statusOf(waiting.id)).toBe('READY');
+  });
+
   it('noop only answers; a malformed update and a failing Telegram answer still get HTTP 200', async () => {
     const s = await setup(true);
     const waiting = await s.waiting();

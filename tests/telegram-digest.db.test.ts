@@ -197,6 +197,21 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('Telegram morning digest', { timeout:
     expect(row.chatId).toBeNull();
     expect(row.lastError).toMatch(/bị chặn/);
     expect(row.lastDigestOn).toBe('2026-11-04');
+    // the member can link again: a new one-time link is waiting
+    expect(row.linkCode).toMatch(/^[0-9a-f]{16}$/);
+    const status = await api(server.baseUrl, 'GET', '/api/telegram', { cookie: s.cookie });
+    expect(status.json.data).toMatchObject({ linked: false });
+    expect(status.json.data.linkUrl).toContain(`?start=${row.linkCode}`);
+  });
+
+  it("a disabled member's bot sends nothing", async () => {
+    const s = await setup();
+    await s.waiting();
+    await prisma.user.update({ where: { id: s.user.id }, data: { isActive: false } });
+    const calls = stubTelegram();
+    expect(await runTelegramDigests(new Date('2026-11-04T01:00:00Z'), { userId: s.user.id })).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect((await prisma.telegramBot.findUniqueOrThrow({ where: { userId: s.user.id } })).lastDigestOn).toBeNull();
   });
 
   it('a 429 with nothing delivered is retried by the next run; a 400 is not and is recorded', async () => {

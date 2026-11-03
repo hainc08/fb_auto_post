@@ -180,7 +180,7 @@ export default function TelegramSettings() {
             )}
 
             <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-              {status.linked && (
+              {(status.linked || !status.linkUrl) && (
                 <button type="button" className="btn btn-ghost btn-sm" disabled={busy !== null} onClick={() => run('code', async () => setStatus((await telegramApi.newLinkCode()).data))}>
                   Lấy mã liên kết mới
                 </button>

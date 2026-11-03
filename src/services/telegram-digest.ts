@@ -6,7 +6,7 @@ import { upsertKeyedJob, type JobResult } from '../lib/job-queue';
 import { readImage } from '../lib/image-store';
 import { productsOf } from '../lib/post-products';
 import { TelegramApiError } from '../lib/clients/telegram';
-import { botClient, publicUrl } from '../lib/telegram-link';
+import { botClient, newLinkCode, publicUrl } from '../lib/telegram-link';
 import { MAX_DIGEST_POSTS, TG_CAPTION_MAX, approveKeyboard, digestDue, digestHeader, postCard, vnDay } from '../lib/telegram-format';
 
 /**
@@ -92,7 +92,8 @@ const retryable = (code: number | undefined) => code === undefined || code === 4
  */
 export async function runTelegramDigests(now = new Date(), where: Prisma.TelegramBotWhereInput = {}): Promise<number> {
   const today = vnDay(now);
-  const bots = await prisma.telegramBot.findMany({ where: { ...where, enabled: true, chatId: { not: null } } });
+  // A member an admin disabled gets nothing, like every other background job
+  const bots = await prisma.telegramBot.findMany({ where: { ...where, enabled: true, chatId: { not: null }, user: { isActive: true } } });
   let count = 0;
   for (const bot of bots) {
     if (!digestDue(now, bot.digestTime, bot.lastDigestOn)) continue;
@@ -110,7 +111,8 @@ export async function runTelegramDigests(now = new Date(), where: Prisma.Telegra
       const code = error instanceof TelegramApiError ? error.code : undefined;
       logger.warn('[Telegram] Morning digest failed', { userId: bot.userId, code, error: (error as Error).message });
       if (code === 403) {
-        await prisma.telegramBot.update({ where: { id: bot.id }, data: { chatId: null, lastError: BLOCKED_TEXT } });
+        // unlinked, with a fresh one-time link waiting so the member can link again from Settings
+        await prisma.telegramBot.update({ where: { id: bot.id }, data: { chatId: null, linkCode: newLinkCode(), lastError: BLOCKED_TEXT } });
       } else {
         await prisma.telegramBot.update({ where: { id: bot.id }, data: { lastError: (error as Error).message.slice(0, 500) } });
         if (progress.delivered === 0 && retryable(code)) {
