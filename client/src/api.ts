@@ -788,6 +788,34 @@ export interface ExchangedPage {
   ref: string;
 }
 
+/** The member's Telegram bot, as Settings shows it (never the token) */
+export interface TelegramStatus {
+  configured: boolean;
+  botUsername: string | null;
+  /** A chat is linked: the bot may message it */
+  linked: boolean;
+  /** t.me link that links a chat; set while a link code is pending */
+  linkUrl: string | null;
+  enabled: boolean;
+  /** "HH:mm", Vietnam time */
+  digestTime: string;
+  lastError: string | null;
+  /** The app's public address is https, so Telegram can deliver updates */
+  canReceive: boolean;
+}
+
+export const telegramApi = {
+  get: () => apiFetch<TelegramStatus>('/telegram'),
+  /** Connect a bot by its token (a new token unlinks the chat) */
+  connect: (botToken: string) => apiFetch<TelegramStatus>('/telegram', { method: 'PUT', body: JSON.stringify({ botToken }) }),
+  save: (change: { enabled?: boolean; digestTime?: string }) => apiFetch<TelegramStatus>('/telegram', { method: 'PUT', body: JSON.stringify(change) }),
+  newLinkCode: () => apiFetch<TelegramStatus>('/telegram/link-code', { method: 'POST' }),
+  test: () => apiFetch('/telegram/test', { method: 'POST' }),
+  /** Send the posts waiting for approval now */
+  sendDigest: () => apiFetch<{ total: number; sent: number }>('/telegram/digest', { method: 'POST' }),
+  disconnect: () => apiFetch('/telegram', { method: 'DELETE' }),
+};
+
 export type SettingsGroup = 'gemini' | 'cloudflare' | 'facebook';
 
 export const settingsApi = {
