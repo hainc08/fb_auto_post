@@ -329,6 +329,8 @@ CREATE TABLE `content_domains` (
     `rules` TEXT NULL,
     `defaultHashtags` JSON NULL,
     `imageStyle` VARCHAR(500) NULL,
+    `writingPrompt` TEXT NULL,
+    `imageGuide` TEXT NULL,
     `reelInstructions` TEXT NULL,
     `replyInstructions` TEXT NULL,
     `firstCommentTemplate` TEXT NULL,
