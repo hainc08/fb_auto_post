@@ -36,7 +36,7 @@ export async function writeReelScenes(
   post: Pick<Post, 'caption' | 'domainId'>
 ): Promise<Array<{ text: string; imagePrompt: string }>> {
   const domain = post.domainId
-    ? await prisma.contentDomain.findUnique({ where: { id: post.domainId }, select: { name: true, audience: true, voice: true, rules: true, reelInstructions: true } })
+    ? await prisma.contentDomain.findUnique({ where: { id: post.domainId }, select: { name: true, audience: true, voice: true, rules: true, writingPrompt: true, reelInstructions: true } })
     : null;
   const { systemInstruction, prompt } = buildReelScriptPrompt({ caption: post.caption ?? '', domain });
   const result = await new GeminiClient(gemini).generateJson({ systemInstruction, prompt, responseSchema: SCENES_SCHEMA, validator: scenesValidator, temperature: 0.8 });

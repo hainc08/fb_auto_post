@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { X, Save, Wand2, Hash, Lock, RefreshCw, Upload, Trash2, ImageIcon } from 'lucide-react';
+import { X, Save, Hash, Lock, RefreshCw, Upload, Trash2, ImageIcon } from 'lucide-react';
 import { postsApi, assetUrl, linkBlockOf, MAX_UPLOAD_BYTES, UPLOAD_TYPES, EMPTY_VIDEO, type PostProduct, type PostUpdate, type VideoState } from '../api';
 import { useToast } from './Toast';
 import VideoField from './VideoField';
 import ProductPicker from './ProductPicker';
+import RewriteBar from './RewriteBar';
 
 interface Props {
   postId: string;
@@ -25,12 +26,6 @@ const EDITABLE = ['DRAFT', 'READY', 'FAILED', 'SCHEDULED'];
 const HOOK_LENGTH = 125;
 const CAPTION_MAX = 5000;
 
-const QUICK_REWRITES = [
-  { label: 'Hook mạnh hơn', instruction: 'Viết lại câu mở đầu thật gây tò mò, giữ nguyên ý chính' },
-  { label: 'Ngắn gọn hơn', instruction: 'Rút gọn còn khoảng một nửa, giữ ý quan trọng nhất' },
-  { label: 'Thân thiện hơn', instruction: 'Đổi sang giọng thân thiện, gần gũi như nói chuyện với bạn bè' },
-  { label: 'Chia đoạn dễ đọc', instruction: 'Chia thành các đoạn 1-2 câu, dễ đọc trên điện thoại, thêm emoji hợp lý' },
-];
 
 const normalizeTag = (t: string) => t.trim().replace(/^#+/, '').replace(/\s+/g, '');
 
@@ -140,20 +135,6 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
   });
 
   useEffect(() => setConfirmDiscard(false), [form]);
-
-  async function rewrite(label: string, instruction: string) {
-    if (!form?.caption.trim()) return;
-    setRewriting(label);
-    try {
-      const res = await postsApi.improve(postId, instruction, form.caption);
-      setForm((f) => ({ ...f!, caption: res.data.caption }));
-      toast.info('AI đã viết lại — xem lại rồi bấm Lưu để giữ.');
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setRewriting(null);
-    }
-  }
 
   /** Image changes are saved on the server right away; reflect them here and in the list. */
   function applyImage(imageUrl: string | null, imagePrompt?: string) {
@@ -293,16 +274,13 @@ export default function EditPostModal({ postId, onClose, onSaved }: Props) {
                 value={form.caption} disabled={!editable || !!rewriting}
                 onChange={(e) => setForm({ ...form, caption: e.target.value })} />
               {editable && (
-                <div className="quick-rewrites">
-                  <Wand2 size={13} />
-                  {QUICK_REWRITES.map((q) => (
-                    <button key={q.label} className="chip-btn" disabled={!!rewriting || !form.caption.trim()}
-                      onClick={() => rewrite(q.label, q.instruction)}>
-                      {rewriting === q.label ? <span className="spinner spinner-xs" /> : null}
-                      {q.label}
-                    </button>
-                  ))}
-                </div>
+                <RewriteBar
+                  postId={postId}
+                  caption={form.caption}
+                  onCaption={(caption) => setForm((f) => ({ ...f!, caption }))}
+                  onBusy={(b) => setRewriting(b ? 'ai' : null)}
+                  doneMessage="AI đã viết lại — xem lại rồi bấm Lưu để giữ."
+                />
               )}
             </div>
 

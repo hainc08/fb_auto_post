@@ -23,14 +23,10 @@ import ProductPicker from '../components/ProductPicker';
 import VideoField from '../components/VideoField';
 import SchedulePicker from '../components/SchedulePicker';
 import { slotLabel } from '../components/ScheduleBits';
+import RewriteBar from '../components/RewriteBar';
 
 const HOOK_LENGTH = 125;
 
-const QUICK_REWRITES = [
-  { label: 'Hook mạnh hơn', instruction: 'Viết lại câu mở đầu thật gây tò mò, giữ nguyên ý chính và bố cục' },
-  { label: 'Ngắn gọn hơn', instruction: 'Rút gọn còn khoảng 2/3, giữ ý quan trọng nhất và bố cục' },
-  { label: 'Thân thiện hơn', instruction: 'Đổi sang giọng thân thiện, gần gũi như nói chuyện với đồng nghiệp, giữ bố cục' },
-];
 
 const normalizeTag = (t: string) => t.trim().replace(/^#+/, '').replace(/\s+/g, '');
 
@@ -214,20 +210,6 @@ export default function CreatePostPage() {
       setWrittenPick(pickKey);
     } catch (e: any) {
       toast.error(`AI chưa viết được bài: ${e.message}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function rewrite(instruction: string) {
-    if (!postId || !caption.trim()) return;
-    setBusy('rewriting');
-    try {
-      const res = await postsApi.improve(postId, instruction, caption);
-      setCaption(res.data.caption);
-      toast.info('AI đã viết lại — xem lại trước khi đăng.');
-    } catch (e: any) {
-      toast.error(e.message);
     } finally {
       setBusy(null);
     }
@@ -537,15 +519,14 @@ export default function CreatePostPage() {
               <pre>{linkBlockOf(pickedProducts)}</pre>
             </div>
           )}
-          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <span className="muted" style={{ fontSize: 12.5 }}>Viết lại nhanh:</span>
-            {QUICK_REWRITES.map((q) => (
-              <button key={q.label} type="button" className="chip-btn" disabled={!!busy || videoBusy || !hasContent} onClick={() => rewrite(q.instruction)}>
-                {q.label}
-              </button>
-            ))}
-            {busy === 'rewriting' && <span className="spinner spinner-xs" aria-label="Đang viết lại" />}
-          </div>
+          <RewriteBar
+            postId={postId}
+            caption={caption}
+            onCaption={setCaption}
+            disabled={(!!busy && busy !== 'rewriting') || videoBusy}
+            onBusy={(b) => setBusy(b ? 'rewriting' : null)}
+            doneMessage="AI đã viết lại — xem lại trước khi đăng."
+          />
           <div className="settings-divider" style={{ margin: '4px 0' }} />
           <div>
             <div className="label-row">

@@ -3,6 +3,7 @@ import prisma from '../utils/prisma';
 import { createError } from '../middleware/error.middleware';
 import type { AppSettings } from '../lib/settings';
 import { formatForPost } from '../lib/domains';
+import { imageGuideOf } from '../lib/domain-prompt';
 import { productsOf } from '../lib/post-products';
 import { generatePostContent, generateWithFormat, type GeneratedContent } from './ai.service';
 
@@ -46,6 +47,6 @@ export async function writePost(post: WritablePost, settings: AppSettings): Prom
 /** Visual style of the post's domain, prefixed to AI image prompts. */
 export async function imageStyleOf(domainId: string | null): Promise<string | null> {
   if (!domainId) return null;
-  const domain = await prisma.contentDomain.findUnique({ where: { id: domainId }, select: { imageStyle: true } });
-  return domain?.imageStyle ?? null;
+  const domain = await prisma.contentDomain.findUnique({ where: { id: domainId }, select: { imageStyle: true, imageGuide: true } });
+  return domain ? imageGuideOf(domain) || null : null;
 }

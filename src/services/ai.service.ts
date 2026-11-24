@@ -174,39 +174,16 @@ Trả về dưới dạng JSON CHÍNH XÁC theo format sau (không thêm markdow
 }
 
 /**
- * Improve/rewrite existing caption
+ * Rewrite an existing caption with a prompt from `buildRewritePrompt` ("Viết lại bằng AI")
  */
-export async function improveCaption(
-  gemini: GeminiCredentials,
-  originalCaption: string,
-  instruction: string
-): Promise<string> {
+export async function improveCaption(gemini: GeminiCredentials, prompt: string): Promise<string> {
   try {
-    const client = new GeminiClient(gemini);
-
-    const prompt = `Viết lại caption Facebook sau theo hướng dẫn.
-
-Caption gốc:
-${originalCaption}
-
-Hướng dẫn: ${instruction}
-
-Chỉ trả về caption mới, không giải thích.`;
-
-    let result;
-    try {
-      result = await client.ai.models.generateContent({
-        model: client.model,
-        contents: prompt,
-        config: { temperature: 0.7, maxOutputTokens: 8192 },
-      });
-    } catch (error) {
-      throw client.toGeminiError(error);
-    }
-    return formatPostText(result.text ?? '');
+    const text = formatPostText(await new GeminiClient(gemini).generateText({ prompt, temperature: 0.7 }));
+    if (!text.trim()) throw new Error('AI không trả về nội dung.');
+    return text;
   } catch (error) {
     logger.error('Failed to improve caption:', error);
-    throw new Error(`Caption improvement failed: ${(error as Error).message}`);
+    throw new Error(`AI viết lại thất bại: ${(error as Error).message}`);
   }
 }
 

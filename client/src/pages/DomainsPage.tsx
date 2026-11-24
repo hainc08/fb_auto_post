@@ -10,11 +10,10 @@ export const DOMAINS_SEEN_KEY = 'autopost.domainsSeen';
 
 interface Draft {
   name: string;
-  description: string;
-  audience: string;
-  voice: string;
-  rules: string;
-  imageStyle: string;
+  /** "Prompt viết bài" */
+  writingPrompt: string;
+  /** "Prompt tạo ảnh" */
+  imageGuide: string;
   reelInstructions: string;
   replyInstructions: string;
   firstCommentTemplate: string;
@@ -22,7 +21,7 @@ interface Draft {
   defaultHashtags: string[];
 }
 
-const EMPTY: Draft = { name: '', description: '', audience: '', voice: '', rules: '', imageStyle: '', reelInstructions: '', replyInstructions: '', firstCommentTemplate: '', replyHoldKeywords: '', defaultHashtags: [] };
+const EMPTY: Draft = { name: '', writingPrompt: '', imageGuide: '', reelInstructions: '', replyInstructions: '', firstCommentTemplate: '', replyHoldKeywords: '', defaultHashtags: [] };
 const NEW_FORMAT = {
   name: 'Bài chuẩn',
   instructions: 'Mở bằng 1 câu gây chú ý, 3–4 đoạn ngắn dễ đọc trên điện thoại, kết bằng lời mời bình luận.',
@@ -30,11 +29,8 @@ const NEW_FORMAT = {
 
 const toDraft = (d: ContentDomain): Draft => ({
   name: d.name,
-  description: d.description ?? '',
-  audience: d.audience ?? '',
-  voice: d.voice ?? '',
-  rules: d.rules ?? '',
-  imageStyle: d.imageStyle ?? '',
+  writingPrompt: d.writingPrompt ?? '',
+  imageGuide: d.imageGuide ?? '',
   reelInstructions: d.reelInstructions ?? '',
   replyInstructions: d.replyInstructions ?? '',
   firstCommentTemplate: d.firstCommentTemplate ?? '',
@@ -116,11 +112,8 @@ export default function DomainsPage() {
     e.preventDefault();
     const body = {
       name: draft.name,
-      description: draft.description,
-      audience: draft.audience,
-      voice: draft.voice,
-      rules: draft.rules,
-      imageStyle: draft.imageStyle,
+      writingPrompt: draft.writingPrompt,
+      imageGuide: draft.imageGuide,
       reelInstructions: draft.reelInstructions,
       replyInstructions: draft.replyInstructions,
       firstCommentTemplate: draft.firstCommentTemplate,
@@ -158,7 +151,7 @@ export default function DomainsPage() {
     <div className="stack domains-page">
       <div className="page-header">
         <h1>Lĩnh vực nội dung</h1>
-        <p>Mỗi lĩnh vực là một cách viết (đối tượng, giọng văn, quy tắc, ảnh) với nhiều định dạng bài. Khi tạo bài bạn chọn lĩnh vực + định dạng.</p>
+        <p>Mỗi lĩnh vực có một prompt viết bài, một prompt tạo ảnh và nhiều định dạng bài. Khi tạo bài bạn chọn lĩnh vực + định dạng.</p>
       </div>
 
       <div className="domains-grid">
@@ -219,144 +212,131 @@ export default function DomainsPage() {
                   onChange={(e) => set('name')(e.target.value)}
                   placeholder="VD: Tiếng Nhật cho người đi làm"
                 />
-                <label className="form-label" htmlFor="d-desc">Mô tả ngắn</label>
-                <input id="d-desc" className="form-input" maxLength={300} value={draft.description} onChange={(e) => set('description')(e.target.value)} />
               </fieldset>
 
               <fieldset className="domain-block">
-                <legend>Đối tượng & giọng văn</legend>
-                <label className="form-label" htmlFor="d-aud">Đối tượng độc giả</label>
+                <legend>Prompt viết bài</legend>
                 <textarea
-                  id="d-aud"
+                  id="d-writing"
+                  aria-label="Prompt viết bài"
                   className="form-textarea"
-                  rows={2}
-                  maxLength={1000}
-                  value={draft.audience}
-                  onChange={(e) => set('audience')(e.target.value)}
-                  placeholder="Ai đọc bài? Tuổi, nghề, họ quan tâm gì."
-                />
-                <label className="form-label" htmlFor="d-voice">Giọng văn</label>
-                <textarea
-                  id="d-voice"
-                  className="form-textarea"
-                  rows={2}
-                  maxLength={1000}
-                  value={draft.voice}
-                  onChange={(e) => set('voice')(e.target.value)}
-                  placeholder="VD: Thân thiện, dí dỏm, xưng mình – bạn."
-                />
-              </fieldset>
-
-              <fieldset className="domain-block">
-                <legend>Quy tắc</legend>
-                <textarea
-                  id="d-rules"
-                  aria-label="Quy tắc bắt buộc"
-                  className="form-textarea"
-                  rows={3}
-                  maxLength={2000}
-                  value={draft.rules}
-                  onChange={(e) => set('rules')(e.target.value)}
-                  placeholder="Điều AI luôn/không bao giờ làm. VD: không hứa hẹn cam kết đầu ra."
-                />
-              </fieldset>
-
-              <fieldset className="domain-block">
-                <legend>Hashtag mặc định</legend>
-                <div className="tag-input" onClick={(e) => (e.currentTarget.querySelector('input') as HTMLInputElement)?.focus()}>
-                  {draft.defaultHashtags.map((t) => (
-                    <span key={t} className="tag-chip">
-                      #{t}
-                      <button
-                        type="button"
-                        onClick={() => setDraft((d) => ({ ...d, defaultHashtags: d.defaultHashtags.filter((x) => x !== t) }))}
-                        aria-label={`Xoá #${t}`}
-                      >
-                        <X size={11} aria-hidden="true" />
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    value={tagDraft}
-                    aria-label="Thêm hashtag mặc định"
-                    placeholder={draft.defaultHashtags.length ? '' : 'Gõ rồi Enter · tối đa 10, được thêm vào mọi bài'}
-                    onChange={(e) => setTagDraft(e.target.value)}
-                    onKeyDown={onTagKey}
-                    onBlur={() => addTags(tagDraft)}
-                  />
-                </div>
-              </fieldset>
-
-              <fieldset className="domain-block">
-                <legend>Phong cách ảnh</legend>
-                <input
-                  id="d-style"
-                  aria-label="Phong cách ảnh (tiếng Anh)"
-                  className="form-input"
-                  maxLength={500}
-                  value={draft.imageStyle}
-                  onChange={(e) => set('imageStyle')(e.target.value)}
-                  placeholder="Tiếng Anh, VD: flat illustration, pastel colors, soft light"
-                />
-              </fieldset>
-
-              <fieldset className="domain-block">
-                <legend>Kịch bản Reel</legend>
-                <label htmlFor="d-reel" className="form-label">Hướng dẫn viết kịch bản Reel</label>
-                <textarea
-                  id="d-reel"
-                  className="form-textarea"
-                  rows={4}
-                  maxLength={2000}
-                  value={draft.reelInstructions}
-                  onChange={(e) => set('reelInstructions')(e.target.value)}
-                  placeholder="VD: Kể một câu chuyện ngắn 60–90 từ về một nhân viên văn phòng. Cảnh đầu là tình huống cụ thể, cảnh giữa là mẹo đã dùng, cảnh cuối là kết quả và một câu hỏi cho người xem."
-                />
-                <p className="field-hint">Dùng khi bấm "AI viết kịch bản" trong Tạo Reel từ bài. Để trống: mở bằng câu hỏi gây tò mò, một ý chính, lời kêu gọi (40–100 từ).</p>
-              </fieldset>
-
-              <fieldset className="domain-block">
-                <legend>Trả lời bình luận</legend>
-                <label htmlFor="d-reply" className="form-label">Hướng dẫn trả lời bình luận</label>
-                <textarea
-                  id="d-reply"
-                  className="form-textarea"
-                  rows={4}
-                  maxLength={2000}
-                  value={draft.replyInstructions}
-                  onChange={(e) => set('replyInstructions')(e.target.value)}
-                  placeholder="VD: Xưng em, gọi anh/chị/bà con. Hỏi giá hoặc nơi mua thì mời nhắn tin cho Page. Hỏi liều lượng thì nhắc xem hướng dẫn trên nhãn."
-                />
-                <p className="field-hint">Dùng khi Page bật "AI trả lời bình luận" (Kênh Facebook). Để trống: trả lời ngắn gọn, thân thiện, không bịa thông tin ngoài bài viết.</p>
-                <label htmlFor="d-hold" className="form-label">Từ khoá không tự gửi</label>
-                <textarea
-                  id="d-hold"
-                  className="form-textarea"
-                  rows={2}
-                  maxLength={2000}
-                  value={draft.replyHoldKeywords}
-                  onChange={(e) => set('replyHoldKeywords')(e.target.value)}
-                  placeholder="VD: giá, bao nhiêu, khiếu nại, hoàn tiền, hàng giả"
+                  rows={12}
+                  maxLength={10000}
+                  value={draft.writingPrompt}
+                  onChange={(e) => set('writingPrompt')(e.target.value)}
+                  placeholder={'Viết cho ai, giọng văn ra sao, điều luôn làm / không bao giờ làm.\nVD: Viết cho bà con nông dân miền Tây, xưng em gọi anh chị, giọng gần gũi như người trong nghề. Không nêu giá, không hứa khỏi bệnh 100%.'}
                 />
                 <p className="field-hint">
-                  Khi Page bật "Tự gửi", bình luận có một trong các từ này (cách nhau bằng dấu phẩy hoặc xuống dòng) không được tự trả lời mà chờ bạn duyệt. Bình luận có link hoặc số điện thoại luôn chờ duyệt. Để trống: dùng danh sách có sẵn (giá, bao nhiêu, lừa đảo, khiếu nại, hoàn tiền, đổi trả, bảo hành, hàng giả, thất vọng…).
+                  Dùng cho mọi bài của lĩnh vực này, cùng với "Định dạng bài" bên dưới. Có thể dùng {'{{page_name}}'} để chèn tên Page. {draft.writingPrompt.length.toLocaleString('vi-VN')}/10.000 ký tự.
                 </p>
+                {selected?.formats.some((f) => f.legacyPrompt && !f.isArchived) && (
+                  <p className="field-hint">
+                    Lưu ý: định dạng có nhãn "Prompt cũ" vẫn viết theo prompt cũ của nó và không dùng ô này. Muốn bài theo prompt mới, hãy chọn hoặc đặt mặc định một định dạng khác.
+                  </p>
+                )}
               </fieldset>
 
               <fieldset className="domain-block">
-                <legend>Bình luận đầu</legend>
-                <label htmlFor="d-first" className="form-label">Bình luận đầu (tự động sau khi đăng bài)</label>
+                <legend>Prompt tạo ảnh</legend>
                 <textarea
-                  id="d-first"
+                  id="d-image"
+                  aria-label="Prompt tạo ảnh (tiếng Anh)"
                   className="form-textarea"
-                  rows={3}
+                  rows={4}
                   maxLength={2000}
-                  value={draft.firstCommentTemplate}
-                  onChange={(e) => set('firstCommentTemplate')(e.target.value)}
-                  placeholder="VD: Sản phẩm trong bài: https://example.com/sp"
+                  value={draft.imageGuide}
+                  onChange={(e) => set('imageGuide')(e.target.value)}
+                  placeholder="Tiếng Anh, VD: watercolor illustration, warm morning light, Vietnamese rice field, no text"
                 />
-                <p className="field-hint">Sau khi bài lên mỗi Page, app đăng nội dung này làm bình luận đầu của Page đó. Để trống: không đăng bình luận đầu. Viết <code>{'{san_pham}'}</code> để chèn link các sản phẩm affiliate của bài vào đúng chỗ đó; không có thì link được thêm ở cuối.</p>
+                <p className="field-hint">Phong cách ghép vào trước mô tả ảnh của từng bài. {draft.imageGuide.length.toLocaleString('vi-VN')}/2.000 ký tự.</p>
               </fieldset>
+
+              <details className="domain-more">
+                <summary>Cài đặt khác: hashtag, Reel, trả lời bình luận, bình luận đầu</summary>
+                <fieldset className="domain-block">
+                  <legend>Hashtag mặc định</legend>
+                  <div className="tag-input" onClick={(e) => (e.currentTarget.querySelector('input') as HTMLInputElement)?.focus()}>
+                    {draft.defaultHashtags.map((t) => (
+                      <span key={t} className="tag-chip">
+                        #{t}
+                        <button
+                          type="button"
+                          onClick={() => setDraft((d) => ({ ...d, defaultHashtags: d.defaultHashtags.filter((x) => x !== t) }))}
+                          aria-label={`Xoá #${t}`}
+                        >
+                          <X size={11} aria-hidden="true" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      value={tagDraft}
+                      aria-label="Thêm hashtag mặc định"
+                      placeholder={draft.defaultHashtags.length ? '' : 'Gõ rồi Enter · tối đa 10, được thêm vào mọi bài'}
+                      onChange={(e) => setTagDraft(e.target.value)}
+                      onKeyDown={onTagKey}
+                      onBlur={() => addTags(tagDraft)}
+                    />
+                  </div>
+                </fieldset>
+
+                <fieldset className="domain-block">
+                  <legend>Kịch bản Reel</legend>
+                  <label htmlFor="d-reel" className="form-label">Hướng dẫn viết kịch bản Reel</label>
+                  <textarea
+                    id="d-reel"
+                    className="form-textarea"
+                    rows={4}
+                    maxLength={2000}
+                    value={draft.reelInstructions}
+                    onChange={(e) => set('reelInstructions')(e.target.value)}
+                    placeholder="VD: Kể một câu chuyện ngắn 60–90 từ về một nhân viên văn phòng. Cảnh đầu là tình huống cụ thể, cảnh giữa là mẹo đã dùng, cảnh cuối là kết quả và một câu hỏi cho người xem."
+                  />
+                  <p className="field-hint">Dùng khi bấm "AI viết kịch bản" trong Tạo Reel từ bài. Để trống: mở bằng câu hỏi gây tò mò, một ý chính, lời kêu gọi (40–100 từ).</p>
+                </fieldset>
+
+                <fieldset className="domain-block">
+                  <legend>Trả lời bình luận</legend>
+                  <label htmlFor="d-reply" className="form-label">Hướng dẫn trả lời bình luận</label>
+                  <textarea
+                    id="d-reply"
+                    className="form-textarea"
+                    rows={4}
+                    maxLength={2000}
+                    value={draft.replyInstructions}
+                    onChange={(e) => set('replyInstructions')(e.target.value)}
+                    placeholder="VD: Xưng em, gọi anh/chị/bà con. Hỏi giá hoặc nơi mua thì mời nhắn tin cho Page. Hỏi liều lượng thì nhắc xem hướng dẫn trên nhãn."
+                  />
+                  <p className="field-hint">Dùng khi Page bật "AI trả lời bình luận" (Kênh Facebook). Để trống: trả lời ngắn gọn, thân thiện, không bịa thông tin ngoài bài viết.</p>
+                  <label htmlFor="d-hold" className="form-label">Từ khoá không tự gửi</label>
+                  <textarea
+                    id="d-hold"
+                    className="form-textarea"
+                    rows={2}
+                    maxLength={2000}
+                    value={draft.replyHoldKeywords}
+                    onChange={(e) => set('replyHoldKeywords')(e.target.value)}
+                    placeholder="VD: giá, bao nhiêu, khiếu nại, hoàn tiền, hàng giả"
+                  />
+                  <p className="field-hint">
+                    Khi Page bật "Tự gửi", bình luận có một trong các từ này (cách nhau bằng dấu phẩy hoặc xuống dòng) không được tự trả lời mà chờ bạn duyệt. Bình luận có link hoặc số điện thoại luôn chờ duyệt. Để trống: dùng danh sách có sẵn (giá, bao nhiêu, lừa đảo, khiếu nại, hoàn tiền, đổi trả, bảo hành, hàng giả, thất vọng…).
+                  </p>
+                </fieldset>
+
+                <fieldset className="domain-block">
+                  <legend>Bình luận đầu</legend>
+                  <label htmlFor="d-first" className="form-label">Bình luận đầu (tự động sau khi đăng bài)</label>
+                  <textarea
+                    id="d-first"
+                    className="form-textarea"
+                    rows={3}
+                    maxLength={2000}
+                    value={draft.firstCommentTemplate}
+                    onChange={(e) => set('firstCommentTemplate')(e.target.value)}
+                    placeholder="VD: Sản phẩm trong bài: https://example.com/sp"
+                  />
+                  <p className="field-hint">Sau khi bài lên mỗi Page, app đăng nội dung này làm bình luận đầu của Page đó. Để trống: không đăng bình luận đầu. Viết <code>{'{san_pham}'}</code> để chèn link các sản phẩm affiliate của bài vào đúng chỗ đó; không có thì link được thêm ở cuối.</p>
+                </fieldset>
+              </details>
 
               <div className="row domain-actions">
                 {selected && (

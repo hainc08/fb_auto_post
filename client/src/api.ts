@@ -16,6 +16,9 @@ export const VIDEO_TYPES = ['video/mp4', 'video/quicktime'];
 
 export type VideoKind = 'FEED' | 'REEL';
 
+/** "Viết lại bằng AI": by the member's instruction, or the whole post by the domain's prompt + format */
+export type RewriteMode = 'instruction' | 'domain';
+
 export interface VideoMeta {
   durationSec: number;
   width: number;
@@ -251,6 +254,10 @@ export interface ContentDomain {
   rules: string | null;
   defaultHashtags: string[] | null;
   imageStyle: string | null;
+  /** "Prompt viết bài" as the server reads it (the old fields joined while never saved) */
+  writingPrompt: string;
+  /** "Prompt tạo ảnh" as the server reads it (the old image style while never saved) */
+  imageGuide: string;
   reelInstructions: string | null;
   replyInstructions: string | null;
   firstCommentTemplate: string | null;
@@ -270,6 +277,8 @@ export interface DomainInput {
   rules?: string | null;
   defaultHashtags?: string[];
   imageStyle?: string | null;
+  writingPrompt?: string;
+  imageGuide?: string;
   reelInstructions?: string | null;
   replyInstructions?: string | null;
   firstCommentTemplate?: string | null;
@@ -616,9 +625,12 @@ export const postsApi = {
   /** Books the render of the saved scenes (a background job, usually 20–60 seconds); follow it with `reelProgress`. */
   makeReel: (id: string) => apiFetch<{ state: 'queued' }>(`/posts/${id}/reel`, { method: 'POST', body: JSON.stringify({}) }),
 
-  /** Pass `caption` to rewrite an unsaved draft (result is not persisted). */
-  improve: (id: string, instruction: string, caption?: string) =>
-    apiFetch(`/posts/${id}/improve`, { method: 'POST', body: JSON.stringify({ instruction, caption }) }),
+  /**
+   * "Viết lại bằng AI": by `instruction`, or `mode: 'domain'` (the domain's writing prompt + the post's format).
+   * Pass `caption` to rewrite an unsaved draft (result is not persisted).
+   */
+  improve: (id: string, body: { instruction?: string; mode?: RewriteMode; caption?: string }) =>
+    apiFetch<{ caption: string }>(`/posts/${id}/improve`, { method: 'POST', body: JSON.stringify(body) }),
 
   /** Publish to `pageIds` (default: the post's Pages), `intervalMinutes` apart. */
   comments: (id: string) => apiFetch<CommentsView>(`/posts/${id}/comments`),
