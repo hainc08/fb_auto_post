@@ -57,7 +57,7 @@ export async function draftReplies(targetId: string, now = new Date()): Promise<
 
   const domain =
     asked.length && target.post.domainId
-      ? await prisma.contentDomain.findUnique({ where: { id: target.post.domainId }, select: { name: true, audience: true, voice: true, rules: true, replyInstructions: true } })
+      ? await prisma.contentDomain.findUnique({ where: { id: target.post.domainId }, select: { name: true, audience: true, voice: true, rules: true, writingPrompt: true, replyInstructions: true } })
       : null;
   const products = asked.length ? await productsOf(target.postId) : [];
   /** One Gemini call: the reply (or null) for each of these comments, in order */

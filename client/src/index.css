@@ -1434,3 +1434,9 @@ tbody tr:hover { background: var(--bg-secondary); }
 
 /* ─── Settings: Telegram ─── */
 .telegram-steps { margin: 0 0 14px; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+
+/* ─── Content domain: the settings that are not prompts, folded away ─── */
+.domain-more { border: 1px solid var(--border-default); border-radius: 10px; padding: 0 14px; }
+.domain-more > summary { cursor: pointer; padding: 12px 0; font-weight: 600; font-size: 13.5px; color: var(--text-secondary); }
+.domain-more[open] > summary { border-bottom: 1px solid var(--border-subtle); margin-bottom: 12px; }
+.domain-more > .domain-block:last-child { margin-bottom: 14px; }

@@ -121,3 +121,11 @@ describe('Reel script prompt', () => {
     expect(cleanScenes(Array.from({ length: 12 }, (_, i) => ({ text: `Cảnh ${i}` })))).toHaveLength(8);
   });
 });
+
+describe('Reel script prompt with the domain writing prompt', () => {
+  it('a saved writing prompt replaces the audience, voice and rules lines', () => {
+    const { systemInstruction } = buildReelScriptPrompt({ caption: 'Bài', domain: { name: 'BVTV', audience: 'Cũ', voice: 'Cũ', rules: 'Cũ', writingPrompt: 'Giọng miền Tây.' } });
+    expect(systemInstruction).toContain('Lĩnh vực: BVTV\nHướng dẫn viết của lĩnh vực:\nGiọng miền Tây.');
+    expect(systemInstruction).not.toContain('Giọng văn: Cũ');
+  });
+});

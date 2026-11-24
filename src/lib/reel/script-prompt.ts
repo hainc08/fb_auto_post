@@ -1,4 +1,5 @@
 import { MAX_SCENES } from './scenes';
+import { domainGuideLines } from '../domain-prompt';
 
 /** The prompt AI writes a Reel's scenes from (pure; tested from tests/reel-scenes.test.ts). */
 
@@ -7,6 +8,7 @@ export interface ReelPromptDomain {
   audience?: string | null;
   voice?: string | null;
   rules?: string | null;
+  writingPrompt?: string | null;
   /** The member's own "how to write Reel scripts" for this domain; empty = DEFAULT_REEL_INSTRUCTIONS */
   reelInstructions?: string | null;
 }
@@ -28,9 +30,7 @@ export function buildReelScriptPrompt(input: { caption: string; domain?: ReelPro
   ];
   if (d) {
     lines.push('', `Lĩnh vực: ${d.name}`);
-    if (d.audience?.trim()) lines.push(`Đối tượng: ${d.audience.trim()}`);
-    if (d.voice?.trim()) lines.push(`Giọng văn: ${d.voice.trim()}`);
-    if (d.rules?.trim()) lines.push(`Quy tắc: ${d.rules.trim()}`);
+    lines.push(...domainGuideLines(d));
   }
   lines.push('', 'Cách viết kịch bản:', d?.reelInstructions?.trim() || DEFAULT_REEL_INSTRUCTIONS);
   return { systemInstruction: lines.join('\n'), prompt: `Bài viết:\n${input.caption.trim()}\n\nViết kịch bản Reels theo từng cảnh.` };

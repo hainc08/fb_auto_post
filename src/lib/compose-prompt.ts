@@ -4,6 +4,7 @@
  */
 
 import { productPromptBlock, type LinkProduct } from './affiliate';
+import { imageGuideOf } from './domain-prompt';
 
 export type FormatLength = 'SHORT' | 'MEDIUM' | 'LONG';
 
@@ -16,6 +17,10 @@ export interface PromptDomain {
   voice?: string | null;
   rules?: string | null;
   imageStyle?: string | null;
+  /** "Prompt viết bài": replaces description, audience, voice and rules once saved (null = never saved) */
+  writingPrompt?: string | null;
+  /** "Prompt tạo ảnh": replaces imageStyle once saved */
+  imageGuide?: string | null;
 }
 
 export interface PromptFormat {
@@ -55,7 +60,9 @@ ${products}` : legacy;
   }
 
   let ideaUsed = false;
-  const audience = (domain.audience ?? '').trim();
+  const saved = domain.writingPrompt !== null && domain.writingPrompt !== undefined;
+  // once the writing prompt is saved the old audience field is no longer shown, so it never fills {{audience}}
+  const audience = saved ? '' : (domain.audience ?? '').trim();
   const fill = (text?: string | null): string => {
     const raw = (text ?? '').trim();
     if (!raw) return '';
@@ -70,16 +77,18 @@ ${products}` : legacy;
   const line = (label: string, value: string) => (value ? `${label}: ${value}` : '');
 
   const description = fill(domain.description);
-  const style = (domain.imageStyle ?? '').trim();
+  const style = imageGuideOf(domain);
   const example = fill(format.example);
 
   const blocks = [
-    [
-      `Bạn là người viết nội dung Facebook cho lĩnh vực "${domain.name.trim()}"${description ? ` — ${description}` : ''}.`,
-      line('Đối tượng độc giả', fill(domain.audience)),
-      line('Giọng văn', fill(domain.voice)),
-      line('Quy tắc bắt buộc', fill(domain.rules)),
-    ],
+    saved
+      ? [`Bạn là người viết nội dung Facebook cho lĩnh vực "${domain.name.trim()}".`, fill(domain.writingPrompt)]
+      : [
+          `Bạn là người viết nội dung Facebook cho lĩnh vực "${domain.name.trim()}"${description ? ` — ${description}` : ''}.`,
+          line('Đối tượng độc giả', fill(domain.audience)),
+          line('Giọng văn', fill(domain.voice)),
+          line('Quy tắc bắt buộc', fill(domain.rules)),
+        ],
     [`Định dạng bài "${format.name.trim()}":`, fill(format.instructions), `Độ dài: khoảng ${LENGTH_WORDS[format.length]} từ.`],
     example ? ['Bài mẫu để tham khảo phong cách (không chép lại):', example] : [],
     [
@@ -120,8 +129,13 @@ export function mergeHashtags(ai: string[], defaults: unknown, max = 30): string
   return out;
 }
 
-/** Image prompt with the domain's visual style in front. */
+/** Longest prompt the image models accept (Workers AI flux-1-schnell: 2,048 characters) */
+export const IMAGE_PROMPT_MAX = 2048;
+
+/** Image prompt with the domain's visual style in front, shortened to IMAGE_PROMPT_MAX: the style gives way first */
 export function styledImagePrompt(imageStyle: string | null | undefined, prompt: string): string {
-  const style = (imageStyle ?? '').trim();
-  return style ? `${style}. ${prompt.trim()}` : prompt.trim();
+  const own = prompt.trim().slice(0, IMAGE_PROMPT_MAX);
+  const room = IMAGE_PROMPT_MAX - own.length - 2;
+  const style = room > 0 ? (imageStyle ?? '').trim().slice(0, room).trim() : '';
+  return style ? `${style}. ${own}` : own;
 }

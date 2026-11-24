@@ -1,12 +1,14 @@
 /** The prompt AI writes comment replies from, and the cleaning of its answer (pure; tests/reply-prompt.test.ts). */
 
 import { replyLinksAllowed } from './affiliate';
+import { domainGuideLines } from './domain-prompt';
 
 export interface ReplyPromptDomain {
   name: string;
   audience?: string | null;
   voice?: string | null;
   rules?: string | null;
+  writingPrompt?: string | null;
   /** The member's own "how to answer comments" for this domain; empty = DEFAULT_REPLY_INSTRUCTIONS */
   replyInstructions?: string | null;
 }
@@ -51,9 +53,7 @@ export function buildReplyPrompt(input: {
   ];
   if (d) {
     lines.push('', `Lĩnh vực: ${d.name}`);
-    if (d.audience?.trim()) lines.push(`Đối tượng: ${d.audience.trim()}`);
-    if (d.voice?.trim()) lines.push(`Giọng văn: ${d.voice.trim()}`);
-    if (d.rules?.trim()) lines.push(`Quy tắc: ${d.rules.trim()}`);
+    lines.push(...domainGuideLines(d));
   }
   if (products.length) lines.push('', 'Sản phẩm của bài (tên — link):', ...products.map((p) => `- ${p.name} — ${p.url}`));
   lines.push('', 'Cách trả lời:', d?.replyInstructions?.trim() || DEFAULT_REPLY_INSTRUCTIONS);
