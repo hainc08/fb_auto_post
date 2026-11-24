@@ -28,7 +28,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, unlink } from 'node:fs/promises';
 import { MAX_VIDEO_BYTES, VIDEO_TMP_DIR, removeVideo, saveUploadedVideo } from '../lib/video-store';
 import { reelsProblem, type VideoInfo } from '../lib/mp4-info';
-import { resolveDomainFormat } from '../lib/domains';
+import { formatForPost, resolveDomainFormat } from '../lib/domains';
+import { buildRewritePrompt } from '../lib/rewrite-prompt';
 import { styledImagePrompt } from '../lib/compose-prompt';
 
 const router = Router();
@@ -571,8 +572,13 @@ router.delete(
 router.post(
   '/:id/improve',
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const { instruction, caption: draftCaption } = z
-      .object({ instruction: z.string().min(1).max(500), caption: z.string().max(5000).optional() })
+    const { instruction, mode, caption: draftCaption } = z
+      .object({
+        instruction: z.string().trim().max(500, 'Yêu cầu cho AI tối đa 500 ký tự.').optional(),
+        mode: z.enum(['instruction', 'domain']).default('instruction'),
+        caption: z.string().max(5000).optional(),
+      })
+      .refine((b) => b.mode === 'domain' || !!b.instruction, { message: 'Hãy nhập yêu cầu cho AI.', path: ['instruction'] })
       .parse(req.body);
 
     const post = await prisma.post.findFirst({
@@ -586,10 +592,10 @@ router.post(
     if (!source) throw createError(400, 'Post has no caption to improve');
 
     const settings = await getSettings(req.user!.id);
+    const { domain, format } = await formatForPost(post);
     const improved = await improveCaption(
       { apiKey: settings.geminiApiKey, model: settings.geminiModel },
-      source,
-      instruction
+      buildRewritePrompt({ domain, format, caption: source, instruction, mode })
     );
 
     if (draftCaption === undefined) {

@@ -634,6 +634,10 @@ tbody tr:hover { background: var(--bg-secondary); }
 .edit-locked { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border-default); }
 .edit-error { background: var(--error-bg); color: var(--error-500); border: 1px solid #F1C7C2; }
 .quick-rewrites { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; color: var(--text-tertiary); }
+.rewrite-bar { margin-top: 10px; }
+.rewrite-ask { display: flex; gap: 8px; align-items: center; }
+.rewrite-ask .form-input { flex: 1; min-width: 0; }
+.rewrite-bar .quick-rewrites { margin-top: 8px; }
 .tag-input {
   display: flex; flex-wrap: wrap; gap: 6px; min-height: 42px; padding: 6px 8px;
   border: 1px solid var(--border-hover); border-radius: var(--radius-md); background: var(--bg-card); cursor: text;

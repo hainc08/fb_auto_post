@@ -88,6 +88,7 @@ Spec: `docs/superpowers/specs/2026-09-28-multi-user-domains-design.md`. Branch `
 - ✅ (2026-11-01) Sản phẩm affiliate: kho link Shopee / Lazada / TikTok Shop theo lĩnh vực; gắn tối đa 3 sản phẩm vào bài; AI nhắc sản phẩm (không tự viết link), link được thêm vào cuối bài và bình luận đầu ({san_pham}); lịch đăng có thể xoay vòng sản phẩm của lĩnh vực; AI trả lời bình luận được kèm đúng link sản phẩm của bài — plan docs/superpowers/plans/2026-11-01-affiliate-products.md
 - ✅ (2026-11-03) Bot Telegram theo từng thành viên (Cài đặt → Telegram): mỗi sáng gửi danh sách bài của lịch đang chờ duyệt, mỗi bài một tin có ảnh, nội dung rút gọn và nút Duyệt / Xem đủ / Mở web; duyệt ngay trong Telegram, /danhsach để nhận lại danh sách — plan docs/superpowers/plans/2026-11-03-telegram-approvals.md
 - ✅ (2026-11-24) Lĩnh vực gọn lại: chỉ còn Prompt viết bài (tối đa 10.000 ký tự), Prompt tạo ảnh (2.000) và Định dạng bài; hashtag, Reel, trả lời bình luận, bình luận đầu nằm trong "Cài đặt khác"; lĩnh vực cũ được điền sẵn từ các ô cũ và viết y như trước đến khi lưu — plan docs/superpowers/plans/2026-11-24-domain-prompts.md
+- ✅ (2026-11-24) Viết lại bằng AI khi sửa bài: ô tự gõ yêu cầu, nút "Viết lại theo lĩnh vực" (theo Prompt viết bài + định dạng), các nút nhanh viết đúng giọng lĩnh vực, nút Hoàn tác; AI giữ thông tin thật, không thêm link / số điện thoại / hashtag
 
 ## Phase 3 — "Bộ não marketing" ⬜
 - **Brand Profile theo Page**: giọng văn, chân dung khách hàng, USP, từ cấm, CTA mặc định, emoji level
