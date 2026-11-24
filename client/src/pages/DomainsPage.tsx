@@ -229,6 +229,11 @@ export default function DomainsPage() {
                 <p className="field-hint">
                   Dùng cho mọi bài của lĩnh vực này, cùng với "Định dạng bài" bên dưới. Có thể dùng {'{{page_name}}'} để chèn tên Page. {draft.writingPrompt.length.toLocaleString('vi-VN')}/10.000 ký tự.
                 </p>
+                {selected?.formats.some((f) => f.legacyPrompt && !f.isArchived) && (
+                  <p className="field-hint">
+                    Lưu ý: định dạng có nhãn "Prompt cũ" vẫn viết theo prompt cũ của nó và không dùng ô này. Muốn bài theo prompt mới, hãy chọn hoặc đặt mặc định một định dạng khác.
+                  </p>
+                )}
               </fieldset>
 
               <fieldset className="domain-block">

@@ -60,7 +60,9 @@ ${products}` : legacy;
   }
 
   let ideaUsed = false;
-  const audience = (domain.audience ?? '').trim();
+  const saved = domain.writingPrompt !== null && domain.writingPrompt !== undefined;
+  // once the writing prompt is saved the old audience field is no longer shown, so it never fills {{audience}}
+  const audience = saved ? '' : (domain.audience ?? '').trim();
   const fill = (text?: string | null): string => {
     const raw = (text ?? '').trim();
     if (!raw) return '';
@@ -79,7 +81,7 @@ ${products}` : legacy;
   const example = fill(format.example);
 
   const blocks = [
-    domain.writingPrompt !== null && domain.writingPrompt !== undefined
+    saved
       ? [`Bạn là người viết nội dung Facebook cho lĩnh vực "${domain.name.trim()}".`, fill(domain.writingPrompt)]
       : [
           `Bạn là người viết nội dung Facebook cho lĩnh vực "${domain.name.trim()}"${description ? ` — ${description}` : ''}.`,
@@ -127,8 +129,13 @@ export function mergeHashtags(ai: string[], defaults: unknown, max = 30): string
   return out;
 }
 
-/** Image prompt with the domain's visual style in front. */
+/** Longest prompt the image models accept (Workers AI flux-1-schnell: 2,048 characters) */
+export const IMAGE_PROMPT_MAX = 2048;
+
+/** Image prompt with the domain's visual style in front, shortened to IMAGE_PROMPT_MAX: the style gives way first */
 export function styledImagePrompt(imageStyle: string | null | undefined, prompt: string): string {
-  const style = (imageStyle ?? '').trim();
-  return style ? `${style}. ${prompt.trim()}` : prompt.trim();
+  const own = prompt.trim().slice(0, IMAGE_PROMPT_MAX);
+  const room = IMAGE_PROMPT_MAX - own.length - 2;
+  const style = room > 0 ? (imageStyle ?? '').trim().slice(0, room).trim() : '';
+  return style ? `${style}. ${own}` : own;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildIdeaPrompt, composePrompt, mergeHashtags, styledImagePrompt, type PromptDomain, type PromptFormat } from '../src/lib/compose-prompt';
+import { buildIdeaPrompt, composePrompt, mergeHashtags, styledImagePrompt, IMAGE_PROMPT_MAX, type PromptDomain, type PromptFormat } from '../src/lib/compose-prompt';
 import { productPromptBlock, type LinkProduct } from '../src/lib/affiliate';
 
 const domain: PromptDomain = {
@@ -97,6 +97,25 @@ describe('styledImagePrompt', () => {
     expect(styledImagePrompt(' watercolor ', ' a cat ')).toBe('watercolor. a cat');
     expect(styledImagePrompt(null, 'a cat')).toBe('a cat');
   });
+
+  it('stays within the image model limit, shortening the style before the post prompt', () => {
+    const out = styledImagePrompt('s'.repeat(2000), 'p'.repeat(400));
+    expect(out.length).toBe(IMAGE_PROMPT_MAX);
+    expect(out.endsWith('. ' + 'p'.repeat(400))).toBe(true);
+    expect(styledImagePrompt('watercolor', 'p'.repeat(3000))).toBe('p'.repeat(IMAGE_PROMPT_MAX));
+  });
+});
+
+describe('composePrompt with a saved writing prompt', () => {
+  it('fills {{audience}} with nothing, since the old audience field is no longer shown', () => {
+    const out = composePrompt({
+      domain: { ...domain, writingPrompt: 'Viết cho người mới.' },
+      format: { name: 'Mẹo', instructions: 'Nhắc tới {{audience}} ở cuối.', length: 'MEDIUM', withImage: false, legacyPrompt: false, example: null } as PromptFormat,
+      idea: 'chào hỏi',
+    });
+    expect(out).not.toContain('Nhân viên văn phòng');
+    expect(out).toContain('Nhắc tới  ở cuối.');
+  });
 });
 
 const products: LinkProduct[] = [{ name: 'Bình xịt 16L', url: 'https://s.shopee.vn/a', platform: 'SHOPEE', price: '450.000đ', highlights: 'pin 12 tiếng' }];
@@ -127,7 +146,8 @@ describe('composePrompt with the domain prompt (Prompt viết bài / Prompt tạ
 
   it('a saved writing prompt replaces the old four fields', () => {
     const prompt = composePrompt({ domain: edited, format, idea: 'Tưới lúa' });
-    expect(prompt.startsWith('Bạn là người viết nội dung Facebook cho lĩnh vực "Tiếng Nhật".\nViết như người làm vườn kể chuyện.\n\nĐối tượng: Nhân viên văn phòng 25–35 tuổi\n\n')).toBe(true);
+    expect(prompt.startsWith('Bạn là người viết nội dung Facebook cho lĩnh vực "Tiếng Nhật".\nViết như người làm vườn kể chuyện.\n\nĐối tượng: \n\n')).toBe(true);
+    expect(prompt).not.toContain('Nhân viên văn phòng 25–35 tuổi');
     expect(prompt).not.toContain('Giọng văn: Thân thiện, dí dỏm');
     expect(prompt).not.toContain('Học tiếng Nhật cho người đi làm');
     expect(prompt).toContain('phong cách: watercolor, warm morning light');
