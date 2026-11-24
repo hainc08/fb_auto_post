@@ -251,6 +251,10 @@ export interface ContentDomain {
   rules: string | null;
   defaultHashtags: string[] | null;
   imageStyle: string | null;
+  /** "Prompt viết bài" as the server reads it (the old fields joined while never saved) */
+  writingPrompt: string;
+  /** "Prompt tạo ảnh" as the server reads it (the old image style while never saved) */
+  imageGuide: string;
   reelInstructions: string | null;
   replyInstructions: string | null;
   firstCommentTemplate: string | null;
@@ -270,6 +274,8 @@ export interface DomainInput {
   rules?: string | null;
   defaultHashtags?: string[];
   imageStyle?: string | null;
+  writingPrompt?: string;
+  imageGuide?: string;
   reelInstructions?: string | null;
   replyInstructions?: string | null;
   firstCommentTemplate?: string | null;
