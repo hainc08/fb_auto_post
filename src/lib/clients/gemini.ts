@@ -64,6 +64,20 @@ export class GeminiClient {
     }
   }
 
+  /** Plain-text generation (caption rewrites) */
+  async generateText(input: { prompt: string; temperature?: number }): Promise<string> {
+    try {
+      const res = await this.ai.models.generateContent({
+        model: this.config.model,
+        contents: input.prompt,
+        config: { temperature: input.temperature ?? 0.7, maxOutputTokens: 8192 },
+      });
+      return res.text ?? '';
+    } catch (error) {
+      throw this.toGeminiError(error);
+    }
+  }
+
   /**
    * Structured generation: Gemini returns JSON constrained by `responseSchema`,
    * then validated with zod. A malformed/truncated reply is retried once.
