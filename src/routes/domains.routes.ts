@@ -6,6 +6,7 @@ import { AuthRequest, authenticate } from '../middleware/auth.middleware';
 import { asyncHandler, createError } from '../middleware/error.middleware';
 import { DOMAIN_LIMIT, FORMAT_LIMIT } from '../lib/domains';
 import { cleanTag } from '../lib/compose-prompt';
+import { imageGuideOf, writingPromptOf } from '../lib/domain-prompt';
 
 /** A user's content domains and their formats (spec §5.4). Formats by id live in formats.routes. */
 const router = Router();
@@ -33,6 +34,9 @@ export const domainFields = {
     .transform((tags) => [...new Set(tags.map(cleanTag).filter(Boolean))])
     .optional(),
   imageStyle: text(500),
+  // The two prompts the screen shows; '' is kept (saved empty), so the old fields never come back
+  writingPrompt: z.string().trim().max(10_000, 'Prompt viết bài tối đa 10.000 ký tự.').optional(),
+  imageGuide: z.string().trim().max(2_000, 'Prompt tạo ảnh tối đa 2.000 ký tự.').optional(),
   reelInstructions: text(2000),
   replyInstructions: text(2000),
   firstCommentTemplate: text(2000),
@@ -51,6 +55,13 @@ export const formatFields = {
 };
 
 export const isUniqueViolation = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
+
+/** A domain as the screen shows it: the effective prompts (the old fields joined while never saved) */
+const view = <T extends Parameters<typeof writingPromptOf>[0] & Parameters<typeof imageGuideOf>[0]>(d: T) => ({
+  ...d,
+  writingPrompt: writingPromptOf(d),
+  imageGuide: imageGuideOf(d),
+});
 
 const KEEP_ONE = 'Cần giữ ít nhất 1 lĩnh vực đang dùng.';
 
@@ -78,7 +89,7 @@ router.get(
         _count: { select: { pages: true, posts: true, schedules: true } },
       },
     });
-    res.json({ success: true, data: domains });
+    res.json({ success: true, data: domains.map(view) });
   })
 );
 
@@ -95,7 +106,7 @@ router.post(
         data: { ...domain, defaultHashtags: domain.defaultHashtags ?? [], userId, formats: { create: { ...format, isDefault: true } } },
         include: { formats: true },
       });
-      res.status(201).json({ success: true, data: created });
+      res.status(201).json({ success: true, data: view(created) });
     } catch (e) {
       if (isUniqueViolation(e)) throw createError(409, 'Bạn đã có lĩnh vực trùng tên này.');
       throw e;
@@ -118,7 +129,7 @@ router.patch(
         if (archiving) await tx.facebookPage.updateMany({ where: { defaultDomainId: domain.id }, data: { defaultDomainId: null } });
         return tx.contentDomain.update({ where: { id: domain.id }, data: change, include: { formats: true } });
       });
-      res.json({ success: true, data: updated });
+      res.json({ success: true, data: view(updated) });
     } catch (e) {
       if (isUniqueViolation(e)) throw createError(409, 'Bạn đã có lĩnh vực trùng tên này.');
       throw e;

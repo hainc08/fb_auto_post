@@ -5,6 +5,7 @@ import { createApp } from '../src/app';
 import { GeminiClient } from '../src/lib/clients/gemini';
 import { saveSettings } from '../src/lib/settings';
 import { ensureDefaultDomain } from '../src/lib/domains';
+import { imageStyleOf } from '../src/services/post-writer';
 import { startTestServer, api } from './helpers/http';
 import { cleanupTestUsers, createTestUser } from './helpers/users';
 
@@ -188,6 +189,45 @@ describe.skipIf(!process.env.RUN_DB_TESTS)('domains & formats API', { timeout: 9
     const cleared = await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { replyInstructions: '' } });
     expect(cleared.json.data.replyInstructions).toBeNull();
     expect((await api(server.baseUrl, 'PATCH', `/api/domains/${created.id}`, { cookie, body: { replyInstructions: 'x'.repeat(2001) } })).status).toBe(400);
+  });
+
+  it('a domain saved before the new prompts shows its old fields as "Prompt viết bài" and its image style as "Prompt tạo ảnh"', async () => {
+    const { user, cookie } = await createTestUser();
+    await prisma.contentDomain.create({
+      data: { userId: user.id, name: 'Cũ', description: 'Bao bì nhựa', audience: 'Chủ vựa', voice: 'Gần gũi', rules: 'Không nêu giá', imageStyle: 'flat illustration' },
+    });
+    const listed = (await api(server.baseUrl, 'GET', '/api/domains', { cookie })).json.data.find((d: { name: string }) => d.name === 'Cũ');
+    expect(listed.writingPrompt).toBe('Bao bì nhựa\nĐối tượng độc giả: Chủ vựa\nGiọng văn: Gần gũi\nQuy tắc bắt buộc: Không nêu giá');
+    expect(listed.imageGuide).toBe('flat illustration');
+  });
+
+  it('keeps the writing prompt up to 10,000 characters with its line breaks; empty stays empty; longer is refused', async () => {
+    const { cookie } = await createTestUser();
+    const id = (await api(server.baseUrl, 'POST', '/api/domains', { cookie, body: newDomain('Mới', { audience: 'Cũ' }) })).json.data.id;
+    const patch = (body: Record<string, unknown>) => api(server.baseUrl, 'PATCH', `/api/domains/${id}`, { cookie, body });
+    const long = `Đoạn một.\n\nĐoạn hai.\n${'x'.repeat(9_970)}`;
+    expect(long.length).toBeLessThanOrEqual(10_000);
+    const saved = await patch({ writingPrompt: long });
+    expect(saved.status).toBe(200);
+    expect(saved.json.data.writingPrompt).toBe(long);
+    expect((await prisma.contentDomain.findUniqueOrThrow({ where: { id } })).writingPrompt).toBe(long);
+    // emptied on purpose: the old fields never come back
+    expect((await patch({ writingPrompt: '' })).json.data.writingPrompt).toBe('');
+    expect((await prisma.contentDomain.findUniqueOrThrow({ where: { id } })).writingPrompt).toBe('');
+    const tooLong = await patch({ writingPrompt: 'x'.repeat(10_001) });
+    expect(tooLong.status).toBe(400);
+    expect(JSON.stringify(tooLong.json)).toContain('Prompt viết bài tối đa 10.000 ký tự.');
+  });
+
+  it('keeps the image prompt up to 2,000 characters; longer is refused; it is what images are styled with', async () => {
+    const { cookie } = await createTestUser();
+    const id = (await api(server.baseUrl, 'POST', '/api/domains', { cookie, body: newDomain('Ảnh', { imageStyle: 'flat' }) })).json.data.id;
+    const guide = `watercolor, warm morning light, ${'y'.repeat(1_900)}`;
+    expect((await api(server.baseUrl, 'PATCH', `/api/domains/${id}`, { cookie, body: { imageGuide: guide } })).json.data.imageGuide).toBe(guide);
+    expect(await imageStyleOf(id)).toBe(guide);
+    const tooLong = await api(server.baseUrl, 'PATCH', `/api/domains/${id}`, { cookie, body: { imageGuide: 'x'.repeat(2_001) } });
+    expect(tooLong.status).toBe(400);
+    expect(JSON.stringify(tooLong.json)).toContain('Prompt tạo ảnh tối đa 2.000 ký tự.');
   });
 
   it('keeps the first comment template per domain; blank clears it; over 2000 characters is refused', async () => {
