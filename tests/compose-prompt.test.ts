@@ -121,3 +121,24 @@ Chỉ trả về JSON đúng schema.`);
 ${productPromptBlock(products)}`);
   });
 });
+
+describe('composePrompt with the domain prompt (Prompt viết bài / Prompt tạo ảnh)', () => {
+  const edited = { ...domain, writingPrompt: 'Viết như người làm vườn kể chuyện.\n\nĐối tượng: {{audience}}', imageGuide: 'watercolor, warm morning light' };
+
+  it('a saved writing prompt replaces the old four fields', () => {
+    const prompt = composePrompt({ domain: edited, format, idea: 'Tưới lúa' });
+    expect(prompt.startsWith('Bạn là người viết nội dung Facebook cho lĩnh vực "Tiếng Nhật".\nViết như người làm vườn kể chuyện.\n\nĐối tượng: Nhân viên văn phòng 25–35 tuổi\n\n')).toBe(true);
+    expect(prompt).not.toContain('Giọng văn: Thân thiện, dí dỏm');
+    expect(prompt).not.toContain('Học tiếng Nhật cho người đi làm');
+    expect(prompt).toContain('phong cách: watercolor, warm morning light');
+  });
+
+  it('a saved empty writing prompt leaves only the opening line', () => {
+    const prompt = composePrompt({ domain: { ...domain, writingPrompt: '' }, format, idea: 'Tưới lúa' });
+    expect(prompt.split('\n\n')[0]).toBe('Bạn là người viết nội dung Facebook cho lĩnh vực "Tiếng Nhật".');
+  });
+
+  it('a domain never edited writes exactly as before', () => {
+    expect(composePrompt({ domain: { ...domain, writingPrompt: null, imageGuide: null }, format, idea: 'Tưới lúa' })).toBe(composePrompt({ domain, format, idea: 'Tưới lúa' }));
+  });
+});

@@ -1,4 +1,5 @@
 import type { PromptDomain, PromptFormat } from './compose-prompt';
+import { domainGuideLines } from './domain-prompt';
 
 /** Pure: the Gemini prompt for "suggest N post ideas" and the clean-up of its answer. */
 
@@ -15,10 +16,10 @@ export function buildIdeaSuggestPrompt(input: {
   const systemInstruction =
     'Bạn là chuyên gia nội dung Fanpage Facebook tại Việt Nam.\n' +
     line('Lĩnh vực', domain.name) +
-    line('Mô tả', domain.description) +
-    line('Đối tượng đọc', domain.audience) +
-    line('Giọng văn', domain.voice) +
-    line('Quy tắc', domain.rules) +
+    (domain.writingPrompt !== null && domain.writingPrompt !== undefined
+      ? domainGuideLines(domain).map((l) => `${l}
+`).join('')
+      : line('Mô tả', domain.description) + line('Đối tượng đọc', domain.audience) + line('Giọng văn', domain.voice) + line('Quy tắc', domain.rules)) +
     line('Định dạng bài', `${format.name} — ${format.instructions}`);
   const avoid = input.avoid
     .slice(0, 80)

@@ -101,3 +101,16 @@ describe('reply prompt with the post\'s products', () => {
     expect(cleanReplies([{ key: 'c1', reply: 'https://s.shopee.vn/a' }], ['c1']).get('c1')).toBeNull();
   });
 });
+
+describe('reply prompt with the domain writing prompt', () => {
+  it('a saved writing prompt replaces the audience, voice and rules lines', () => {
+    const { systemInstruction } = buildReplyPrompt({
+      pageName: 'P',
+      caption: 'x',
+      comments,
+      domain: { name: 'BVTV', audience: 'Cũ', voice: 'Cũ', rules: 'Cũ', writingPrompt: 'Xưng em, gọi bà con.' },
+    });
+    expect(systemInstruction).toContain('Lĩnh vực: BVTV\nHướng dẫn viết của lĩnh vực:\nXưng em, gọi bà con.');
+    expect(systemInstruction).not.toContain('Đối tượng: Cũ');
+  });
+});

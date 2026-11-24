@@ -22,3 +22,16 @@ describe('cleanSuggestions', () => {
     expect(got).toEqual(['Phòng rầy nâu', 'Bón phân đúng lúc']);
   });
 });
+
+describe('idea suggestions with the domain writing prompt', () => {
+  it('a saved writing prompt replaces the description, audience, voice and rules lines', () => {
+    const { systemInstruction } = buildIdeaSuggestPrompt({
+      domain: { name: 'BVTV', description: 'Cũ', audience: 'Cũ', voice: 'Cũ', rules: 'Cũ', writingPrompt: 'Nông dân miền Tây.' },
+      format: { name: 'Mẹo', instructions: 'Ngắn' },
+      avoid: [],
+      count: 5,
+    });
+    expect(systemInstruction).toContain('Lĩnh vực: BVTV\nHướng dẫn viết của lĩnh vực:\nNông dân miền Tây.\n');
+    expect(systemInstruction).not.toContain('Mô tả: Cũ');
+  });
+});

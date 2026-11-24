@@ -4,6 +4,7 @@
  */
 
 import { productPromptBlock, type LinkProduct } from './affiliate';
+import { imageGuideOf } from './domain-prompt';
 
 export type FormatLength = 'SHORT' | 'MEDIUM' | 'LONG';
 
@@ -16,6 +17,10 @@ export interface PromptDomain {
   voice?: string | null;
   rules?: string | null;
   imageStyle?: string | null;
+  /** "Prompt viết bài": replaces description, audience, voice and rules once saved (null = never saved) */
+  writingPrompt?: string | null;
+  /** "Prompt tạo ảnh": replaces imageStyle once saved */
+  imageGuide?: string | null;
 }
 
 export interface PromptFormat {
@@ -70,16 +75,18 @@ ${products}` : legacy;
   const line = (label: string, value: string) => (value ? `${label}: ${value}` : '');
 
   const description = fill(domain.description);
-  const style = (domain.imageStyle ?? '').trim();
+  const style = imageGuideOf(domain);
   const example = fill(format.example);
 
   const blocks = [
-    [
-      `Bạn là người viết nội dung Facebook cho lĩnh vực "${domain.name.trim()}"${description ? ` — ${description}` : ''}.`,
-      line('Đối tượng độc giả', fill(domain.audience)),
-      line('Giọng văn', fill(domain.voice)),
-      line('Quy tắc bắt buộc', fill(domain.rules)),
-    ],
+    domain.writingPrompt !== null && domain.writingPrompt !== undefined
+      ? [`Bạn là người viết nội dung Facebook cho lĩnh vực "${domain.name.trim()}".`, fill(domain.writingPrompt)]
+      : [
+          `Bạn là người viết nội dung Facebook cho lĩnh vực "${domain.name.trim()}"${description ? ` — ${description}` : ''}.`,
+          line('Đối tượng độc giả', fill(domain.audience)),
+          line('Giọng văn', fill(domain.voice)),
+          line('Quy tắc bắt buộc', fill(domain.rules)),
+        ],
     [`Định dạng bài "${format.name.trim()}":`, fill(format.instructions), `Độ dài: khoảng ${LENGTH_WORDS[format.length]} từ.`],
     example ? ['Bài mẫu để tham khảo phong cách (không chép lại):', example] : [],
     [

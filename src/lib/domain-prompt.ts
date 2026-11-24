@@ -31,3 +31,19 @@ export function writingPromptOf(d: LegacyWritingFields & { writingPrompt?: strin
 export function imageGuideOf(d: { imageGuide?: string | null; imageStyle?: string | null }): string {
   return (d.imageGuide !== null && d.imageGuide !== undefined ? d.imageGuide : (d.imageStyle ?? '')).trim();
 }
+
+/**
+ * The domain's guidance for the other AI prompts (comment replies, Reel scripts, idea suggestions): the saved writing
+ * prompt as one block, else the old audience, voice and rules lines
+ */
+export function domainGuideLines(d: { audience?: string | null; voice?: string | null; rules?: string | null; writingPrompt?: string | null }): string[] {
+  if (d.writingPrompt !== null && d.writingPrompt !== undefined) {
+    const text = d.writingPrompt.trim();
+    return text ? ['Hướng dẫn viết của lĩnh vực:', text] : [];
+  }
+  const lines: string[] = [];
+  if (d.audience?.trim()) lines.push(`Đối tượng: ${d.audience.trim()}`);
+  if (d.voice?.trim()) lines.push(`Giọng văn: ${d.voice.trim()}`);
+  if (d.rules?.trim()) lines.push(`Quy tắc: ${d.rules.trim()}`);
+  return lines;
+}
