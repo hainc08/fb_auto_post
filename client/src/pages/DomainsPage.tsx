@@ -151,7 +151,7 @@ export default function DomainsPage() {
     <div className="stack domains-page">
       <div className="page-header">
         <h1>Lĩnh vực nội dung</h1>
-        <p>Mỗi lĩnh vực là một cách viết (đối tượng, giọng văn, quy tắc, ảnh) với nhiều định dạng bài. Khi tạo bài bạn chọn lĩnh vực + định dạng.</p>
+        <p>Mỗi lĩnh vực có một prompt viết bài, một prompt tạo ảnh và nhiều định dạng bài. Khi tạo bài bạn chọn lĩnh vực + định dạng.</p>
       </div>
 
       <div className="domains-grid">
